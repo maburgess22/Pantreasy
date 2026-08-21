@@ -1,310 +1,218 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+import { useState, useEffect, useCallback } from 'react';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 interface PantryItem {
   id: string;
+  user_id: string;
   name: string;
+  category: string;
   quantity: number;
   unit: string;
-  category: string;
+  track_low_stock?: boolean;
 }
 
 interface Recipe {
   id: string;
+  user_id: string;
   title: string;
-  cook_time: string;
-  category: string;
   image?: string;
+  cook_time?: string;
+  category?: string;
   ingredients: string[];
   instructions?: string[];
   source_url?: string;
 }
 
-const COMMON_UNITS = [
-  'pcs', 'ml', 'liters', 'g', 'kg', 'pack', 'box', 
-  'can', 'bottle', 'bag', 'carton', 'lbs', 'oz', 'gal', 'bunch'
-];
-
 const CATEGORIES = [
-  { name: 'Dairy', icon: '🥛' },
-  { name: 'Bakery & Grains', icon: '🍞' },
-  { name: 'Produce', icon: '🌱' },
-  { name: 'Tins & Canned', icon: '🥫' },
-  { name: 'Sauces & Condiments', icon: '🍾' },
-  { name: 'Pasta & Noodles', icon: '🍝' },
-  { name: 'Meat & Seafood', icon: '🥩' },
-  { name: 'Snacks & Sweets', icon: '🍿' },
-  { name: 'Beverages', icon: '🥤' },
-  { name: 'Other', icon: '📦' },
+  { name: 'Produce', icon: '🥬', keywords: ['lettuce', 'apple', 'banana', 'tomato', 'onion', 'garlic', 'spinach', 'potato', 'carrot', 'lemon', 'lime', 'berry', 'fruit', 'veg'] },
+  { name: 'Dairy & Eggs', icon: '🧀', keywords: ['milk', 'cheese', 'egg', 'butter', 'yogurt', 'cream'] },
+  { name: 'Meat & Seafood', icon: '🥩', keywords: ['chicken', 'beef', 'pork', 'fish', 'salmon', 'steak', 'shrimp', 'bacon', 'turkey'] },
+  { name: 'Pantry & Grains', icon: '🌾', keywords: ['rice', 'pasta', 'flour', 'sugar', 'oil', 'bread', 'cereal', 'oats', 'beans', 'lentils', 'sauce'] },
+  { name: 'Spices & Condiments', icon: '🧂', keywords: ['salt', 'pepper', 'spice', 'herb', 'ketchup', 'mustard', 'mayo', 'soy sauce', 'vinegar', 'paprika', 'cinnamon'] },
+  { name: 'Snacks & Sweets', icon: '🍿', keywords: ['chip', 'cookie', 'chocolate', 'candy', 'nuts', 'cracker', 'snack'] },
+  { name: 'Beverages', icon: '🧃', keywords: ['water', 'juice', 'soda', 'coffee', 'tea', 'wine', 'beer'] },
+  { name: 'Other', icon: '📦', keywords: [] },
 ];
 
-const SPECIFIC_PRODUCT_ICONS: { keywords: RegExp; icon: string }[] = [
-  { keywords: /beer|ale|lager|stout|cider/i, icon: '🍺' },
-  { keywords: /wine|prosecco|champagne/i, icon: '🍷' },
-  { keywords: /coffee|espresso|latte/i, icon: '☕' },
-  { keywords: /tea|chai|matcha/i, icon: '🫖' },
-  { keywords: /soda|coke|cola|pepsi|sprite/i, icon: '🥤' },
-  { keywords: /water|sparkling/i, icon: '💧' },
-  { keywords: /juice|smoothie/i, icon: '🧃' },
-  { keywords: /lettuce|salad|spinach|kale|greens/i, icon: '🥬' },
-  { keywords: /broccoli|cauliflower/i, icon: '🥦' },
-  { keywords: /carrot|carrots/i, icon: '🥕' },
-  { keywords: /corn/i, icon: '🌽' },
-  { keywords: /potato|potatoes/i, icon: '🥔' },
-  { keywords: /tomato|tomatoes/i, icon: '🍅' },
-  { keywords: /onion|shallot/i, icon: '🧅' },
-  { keywords: /garlic/i, icon: '🧄' },
-  { keywords: /cucumber|pickle|zucchini/i, icon: '🥒' },
-  { keywords: /pepper|chili|jalapeno/i, icon: '🫑' },
-  { keywords: /mushroom|mushrooms/i, icon: '🍄' },
-  { keywords: /avocado/i, icon: '🥑' },
-  { keywords: /apple|apples/i, icon: '🍎' },
-  { keywords: /banana|bananas/i, icon: '🍌' },
-  { keywords: /orange|mandarin|tangerine/i, icon: '🍊' },
-  { keywords: /lemon|lime/i, icon: '🍋' },
-  { keywords: /grape|grapes/i, icon: '🍇' },
-  { keywords: /strawberry|strawberries/i, icon: '🍓' },
-  { keywords: /blueberry|berries/i, icon: '🫐' },
-  { keywords: /milk/i, icon: '🥛' },
-  { keywords: /egg|eggs/i, icon: '🥚' },
-  { keywords: /cheese|cheddar|mozzarella/i, icon: '🧀' },
-  { keywords: /butter|margarine/i, icon: '🧈' },
-  { keywords: /bread|toast|bagel|bun/i, icon: '🍞' },
-  { keywords: /rice/i, icon: '🍚' },
-  { keywords: /pasta|spaghetti|penne/i, icon: '🍝' },
-  { keywords: /noodle|ramen/i, icon: '🍜' },
-  { keywords: /chicken|turkey|poultry/i, icon: '🍗' },
-  { keywords: /steak|beef|meat|lamb/i, icon: '🥩' },
-  { keywords: /bacon|pork|ham/i, icon: '🥓' },
-  { keywords: /sausage/i, icon: '🌭' },
-  { keywords: /fish|salmon|cod/i, icon: '🐟' },
-  { keywords: /shrimp|prawn/i, icon: '🦐' },
-  { keywords: /tin|can|tuna|beans|soup/i, icon: '🥫' },
-  { keywords: /sauce|ketchup|mayo/i, icon: '🍾' },
-];
-
-// Unit Conversion Matrix
-const UNIT_CONVERSIONS: Record<string, { baseUnit: string; factor: number }> = {
-  // Mass (Base: grams)
-  g: { baseUnit: 'g', factor: 1 },
-  gram: { baseUnit: 'g', factor: 1 },
-  grams: { baseUnit: 'g', factor: 1 },
-  kg: { baseUnit: 'g', factor: 1000 },
-  kilogram: { baseUnit: 'g', factor: 1000 },
-  kilograms: { baseUnit: 'g', factor: 1000 },
-  oz: { baseUnit: 'g', factor: 28.35 },
-  ounce: { baseUnit: 'g', factor: 28.35 },
-  ounces: { baseUnit: 'g', factor: 28.35 },
-  lb: { baseUnit: 'g', factor: 453.6 },
-  lbs: { baseUnit: 'g', factor: 453.6 },
-  pound: { baseUnit: 'g', factor: 453.6 },
-  pounds: { baseUnit: 'g', factor: 453.6 },
-
-  // Volume (Base: milliliters)
-  ml: { baseUnit: 'ml', factor: 1 },
-  milliliter: { baseUnit: 'ml', factor: 1 },
-  milliliters: { baseUnit: 'ml', factor: 1 },
-  l: { baseUnit: 'ml', factor: 1000 },
-  liter: { baseUnit: 'ml', factor: 1000 },
-  liters: { baseUnit: 'ml', factor: 1000 },
-  tsp: { baseUnit: 'ml', factor: 5 },
-  teaspoon: { baseUnit: 'ml', factor: 5 },
-  teaspoons: { baseUnit: 'ml', factor: 5 },
-  tbsp: { baseUnit: 'ml', factor: 15 },
-  tablespoon: { baseUnit: 'ml', factor: 15 },
-  tablespoons: { baseUnit: 'ml', factor: 15 },
-  cup: { baseUnit: 'ml', factor: 240 },
-  cups: { baseUnit: 'ml', factor: 240 },
-};
-
-const normalizeQuantity = (qty: number, unit: string) => {
-  const lowerUnit = (unit || '').toLowerCase().trim();
-  const conv = UNIT_CONVERSIONS[lowerUnit];
-  if (conv) {
-    return { value: qty * conv.factor, baseUnit: conv.baseUnit };
-  }
-  return { value: qty, baseUnit: lowerUnit || 'pcs' };
-};
-
-const parseIngredientText = (text: string) => {
-  const lower = text.toLowerCase().trim();
-
-  let qty: number | null = null;
-
-  if (/\b(half|a half)\b/.test(lower)) qty = 0.5;
-  else if (/\b(quarter|a quarter)\b/.test(lower)) qty = 0.25;
-  else if (/\b(third|a third)\b/.test(lower)) qty = 0.33;
-  else {
-    const mixedMatch = lower.match(/^(\d+)\s+(\d+)\/(\d+)/);
-    if (mixedMatch) {
-      qty = parseFloat(mixedMatch[1]) + (parseFloat(mixedMatch[2]) / parseFloat(mixedMatch[3]));
-    } else {
-      const fracMatch = lower.match(/(\d+)\/(\d+)/);
-      if (fracMatch) {
-        qty = parseFloat(fracMatch[1]) / parseFloat(fracMatch[2]);
-      } else {
-        const numMatch = lower.match(/(\d+(?:\.\d+)?)/);
-        if (numMatch) {
-          qty = parseFloat(numMatch[1]);
-        }
-      }
-    }
-  }
-
-  let unit = '';
-  const unitMatch = lower.match(/(?:^|\d+|\s)(kg|kilograms?|grams?|g|milliliters?|ml|liters?|l|ounces?|oz|pounds?|lbs?|tablespoons?|tbsp|teaspoons?|tsp|cups?|pcs|pack|box|can|bottle|bag|carton|bunch)\b/i);
-  if (unitMatch) {
-    unit = unitMatch[1];
-  }
-
-  return { qty, unit };
-};
-
-const getIngredientStatus = (ingString: string, items: PantryItem[]) => {
-  const lowerIng = ingString.toLowerCase();
-
-  const matchedItem = items.find((item) => {
-    const pName = item.name.toLowerCase().trim();
-    if (!pName) return false;
-    return lowerIng.includes(pName) || pName.includes(lowerIng);
-  });
-
-  if (!matchedItem) {
-    return { status: 'missing', requiredText: '', availableText: '' };
-  }
-
-  const { qty: requiredQty, unit: requiredUnit } = parseIngredientText(ingString);
-
-  if (requiredQty !== null) {
-    const normPantry = normalizeQuantity(matchedItem.quantity, matchedItem.unit);
-    const normRequired = normalizeQuantity(requiredQty, requiredUnit);
-
-    const pantryDisplay = `${matchedItem.quantity}${matchedItem.unit}`;
-    const reqDisplay = `${requiredQty}${requiredUnit || matchedItem.unit}`;
-
-    if (normPantry.baseUnit === normRequired.baseUnit) {
-      if (normPantry.value >= normRequired.value) {
-        return { status: 'in_stock', requiredText: reqDisplay, availableText: pantryDisplay };
-      } else {
-        return { status: 'insufficient', requiredText: reqDisplay, availableText: pantryDisplay };
-      }
-    } else {
-      if (matchedItem.quantity >= requiredQty) {
-        return { status: 'in_stock', requiredText: reqDisplay, availableText: pantryDisplay };
-      } else {
-        return { status: 'insufficient', requiredText: reqDisplay, availableText: pantryDisplay };
-      }
-    }
-  }
-
-  const pantryDisplay = `${matchedItem.quantity}${matchedItem.unit}`;
-  return matchedItem.quantity > 0
-    ? { status: 'in_stock', requiredText: '1', availableText: pantryDisplay }
-    : { status: 'missing', requiredText: '1', availableText: '0' };
-};
-
-const autoDetectCategory = (itemName: string): string => {
-  const lower = itemName.toLowerCase().trim();
-  if (!lower) return 'Other';
-
-  if (/milk|egg|cheese|butter|yogurt|cream/i.test(lower)) return 'Dairy';
-  if (/bread|bagel|bun|flour|oat|cereal|rice/i.test(lower)) return 'Bakery & Grains';
-  if (/apple|banana|berry|strawberry|avocado|tomato|onion|potato|garlic|spinach|lettuce|salad|lemon|lime|carrot|cucumber|leek/i.test(lower)) return 'Produce';
-  if (/tin|can|canned|tuna|beans|soup/i.test(lower)) return 'Tins & Canned';
-  if (/sauce|ketchup|oil|mayo|mustard|vinegar/i.test(lower)) return 'Sauces & Condiments';
-  if (/pasta|spaghetti|noodle|macaroni|penne|ramen/i.test(lower)) return 'Pasta & Noodles';
-  if (/chicken|steak|beef|pork|bacon|turkey|fish|salmon|shrimp|sausage/i.test(lower)) return 'Meat & Seafood';
-  if (/chip|chips|chocolate|candy|cookie|biscuit/i.test(lower)) return 'Snacks & Sweets';
-  if (/water|juice|soda|coffee|tea|beer|wine|drink/i.test(lower)) return 'Beverages';
-
-  return 'Other';
-};
-
-const getItemIcon = (name: string, category: string) => {
-  const matched = SPECIFIC_PRODUCT_ICONS.find((entry) => entry.keywords.test(name));
-  if (matched) return matched.icon;
-
-  const matchedCat = CATEGORIES.find((c) => c.name.toLowerCase() === category.toLowerCase());
-  return matchedCat ? matchedCat.icon : '📦';
-};
+const COMMON_UNITS = ['pcs', 'g', 'kg', 'oz', 'lb', 'ml', 'l', 'cup', 'tbsp', 'tsp'];
 
 export default function Home() {
+  const [user, setUser] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'pantry' | 'recipes'>('dashboard');
-
-  // Pantry State
   const [items, setItems] = useState<PantryItem[]>([]);
-  const [name, setName] = useState('');
-  const [quantity, setQuantity] = useState<number | string>(1);
-  const [unit, setUnit] = useState('pcs');
-  const [category, setCategory] = useState('Dairy');
-  const [isManualCategory, setIsManualCategory] = useState(false);
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Edit Pantry State
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editQuantity, setEditQuantity] = useState<number | string>(1);
-  const [editUnit, setEditUnit] = useState('pcs');
-  const [editCategory, setEditCategory] = useState('Dairy');
+  // Auth Screen State
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [authMessage, setAuthMessage] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
 
-  // Recipe State
-  const [recipes, setRecipes] = useState<Recipe[]>([
-    { 
-      id: '1', 
-      title: 'Fluffy Cheese Omelette', 
-      cook_time: '10 mins', 
-      category: 'Dairy', 
-      ingredients: ['3 eggs', '1 tbsp butter', '50g cheddar cheese'],
-      instructions: ['Beat eggs in a bowl.', 'Melt butter in a non-stick pan over medium heat.', 'Pour in eggs, cook until soft, add cheese, and fold in half.'] 
-    },
-  ]);
+  // Form State - Add Item
+  const [name, setName] = useState('');
+  const [category, setCategory] = useState('Produce');
+  const [quantity, setQuantity] = useState('1');
+  const [unit, setUnit] = useState('pcs');
+  const [trackLowStock, setTrackLowStock] = useState(true);
+  const [isManualCategory, setIsManualCategory] = useState(false);
+
+  // Edit State - Pantry Item
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editCategory, setEditCategory] = useState('');
+  const [editQuantity, setEditQuantity] = useState('');
+  const [editUnit, setEditUnit] = useState('');
+  const [editTrackLowStock, setEditTrackLowStock] = useState(true);
+
+  // Recipe Import State
   const [importUrl, setImportUrl] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
 
-  const fetchItems = async () => {
-    const { data, error } = await supabase
-      .from('pantry_items')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (!error && data) setItems(data);
-  };
+  // Dashboard Modals
+  const [showLowStockModal, setShowLowStockModal] = useState(false);
 
   useEffect(() => {
-    fetchItems();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
+  const fetchData = useCallback(async () => {
+    if (!user) return;
+
+    const { data: pantryData } = await supabase
+      .from('pantry_items')
+      .select('*')
+      .eq('user_id', user.id);
+    if (pantryData) setItems(pantryData);
+
+    const { data: recipeData } = await supabase
+      .from('recipes')
+      .select('*')
+      .eq('user_id', user.id);
+    if (recipeData) setRecipes(recipeData);
+  }, [user]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const handleEmailAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+    setAuthMessage('');
+    setAuthLoading(true);
+
+    if (isSignUp) {
+      const { data, error } = await supabase.auth.signUp({
+        email: authEmail,
+        password: authPassword,
+      });
+
+      if (error) {
+        setAuthError(error.message);
+      } else if (data.user && !data.session) {
+        setAuthMessage('Account created! Check your email to confirm your sign up.');
+      }
+    } else {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: authEmail,
+        password: authPassword,
+      });
+
+      if (error) setAuthError(error.message);
+    }
+    setAuthLoading(false);
+  };
+
+  const handleGitHubAuth = async () => {
+    await supabase.auth.signInWithOAuth({ provider: 'github' });
+  };
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setItems([]);
+    setRecipes([]);
+  };
+
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newName = e.target.value;
-    setName(newName);
-    if (!isManualCategory) {
-      setCategory(autoDetectCategory(newName));
+    const val = e.target.value;
+    setName(val);
+
+    if (!isManualCategory && val.trim().length > 2) {
+      const lower = val.toLowerCase();
+      const matched = CATEGORIES.find((cat) =>
+        cat.keywords.some((keyword) => lower.includes(keyword))
+      );
+      if (matched) setCategory(matched.name);
     }
   };
 
   const addItem = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
-
+    if (!name.trim() || !user) return;
     setLoading(true);
-    const numQty = Number(quantity) || 1;
-    const { error } = await supabase
-      .from('pantry_items')
-      .insert([{ name: name.trim(), quantity: numQty, unit, category }]);
 
-    if (!error) {
+    const newItem = {
+      user_id: user.id,
+      name: name.trim(),
+      category,
+      quantity: parseFloat(quantity) || 1,
+      unit,
+      track_low_stock: trackLowStock,
+    };
+
+    const { data, error } = await supabase
+      .from('pantry_items')
+      .insert([newItem])
+      .select();
+
+    if (error) {
+      console.error('Pantry Insert Error:', error);
+      alert(`Failed to add pantry item: ${error.message}`);
+    } else if (data && data.length > 0) {
+      setItems((prev) => [...prev, data[0]]);
       setName('');
-      setQuantity(1);
-      setUnit('pcs');
+      setQuantity('1');
+      setTrackLowStock(true);
       setIsManualCategory(false);
-      fetchItems();
     }
     setLoading(false);
   };
 
+  const toggleLowStockTracking = async (item: PantryItem) => {
+    const updatedStatus = !(item.track_low_stock ?? true);
+    const { error } = await supabase
+      .from('pantry_items')
+      .update({ track_low_stock: updatedStatus })
+      .eq('id', item.id)
+      .eq('user_id', user.id);
+
+    if (!error) {
+      setItems((prev) =>
+        prev.map((i) => (i.id === item.id ? { ...i, track_low_stock: updatedStatus } : i))
+      );
+    }
+  };
+
   const adjustQuantity = async (item: PantryItem, delta: number) => {
-    const newQty = Math.max(0, Number((item.quantity + delta).toFixed(2)));
+    const newQty = Math.max(0, item.quantity + delta);
     if (newQty === 0) {
       deleteItem(item.id);
       return;
@@ -313,91 +221,145 @@ export default function Home() {
     const { error } = await supabase
       .from('pantry_items')
       .update({ quantity: newQty })
-      .eq('id', item.id);
+      .eq('id', item.id)
+      .eq('user_id', user.id);
 
     if (!error) {
-      setItems(items.map((i) => (i.id === item.id ? { ...i, quantity: newQty } : i)));
+      setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, quantity: newQty } : i)));
     }
   };
 
   const startEditing = (item: PantryItem) => {
     setEditingId(item.id);
-    setEditQuantity(item.quantity);
+    setEditCategory(item.category);
+    setEditQuantity(item.quantity.toString());
     setEditUnit(item.unit);
-    setEditCategory(item.category || 'Other');
+    setEditTrackLowStock(item.track_low_stock ?? true);
   };
 
   const saveEdit = async (id: string) => {
-    const numQty = Number(editQuantity);
-    if (isNaN(numQty) || numQty <= 0) {
-      deleteItem(id);
-      return;
-    }
+    const updated = {
+      category: editCategory,
+      quantity: parseFloat(editQuantity) || 1,
+      unit: editUnit,
+      track_low_stock: editTrackLowStock,
+    };
 
     const { error } = await supabase
       .from('pantry_items')
-      .update({ quantity: numQty, unit: editUnit, category: editCategory })
-      .eq('id', id);
+      .update(updated)
+      .eq('id', id)
+      .eq('user_id', user.id);
 
     if (!error) {
-      setItems(items.map((i) => (i.id === id ? { ...i, quantity: numQty, unit: editUnit, category: editCategory } : i)));
+      setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...updated } : i)));
       setEditingId(null);
     }
   };
 
   const deleteItem = async (id: string) => {
-    const { error } = await supabase.from('pantry_items').delete().eq('id', id);
+    const { error } = await supabase
+      .from('pantry_items')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', user.id);
+
     if (!error) {
-      setItems(items.filter((item) => item.id !== id));
+      setItems((prev) => prev.filter((i) => i.id !== id));
     }
   };
 
   const handleImportRecipe = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!importUrl.trim()) return;
-
+    if (!importUrl.trim() || !user) return;
     setIsImporting(true);
+
     try {
       const res = await fetch('/api/scrape-recipe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: importUrl.trim() }),
+        body: JSON.stringify({ url: importUrl }),
       });
 
-      const data = await res.json();
-      if (res.ok && data.title) {
-        const newRecipe: Recipe = {
-          id: Date.now().toString(),
-          title: data.title,
-          cook_time: data.cook_time || '20 mins',
-          category: data.category || 'Other',
-          image: data.image || '',
-          ingredients: data.ingredients || [],
-          instructions: data.instructions || [],
-          source_url: data.source_url,
-        };
+      if (!res.ok) throw new Error(`Scraper API returned status ${res.status}`);
 
-        setRecipes([newRecipe, ...recipes]);
-        setImportUrl('');
-        setSelectedRecipe(newRecipe);
-      } else {
-        alert(data.error || 'Could not parse recipe from URL');
+      const recipeData = await res.json();
+
+      const newRecipe = {
+        user_id: user.id,
+        title: recipeData.title || 'Untitled Recipe',
+        image: recipeData.image || 'https://images.unsplash.com/photo-1495521821757-a1efb6729352?auto=format&fit=crop&w=800&q=80',
+        cook_time: recipeData.cook_time || '25 mins',
+        category: recipeData.category || 'Dinner',
+        ingredients: recipeData.ingredients || [],
+        instructions: recipeData.instructions || [],
+        source_url: importUrl,
+      };
+
+      const { data, error } = await supabase
+        .from('recipes')
+        .insert([newRecipe])
+        .select();
+
+      if (error) {
+        console.error('Supabase Insert Error:', error);
+        alert(`Failed to save recipe: ${error.message}`);
+        return;
       }
-    } catch {
-      alert('Error fetching recipe from web');
+
+      if (data && data.length > 0) {
+        setRecipes((prev) => [...prev, data[0]]);
+        setImportUrl('');
+        alert('Recipe imported successfully!');
+      }
+    } catch (err: any) {
+      console.error('Import error:', err);
+      alert(`Import failed: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsImporting(false);
     }
-    setIsImporting(false);
   };
 
-  const deleteRecipe = (id: string, e: React.MouseEvent) => {
+  const deleteRecipe = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setRecipes(recipes.filter((r) => r.id !== id));
-    if (selectedRecipe?.id === id) setSelectedRecipe(null);
+    const { error } = await supabase
+      .from('recipes')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', user.id);
+
+    if (!error) {
+      setRecipes((prev) => prev.filter((r) => r.id !== id));
+      if (selectedRecipe?.id === id) setSelectedRecipe(null);
+    }
+  };
+
+  const getItemIcon = (itemName: string, itemCat: string) => {
+    const cat = CATEGORIES.find((c) => c.name.toLowerCase() === itemCat.toLowerCase());
+    return cat ? cat.icon : '📦';
+  };
+
+  const getIngredientStatus = (ingredientStr: string, pantry: PantryItem[]) => {
+    const lowerIng = ingredientStr.toLowerCase();
+    const matchedItem = pantry.find((p) => lowerIng.includes(p.name.toLowerCase()));
+
+    if (!matchedItem) {
+      return { status: 'missing', requiredText: ingredientStr, availableText: '0' };
+    }
+
+    if (matchedItem.quantity > 0) {
+      return { status: 'in_stock', requiredText: ingredientStr, availableText: `${matchedItem.quantity} ${matchedItem.unit}` };
+    }
+
+    return { status: 'insufficient', requiredText: ingredientStr, availableText: `0 ${matchedItem.unit}` };
   };
 
   const getRecipePantryMatch = (recipe: Recipe) => {
-    const matchStatuses = recipe.ingredients.map((ing) => getIngredientStatus(ing, items));
-    const matchedCount = matchStatuses.filter((s) => s.status === 'in_stock').length;
+    let matchedCount = 0;
+    recipe.ingredients.forEach((ing) => {
+      const { status } = getIngredientStatus(ing, items);
+      if (status === 'in_stock') matchedCount++;
+    });
 
     return {
       matchedCount,
@@ -406,226 +368,261 @@ export default function Home() {
     };
   };
 
-  const lowStockItems = items.filter((i) => i.quantity <= 1);
-  const cookableRecipesCount = recipes.filter((r) => getRecipePantryMatch(r).isReady).length;
-
-  const groupedItems = items.reduce((acc, item) => {
-    const matchedCat = CATEGORIES.find(
-      (c) => c.name.toLowerCase() === (item.category || '').toLowerCase()
-    );
-    const catName = matchedCat ? matchedCat.name : 'Other';
-
-    if (!acc[catName]) acc[catName] = [];
-    acc[catName].push(item);
+  const groupedItems = items.reduce<Record<string, PantryItem[]>>((acc, item) => {
+    acc[item.category] = acc[item.category] || [];
+    acc[item.category].push(item);
     return acc;
-  }, {} as Record<string, PantryItem[]>);
+  }, {});
 
-  return (
-    <main 
-      className="min-h-screen w-full p-4 md:p-8 space-y-6 flex flex-col font-sans"
-      style={{ backgroundColor: '#0D151D', color: '#FFFFFF' }}
-    >
-      {/* Top Header */}
-      <div 
-        className="w-full max-w-7xl mx-auto rounded-[28px] p-6 flex justify-between items-center"
-        style={{ backgroundColor: '#131F2B', border: '1px solid #1E2E3D' }}
-      >
-        <div>
-          <h1 className="text-3xl font-serif italic font-bold tracking-wide" style={{ color: '#FFFFFF' }}>
-            Pantreasy
-          </h1>
-          <p className="text-xs mt-0.5" style={{ color: '#20B2AA' }}>
-            Smart Stock & Recipe Hub
-          </p>
-        </div>
+  const lowStockItems = items.filter((i) => i.quantity <= 2 && (i.track_low_stock ?? true));
 
-        {/* Tab Switcher */}
-        <div 
-          className="flex p-1.5 rounded-2xl text-sm font-bold gap-2"
-          style={{ backgroundColor: '#0D151D', border: '1px solid #223446' }}
-        >
-          <button
-            onClick={() => setActiveTab('dashboard')}
-            className={`px-6 py-2.5 rounded-xl transition ${activeTab === 'dashboard' ? 'shadow-md' : 'opacity-60'}`}
-            style={{
-              backgroundColor: activeTab === 'dashboard' ? '#20B2AA' : 'transparent',
-              color: activeTab === 'dashboard' ? '#0D151D' : '#FFFFFF',
-            }}
-          >
-            📊 Main
-          </button>
-          <button
-            onClick={() => setActiveTab('pantry')}
-            className={`px-6 py-2.5 rounded-xl transition ${activeTab === 'pantry' ? 'shadow-md' : 'opacity-60'}`}
-            style={{
-              backgroundColor: activeTab === 'pantry' ? '#20B2AA' : 'transparent',
-              color: activeTab === 'pantry' ? '#0D151D' : '#FFFFFF',
-            }}
-          >
-            🥗 Pantry
-          </button>
-          <button
-            onClick={() => setActiveTab('recipes')}
-            className={`px-6 py-2.5 rounded-xl transition ${activeTab === 'recipes' ? 'shadow-md' : 'opacity-60'}`}
-            style={{
-              backgroundColor: activeTab === 'recipes' ? '#20B2AA' : 'transparent',
-              color: activeTab === 'recipes' ? '#0D151D' : '#FFFFFF',
-            }}
-          >
-            📖 Recipes
-          </button>
-        </div>
-      </div>
+  // AUTH SCREEN
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-[#0D151D] text-white">
+        <div className="w-full max-w-md p-8 rounded-[32px] bg-[#131F2B] border border-[#1E2E3D] space-y-6 shadow-2xl">
+          <div className="text-center space-y-2">
+            <span className="text-4xl">🥗</span>
+            <h1 className="text-2xl font-bold tracking-tight">Welcome to Pantreasy</h1>
+            <p className="text-xs text-[#8A9FB4]">
+              {isSignUp ? 'Create an account to manage your kitchen' : 'Sign in to access your pantry and recipes'}
+            </p>
+          </div>
 
-      <div className="w-full max-w-7xl mx-auto flex-1">
-        {/* DASHBOARD TAB */}
-        {activeTab === 'dashboard' && (
-          <div className="space-y-6">
-            <div 
-              className="rounded-[28px] p-8 space-y-2"
-              style={{ backgroundColor: '#20B2AA', color: '#0D151D' }}
-            >
-              <div className="flex justify-between items-center">
-                <span className="text-xs uppercase font-bold tracking-wider opacity-80">Overview</span>
-                <span className="text-xs font-bold bg-black/10 px-3 py-1 rounded-full">Live Stats</span>
-              </div>
-              <h2 className="text-3xl font-bold leading-snug">
-                {cookableRecipesCount > 0 
-                  ? `You can cook ${cookableRecipesCount} recipe${cookableRecipesCount > 1 ? 's' : ''} right now!`
-                  : 'Welcome to Pantreasy'}
-              </h2>
+          <form onSubmit={handleEmailAuth} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold mb-1 text-[#8A9FB4]">Email Address</label>
+              <input
+                type="email"
+                required
+                placeholder="you@example.com"
+                value={authEmail}
+                onChange={(e) => setAuthEmail(e.target.value)}
+                className="w-full px-4 py-3 rounded-2xl text-sm bg-[#0D151D] border border-[#2A3C4E] text-white focus:outline-none focus:border-[#20B2AA]"
+              />
             </div>
 
+            <div>
+              <label className="block text-xs font-semibold mb-1 text-[#8A9FB4]">Password</label>
+              <input
+                type="password"
+                required
+                minLength={6}
+                placeholder="••••••••"
+                value={authPassword}
+                onChange={(e) => setAuthPassword(e.target.value)}
+                className="w-full px-4 py-3 rounded-2xl text-sm bg-[#0D151D] border border-[#2A3C4E] text-white focus:outline-none focus:border-[#20B2AA]"
+              />
+            </div>
+
+            {authError && (
+              <p className="text-xs text-[#FF7B7B] bg-[#FF7B7B]/10 p-3 rounded-xl font-medium">{authError}</p>
+            )}
+
+            {authMessage && (
+              <p className="text-xs text-[#20B2AA] bg-[#20B2AA]/10 p-3 rounded-xl font-medium">{authMessage}</p>
+            )}
+
+            <button
+              type="submit"
+              disabled={authLoading}
+              className="w-full py-3.5 rounded-2xl font-bold text-sm bg-[#20B2AA] text-[#0D151D] transition hover:opacity-90 disabled:opacity-50"
+            >
+              {authLoading ? 'Processing...' : isSignUp ? 'Create Account' : 'Sign In with Email'}
+            </button>
+          </form>
+
+          <div className="relative flex items-center justify-center my-4">
+            <div className="border-t border-[#1E2E3D] w-full"></div>
+            <span className="bg-[#131F2B] px-3 text-[10px] text-[#6C8299] uppercase tracking-wider font-bold absolute">OR</span>
+          </div>
+
+          <button
+            onClick={handleGitHubAuth}
+            className="w-full py-3 rounded-2xl text-xs font-bold bg-[#0D151D] border border-[#2A3C4E] text-white hover:bg-[#1A2836] transition flex items-center justify-center gap-2"
+          >
+            <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
+              <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+            </svg>
+            Continue with GitHub
+          </button>
+
+          <p className="text-center text-xs text-[#8A9FB4]">
+            {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
+            <button
+              type="button"
+              onClick={() => {
+                setIsSignUp(!isSignUp);
+                setAuthError('');
+                setAuthMessage('');
+              }}
+              className="text-[#FFD166] font-bold underline ml-1"
+            >
+              {isSignUp ? 'Sign In' : 'Sign Up'}
+            </button>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <main className="min-h-screen bg-[#0D151D] text-white font-sans p-4 md:p-8">
+      <div className="max-w-6xl mx-auto space-y-8">
+        <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-6 border-b border-[#1E2E3D]">
+          <div>
+            <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight flex items-center gap-2">
+              <span>🥗</span> Pantreasy
+            </h1>
+            <p className="text-xs md:text-sm mt-1 text-[#8A9FB4]">
+              Connected account: <span className="font-semibold text-white">{user.email}</span>
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <nav className="flex gap-1.5 p-1.5 rounded-2xl bg-[#131F2B] border border-[#1E2E3D]">
+              {(['dashboard', 'pantry', 'recipes'] as const).map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold capitalize transition ${
+                    activeTab === tab
+                      ? 'bg-[#20B2AA] text-[#0D151D] shadow-md'
+                      : 'text-[#8A9FB4] hover:text-white'
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </nav>
+
+            <button
+              onClick={handleSignOut}
+              className="px-3 py-2 rounded-xl text-xs font-bold border border-[#2A3C4E] text-[#FF7B7B] hover:bg-[#1A2836] transition"
+            >
+              Sign Out
+            </button>
+          </div>
+        </header>
+
+        {activeTab === 'dashboard' && (
+          <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div 
                 onClick={() => setActiveTab('pantry')}
-                className="rounded-[28px] p-6 cursor-pointer transition hover:border-[#20B2AA] space-y-2"
-                style={{ backgroundColor: '#131F2B', border: '1px solid #1E2E3D' }}
+                className="rounded-[28px] p-6 cursor-pointer transition hover:border-[#20B2AA] space-y-2 bg-[#131F2B] border border-[#1E2E3D]"
               >
                 <div className="flex justify-between items-center">
                   <span className="text-3xl">🥗</span>
-                  <span className="text-xs font-bold" style={{ color: '#20B2AA' }}>View Pantry →</span>
+                  <span className="text-xs font-bold text-[#20B2AA]">View Pantry →</span>
                 </div>
                 <h3 className="text-4xl font-bold">{items.length}</h3>
-                <p className="text-sm" style={{ color: '#8A9FB4' }}>Pantry Items In Stock</p>
+                <p className="text-sm text-[#8A9FB4]">Pantry Items In Stock</p>
               </div>
 
               <div 
                 onClick={() => setActiveTab('recipes')}
-                className="rounded-[28px] p-6 cursor-pointer transition hover:border-[#FFD166] space-y-2"
-                style={{ backgroundColor: '#131F2B', border: '1px solid #1E2E3D' }}
+                className="rounded-[28px] p-6 cursor-pointer transition hover:border-[#FFD166] space-y-2 bg-[#131F2B] border border-[#1E2E3D]"
               >
                 <div className="flex justify-between items-center">
                   <span className="text-3xl">📖</span>
-                  <span className="text-xs font-bold" style={{ color: '#FFD166' }}>View Recipes →</span>
+                  <span className="text-xs font-bold text-[#FFD166]">View Recipes →</span>
                 </div>
                 <h3 className="text-4xl font-bold">{recipes.length}</h3>
-                <p className="text-sm" style={{ color: '#8A9FB4' }}>Saved Recipes</p>
+                <p className="text-sm text-[#8A9FB4]">Saved Recipes</p>
               </div>
 
               <div 
-                className="rounded-[28px] p-6 space-y-3"
-                style={{ backgroundColor: '#131F2B', border: '1px solid #1E2E3D' }}
+                onClick={() => setShowLowStockModal(true)}
+                className="rounded-[28px] p-6 cursor-pointer transition hover:border-[#FF7B7B] space-y-3 bg-[#131F2B] border border-[#1E2E3D]"
               >
-                <span className="text-xs font-bold uppercase tracking-wider" style={{ color: '#FF7B7B' }}>
-                  ⚠️ Low Stock Alert ({lowStockItems.length})
-                </span>
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-bold uppercase tracking-wider text-[#FF7B7B]">
+                    ⚠️ Low Stock Alert ({lowStockItems.length})
+                  </span>
+                  <span className="text-xs font-bold text-[#FF7B7B]">Expand →</span>
+                </div>
 
                 {lowStockItems.length > 0 ? (
                   <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                     {lowStockItems.map((item) => (
-                      <div 
-                        key={item.id} 
-                        className="flex justify-between items-center p-3 rounded-xl text-xs"
-                        style={{ backgroundColor: '#0D151D' }}
-                      >
+                      <div key={item.id} className="flex justify-between items-center p-3 rounded-xl text-xs bg-[#0D151D]">
                         <span className="font-bold">{item.name}</span>
-                        <span className="font-semibold" style={{ color: '#FF7B7B' }}>
-                          {item.quantity} {item.unit} left
-                        </span>
+                        <span className="font-semibold text-[#FF7B7B]">{item.quantity} {item.unit} left</span>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="text-xs italic" style={{ color: '#6C8299' }}>Pantry stock looks good!</p>
+                  <p className="text-xs italic text-[#6C8299]">Pantry stock looks good!</p>
                 )}
               </div>
             </div>
           </div>
         )}
 
-        {/* PANTRY TAB */}
         {activeTab === 'pantry' && (
           <div className="space-y-6">
-            <div 
-              className="rounded-[28px] p-6 space-y-4"
-              style={{ backgroundColor: '#131F2B', border: '1px solid #1E2E3D' }}
-            >
-              <h2 className="text-xs font-bold uppercase tracking-wider" style={{ color: '#20B2AA' }}>
-                Add Essential
-              </h2>
-
-              <form onSubmit={addItem} className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                <input
-                  type="text"
-                  placeholder="Item name (e.g. Crisp Lettuce)"
-                  value={name}
-                  onChange={handleNameChange}
-                  className="sm:col-span-5 px-4 py-3 rounded-2xl text-sm focus:outline-none"
-                  style={{ backgroundColor: '#0D151D', border: '1px solid #2A3C4E', color: '#FFFFFF' }}
-                  required
-                />
-
-                <select
-                  value={category}
-                  onChange={(e) => {
-                    setCategory(e.target.value);
-                    setIsManualCategory(true);
-                  }}
-                  className="sm:col-span-3 px-3 py-3 rounded-2xl text-xs font-semibold focus:outline-none cursor-pointer"
-                  style={{ backgroundColor: '#0D151D', border: '1px solid #2A3C4E', color: '#FFD166' }}
-                >
-                  {CATEGORIES.map((cat) => (
-                    <option key={cat.name} value={cat.name} style={{ backgroundColor: '#1A2836', color: '#FFFFFF' }}>
-                      {cat.icon} {cat.name}
-                    </option>
-                  ))}
-                </select>
-
-                <div className="sm:col-span-2 flex gap-1.5">
+            <div className="rounded-[28px] p-6 space-y-4 bg-[#131F2B] border border-[#1E2E3D]">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-[#20B2AA]">Add Essential</h2>
+              <form onSubmit={addItem} className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
                   <input
-                    type="number"
-                    step="any"
-                    min="0.01"
-                    placeholder="Qty"
-                    value={quantity}
-                    onChange={(e) => setQuantity(e.target.value)}
-                    className="w-16 px-2 py-3 rounded-2xl text-center text-sm font-bold focus:outline-none"
-                    style={{ backgroundColor: '#0D151D', border: '1px solid #2A3C4E', color: '#FFFFFF' }}
+                    type="text"
+                    placeholder="Item name (e.g. Crisp Lettuce)"
+                    value={name}
+                    onChange={handleNameChange}
+                    className="sm:col-span-5 px-4 py-3 rounded-2xl text-sm focus:outline-none bg-[#0D151D] border border-[#2A3C4E] text-white"
+                    required
                   />
-
                   <select
-                    value={unit}
-                    onChange={(e) => setUnit(e.target.value)}
-                    className="flex-1 px-2 py-3 rounded-2xl text-xs font-semibold focus:outline-none cursor-pointer capitalize"
-                    style={{ backgroundColor: '#0D151D', border: '1px solid #2A3C4E', color: '#20B2AA' }}
+                    value={category}
+                    onChange={(e) => { setCategory(e.target.value); setIsManualCategory(true); }}
+                    className="sm:col-span-3 px-3 py-3 rounded-2xl text-xs font-semibold focus:outline-none cursor-pointer bg-[#0D151D] border border-[#2A3C4E] text-[#FFD166]"
                   >
-                    {COMMON_UNITS.map((u) => (
-                      <option key={u} value={u} style={{ backgroundColor: '#1A2836', color: '#FFFFFF' }}>
-                        {u}
-                      </option>
+                    {CATEGORIES.map((cat) => (
+                      <option key={cat.name} value={cat.name} className="bg-[#1A2836] text-white">{cat.icon} {cat.name}</option>
                     ))}
                   </select>
+                  <div className="sm:col-span-2 flex gap-1.5">
+                    <input
+                      type="number"
+                      step="any"
+                      min="0.01"
+                      placeholder="Qty"
+                      value={quantity}
+                      onChange={(e) => setQuantity(e.target.value)}
+                      className="w-16 px-2 py-3 rounded-2xl text-center text-sm font-bold focus:outline-none bg-[#0D151D] border border-[#2A3C4E] text-white"
+                    />
+                    <select
+                      value={unit}
+                      onChange={(e) => setUnit(e.target.value)}
+                      className="flex-1 px-2 py-3 rounded-2xl text-xs font-semibold focus:outline-none cursor-pointer capitalize bg-[#0D151D] border border-[#2A3C4E] text-[#20B2AA]"
+                    >
+                      {COMMON_UNITS.map((u) => (
+                        <option key={u} value={u} className="bg-[#1A2836] text-white">{u}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="sm:col-span-2 font-bold py-3.5 rounded-2xl transition text-sm shadow-md active:scale-95 disabled:opacity-50 bg-[#FF7B7B] text-[#131F2B]"
+                  >
+                    {loading ? 'Adding...' : 'Add Item'}
+                  </button>
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="sm:col-span-2 font-bold py-3.5 rounded-2xl transition text-sm shadow-md active:scale-95 disabled:opacity-50"
-                  style={{ backgroundColor: '#FF7B7B', color: '#131F2B' }}
-                >
-                  {loading ? 'Adding...' : 'Add Item'}
-                </button>
+                <div className="flex items-center gap-2 pt-1">
+                  <label className="flex items-center gap-2 cursor-pointer text-xs text-[#8A9FB4]">
+                    <input
+                      type="checkbox"
+                      checked={trackLowStock}
+                      onChange={(e) => setTrackLowStock(e.target.checked)}
+                      className="rounded accent-[#20B2AA] w-4 h-4 cursor-pointer"
+                    />
+                    Track low stock alerts for this item
+                  </label>
+                </div>
               </form>
             </div>
 
@@ -633,133 +630,86 @@ export default function Home() {
               {Object.keys(groupedItems).length > 0 ? (
                 Object.entries(groupedItems).map(([groupCategory, groupList]) => {
                   const categoryIcon = CATEGORIES.find((c) => c.name.toLowerCase() === groupCategory.toLowerCase())?.icon || '📦';
-
                   return (
-                    <div 
-                      key={groupCategory} 
-                      className="rounded-[28px] p-5 space-y-3"
-                      style={{ backgroundColor: '#131F2B', border: '1px solid #1E2E3D' }}
-                    >
-                      <div className="flex items-center gap-2 pb-2 border-b" style={{ borderColor: '#233547' }}>
+                    <div key={groupCategory} className="rounded-[28px] p-5 space-y-3 bg-[#131F2B] border border-[#1E2E3D]">
+                      <div className="flex items-center gap-2 pb-2 border-b border-[#233547]">
                         <span className="text-base">{categoryIcon}</span>
-                        <span className="text-xs font-bold tracking-wider uppercase" style={{ color: '#FFD166' }}>
-                          {groupCategory} ({groupList.length})
-                        </span>
+                        <span className="text-xs font-bold tracking-wider uppercase text-[#FFD166]">{groupCategory} ({groupList.length})</span>
                       </div>
-
                       <div className="space-y-2">
                         {groupList.map((item) => {
                           const isEditing = editingId === item.id;
                           const productIcon = getItemIcon(item.name, item.category);
-
+                          const isTracked = item.track_low_stock ?? true;
                           return (
-                            <div
-                              key={item.id}
-                              className="rounded-[20px] p-3 transition"
-                              style={{ backgroundColor: '#1A2836', border: '1px solid #233547' }}
-                            >
+                            <div key={item.id} className="rounded-[20px] p-3 transition bg-[#1A2836] border border-[#233547]">
                               {!isEditing ? (
                                 <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-3">
-                                    <div 
-                                      className="w-10 h-10 rounded-full flex items-center justify-center text-lg shrink-0"
-                                      style={{ backgroundColor: '#0D151D', border: '1px solid #2A3C4E' }}
-                                    >
-                                      {productIcon}
-                                    </div>
+                                    <div className="w-10 h-10 rounded-full flex items-center justify-center text-lg shrink-0 bg-[#0D151D] border border-[#2A3C4E]">{productIcon}</div>
                                     <div>
-                                      <h3 className="font-bold text-sm capitalize" style={{ color: '#FFFFFF' }}>
-                                        {item.name}
-                                      </h3>
-                                      <p className="text-xs" style={{ color: '#8A9FB4' }}>
-                                        {item.quantity} {item.unit}
-                                      </p>
+                                      <h3 className="font-bold text-sm capitalize text-white">{item.name}</h3>
+                                      <p className="text-xs text-[#8A9FB4]">{item.quantity} {item.unit}</p>
                                     </div>
                                   </div>
-
                                   <div className="flex items-center gap-1.5">
-                                    <button
-                                      onClick={() => adjustQuantity(item, -1)}
-                                      className="w-7 h-7 rounded-lg font-bold text-xs flex items-center justify-center"
-                                      style={{ backgroundColor: '#0D151D', color: '#FF7B7B', border: '1px solid #2A3C4E' }}
+                                    <button 
+                                      onClick={() => toggleLowStockTracking(item)} 
+                                      title={isTracked ? "Low stock tracking active (Click to disable)" : "Low stock tracking disabled (Click to enable)"}
+                                      className={`p-1.5 text-xs rounded-lg transition ${isTracked ? 'text-[#FFD166]' : 'text-[#556A7E]'}`}
                                     >
-                                      -
+                                      {isTracked ? '🔔' : '🔕'}
                                     </button>
-                                    <button
-                                      onClick={() => adjustQuantity(item, 1)}
-                                      className="w-7 h-7 rounded-lg font-bold text-xs flex items-center justify-center"
-                                      style={{ backgroundColor: '#0D151D', color: '#20B2AA', border: '1px solid #2A3C4E' }}
-                                    >
-                                      +
-                                    </button>
-                                    <button
-                                      onClick={() => startEditing(item)}
-                                      className="p-1.5 text-xs ml-1"
-                                      style={{ color: '#8A9FB4' }}
-                                    >
-                                      ✏️
-                                    </button>
-                                    <button
-                                      onClick={() => deleteItem(item.id)}
-                                      className="p-1.5 text-xs"
-                                      style={{ color: '#556A7E' }}
-                                    >
-                                      ✕
-                                    </button>
+                                    <button onClick={() => adjustQuantity(item, -1)} className="w-7 h-7 rounded-lg font-bold text-xs flex items-center justify-center bg-[#0D151D] text-[#FF7B7B] border border-[#2A3C4E]">-</button>
+                                    <button onClick={() => adjustQuantity(item, 1)} className="w-7 h-7 rounded-lg font-bold text-xs flex items-center justify-center bg-[#0D151D] text-[#20B2AA] border border-[#2A3C4E]">+</button>
+                                    <button onClick={() => startEditing(item)} className="p-1.5 text-xs text-[#8A9FB4]">✏️</button>
+                                    <button onClick={() => deleteItem(item.id)} className="p-1.5 text-xs text-[#556A7E]">✕</button>
                                   </div>
                                 </div>
                               ) : (
                                 <div className="space-y-3">
                                   <div className="flex items-center justify-between">
                                     <span className="text-xs font-bold capitalize">Edit: {item.name}</span>
-                                    <button onClick={() => setEditingId(null)} className="text-xs" style={{ color: '#8A9FB4' }}>Cancel</button>
+                                    <button onClick={() => setEditingId(null)} className="text-xs text-[#8A9FB4]">Cancel</button>
                                   </div>
-
                                   <div className="flex gap-2">
                                     <select
                                       value={editCategory}
                                       onChange={(e) => setEditCategory(e.target.value)}
-                                      className="w-28 px-2 py-2 rounded-xl text-xs font-semibold focus:outline-none"
-                                      style={{ backgroundColor: '#0D151D', border: '1px solid #20B2AA', color: '#FFD166' }}
+                                      className="w-28 px-2 py-2 rounded-xl text-xs font-semibold focus:outline-none bg-[#0D151D] border border-[#20B2AA] text-[#FFD166]"
                                     >
                                       {CATEGORIES.map((cat) => (
-                                        <option key={cat.name} value={cat.name} style={{ backgroundColor: '#1A2836', color: '#FFFFFF' }}>
-                                          {cat.icon} {cat.name}
-                                        </option>
+                                        <option key={cat.name} value={cat.name} className="bg-[#1A2836] text-white">{cat.icon} {cat.name}</option>
                                       ))}
                                     </select>
-
                                     <input
                                       type="number"
                                       step="any"
                                       min="0.01"
                                       value={editQuantity}
                                       onChange={(e) => setEditQuantity(e.target.value)}
-                                      className="w-16 px-2 py-2 rounded-xl text-center text-xs font-bold focus:outline-none"
-                                      style={{ backgroundColor: '#0D151D', border: '1px solid #20B2AA', color: '#FFFFFF' }}
+                                      className="w-16 px-2 py-2 rounded-xl text-center text-xs font-bold focus:outline-none bg-[#0D151D] border border-[#20B2AA] text-white"
                                     />
-
                                     <select
                                       value={editUnit}
                                       onChange={(e) => setEditUnit(e.target.value)}
-                                      className="flex-1 px-2 py-2 rounded-xl text-xs font-semibold focus:outline-none capitalize"
-                                      style={{ backgroundColor: '#0D151D', border: '1px solid #20B2AA', color: '#20B2AA' }}
+                                      className="flex-1 px-2 py-2 rounded-xl text-xs font-semibold focus:outline-none capitalize bg-[#0D151D] border border-[#20B2AA] text-[#20B2AA]"
                                     >
                                       {COMMON_UNITS.map((u) => (
-                                        <option key={u} value={u} style={{ backgroundColor: '#1A2836', color: '#FFFFFF' }}>
-                                          {u}
-                                        </option>
+                                        <option key={u} value={u} className="bg-[#1A2836] text-white">{u}</option>
                                       ))}
                                     </select>
-
-                                    <button
-                                      onClick={() => saveEdit(item.id)}
-                                      className="px-3 py-2 rounded-xl text-xs font-bold"
-                                      style={{ backgroundColor: '#20B2AA', color: '#0D151D' }}
-                                    >
-                                      Save
-                                    </button>
+                                    <button onClick={() => saveEdit(item.id)} className="px-3 py-2 rounded-xl text-xs font-bold bg-[#20B2AA] text-[#0D151D]">Save</button>
                                   </div>
+                                  <label className="flex items-center gap-2 cursor-pointer text-xs text-[#8A9FB4]">
+                                    <input
+                                      type="checkbox"
+                                      checked={editTrackLowStock}
+                                      onChange={(e) => setEditTrackLowStock(e.target.checked)}
+                                      className="rounded accent-[#20B2AA] w-3.5 h-3.5 cursor-pointer"
+                                    />
+                                    Track low stock
+                                  </label>
                                 </div>
                               )}
                             </div>
@@ -770,39 +720,29 @@ export default function Home() {
                   );
                 })
               ) : (
-                <p className="text-center text-xs py-6 col-span-full" style={{ color: '#6C8299' }}>No pantry items stored.</p>
+                <p className="text-center text-xs py-6 col-span-full text-[#6C8299]">No pantry items stored.</p>
               )}
             </div>
           </div>
         )}
 
-        {/* RECIPES TAB */}
         {activeTab === 'recipes' && (
           <div className="space-y-6">
-            <div 
-              className="rounded-[28px] p-6 space-y-3"
-              style={{ backgroundColor: '#131F2B', border: '1px solid #1E2E3D' }}
-            >
-              <h2 className="text-xs font-bold uppercase tracking-wider" style={{ color: '#20B2AA' }}>
-                🌐 Import Recipe via Web URL
-              </h2>
-
+            <div className="rounded-[28px] p-6 space-y-3 bg-[#131F2B] border border-[#1E2E3D]">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-[#20B2AA]">🌐 Import Recipe via Web URL</h2>
               <form onSubmit={handleImportRecipe} className="flex flex-col sm:flex-row gap-3">
                 <input
                   type="url"
                   placeholder="Paste recipe URL (e.g. foodnetwork.com/...)"
                   value={importUrl}
                   onChange={(e) => setImportUrl(e.target.value)}
-                  className="flex-1 px-4 py-3 rounded-2xl text-xs focus:outline-none"
-                  style={{ backgroundColor: '#0D151D', border: '1px solid #2A3C4E', color: '#FFFFFF' }}
+                  className="flex-1 px-4 py-3 rounded-2xl text-xs focus:outline-none bg-[#0D151D] border border-[#2A3C4E] text-white"
                   required
                 />
-
                 <button
                   type="submit"
                   disabled={isImporting}
-                  className="px-8 font-bold py-3.5 rounded-2xl transition text-sm shadow-md active:scale-95 disabled:opacity-50"
-                  style={{ backgroundColor: '#FFD166', color: '#131F2B' }}
+                  className="px-8 font-bold py-3.5 rounded-2xl transition text-sm shadow-md active:scale-95 disabled:opacity-50 bg-[#FFD166] text-[#131F2B]"
                 >
                   {isImporting ? 'Scraping Recipe...' : 'Import to Library'}
                 </button>
@@ -810,54 +750,32 @@ export default function Home() {
             </div>
 
             <div className="space-y-4">
-              <span className="text-xs font-bold tracking-wider uppercase px-1" style={{ color: '#6C8299' }}>
-                Saved Recipes ({recipes.length})
-              </span>
-
+              <span className="text-xs font-bold tracking-wider uppercase px-1 text-[#6C8299]">Saved Recipes ({recipes.length})</span>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
                 {recipes.map((recipe) => {
                   const match = getRecipePantryMatch(recipe);
-
                   return (
                     <div
                       key={recipe.id}
                       onClick={() => setSelectedRecipe(recipe)}
-                      className="rounded-[24px] overflow-hidden cursor-pointer transition border hover:border-[#20B2AA] flex flex-col justify-between"
-                      style={{ backgroundColor: '#131F2B', borderColor: '#1E2E3D' }}
+                      className="rounded-[24px] overflow-hidden cursor-pointer transition border hover:border-[#20B2AA] flex flex-col justify-between bg-[#131F2B] border-[#1E2E3D]"
                     >
                       {recipe.image && (
                         <div className="w-full h-40 overflow-hidden relative bg-black/20">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={recipe.image}
-                            alt={recipe.title}
-                            className="w-full h-full object-cover"
-                          />
+                          <img src={recipe.image} alt={recipe.title} className="w-full h-full object-cover" />
                         </div>
                       )}
-
                       <div className="p-5 space-y-3 flex-1 flex flex-col justify-between">
                         <div className="flex justify-between items-start">
                           <div>
-                            <h3 className="font-bold text-base" style={{ color: '#FFFFFF' }}>
-                              {recipe.title}
-                            </h3>
-                            <p className="text-xs mt-1" style={{ color: '#8A9FB4' }}>
-                              ⏱️ {recipe.cook_time} • {recipe.category}
-                            </p>
+                            <h3 className="font-bold text-base text-white">{recipe.title}</h3>
+                            <p className="text-xs mt-1 text-[#8A9FB4]">⏱️ {recipe.cook_time} • {recipe.category}</p>
                           </div>
-
-                          <button 
-                            onClick={(e) => deleteRecipe(recipe.id, e)}
-                            className="text-xs p-1 hover:text-white" 
-                            style={{ color: '#556A7E' }}
-                          >
-                            ✕
-                          </button>
+                          <button onClick={(e) => deleteRecipe(recipe.id, e)} className="text-xs p-1 text-[#556A7E] hover:text-white">✕</button>
                         </div>
-
-                        <div className="flex justify-between items-center text-xs pt-3 border-t" style={{ borderColor: '#233547' }}>
-                          <span style={{ color: '#8A9FB4' }}>{recipe.ingredients.length} Ingredients</span>
+                        <div className="flex justify-between items-center text-xs pt-3 border-t border-[#233547]">
+                          <span className="text-[#8A9FB4]">{recipe.ingredients.length} Ingredients</span>
                           <span 
                             className="font-bold px-2.5 py-1 rounded-full text-[10px]"
                             style={{ 
@@ -873,30 +791,76 @@ export default function Home() {
                     </div>
                   );
                 })}
-
                 {recipes.length === 0 && (
-                  <p className="text-center text-xs py-6 col-span-full" style={{ color: '#6C8299' }}>No recipes saved yet.</p>
+                  <p className="text-center text-xs py-6 col-span-full text-[#6C8299]">No recipes saved yet.</p>
                 )}
               </div>
             </div>
           </div>
         )}
 
-        {/* RECIPE DETAIL MODAL */}
+        {showLowStockModal && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+            <div className="w-full max-w-lg rounded-[32px] p-6 space-y-6 bg-[#131F2B] border border-[#FF7B7B]">
+              <div className="flex justify-between items-center border-b pb-4 border-[#233547]">
+                <h2 className="text-lg font-bold flex items-center gap-2 text-[#FF7B7B]">
+                  <span>⚠️</span> Low Stock Alerts ({lowStockItems.length})
+                </h2>
+                <button 
+                  onClick={() => setShowLowStockModal(false)}
+                  className="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center text-xs hover:bg-black/60"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+                {lowStockItems.length > 0 ? (
+                  lowStockItems.map((item) => (
+                    <div key={item.id} className="flex justify-between items-center p-4 rounded-2xl bg-[#1A2836] border border-[#233547]">
+                      <div>
+                        <h4 className="font-bold text-sm capitalize">{item.name}</h4>
+                        <p className="text-xs text-[#FF7B7B] font-semibold">{item.quantity} {item.unit} remaining</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={() => adjustQuantity(item, 1)}
+                          className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[#20B2AA] text-[#0D151D]"
+                        >
+                          + Restock 1
+                        </button>
+                        <button 
+                          onClick={() => toggleLowStockTracking(item)}
+                          className="p-1.5 text-xs text-[#8A9FB4] hover:text-white"
+                          title="Stop tracking"
+                        >
+                          🔕
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-center text-xs text-[#8A9FB4] py-4">No tracked items are currently low on stock!</p>
+                )}
+              </div>
+
+              <button
+                onClick={() => setShowLowStockModal(false)}
+                className="w-full py-3 rounded-2xl text-xs font-bold bg-[#0D151D] border border-[#2A3C4E] text-white"
+              >
+                Close List
+              </button>
+            </div>
+          </div>
+        )}
+
         {selectedRecipe && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 md:p-8 z-50">
-            <div 
-              className="w-full max-w-5xl rounded-[32px] overflow-hidden max-h-[90vh] flex flex-col"
-              style={{ backgroundColor: '#131F2B', border: '1px solid #20B2AA' }}
-            >
+            <div className="w-full max-w-5xl rounded-[32px] overflow-hidden max-h-[90vh] flex flex-col bg-[#131F2B] border border-[#20B2AA]">
               {selectedRecipe.image && (
                 <div className="w-full h-52 md:h-60 shrink-0 relative bg-black/40">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={selectedRecipe.image}
-                    alt={selectedRecipe.title}
-                    className="w-full h-full object-cover"
-                  />
+                  <img src={selectedRecipe.image} alt={selectedRecipe.title} className="w-full h-full object-cover" />
                   <button 
                     onClick={() => setSelectedRecipe(null)}
                     className="absolute top-4 right-4 w-9 h-9 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center font-bold text-white text-base hover:bg-black/80 transition"
@@ -907,35 +871,23 @@ export default function Home() {
               )}
 
               <div className="p-6 md:p-8 overflow-y-auto space-y-6 flex-1">
-                <div className="flex justify-between items-start border-b pb-4" style={{ borderColor: '#233547' }}>
+                <div className="flex justify-between items-start border-b pb-4 border-[#233547]">
                   <div>
-                    <span className="text-xs uppercase font-bold tracking-wider" style={{ color: '#FFD166' }}>
-                      {selectedRecipe.category}
-                    </span>
+                    <span className="text-xs uppercase font-bold tracking-wider text-[#FFD166]">{selectedRecipe.category}</span>
                     <h2 className="text-2xl md:text-3xl font-bold leading-snug">{selectedRecipe.title}</h2>
-                    <p className="text-xs md:text-sm mt-1" style={{ color: '#8A9FB4' }}>⏱️ Cook time: {selectedRecipe.cook_time}</p>
+                    <p className="text-xs md:text-sm mt-1 text-[#8A9FB4]">⏱️ Cook time: {selectedRecipe.cook_time}</p>
                   </div>
-
                   {!selectedRecipe.image && (
-                    <button 
-                      onClick={() => setSelectedRecipe(null)}
-                      className="w-9 h-9 rounded-full bg-black/30 flex items-center justify-center font-bold text-sm hover:bg-black/50 transition"
-                    >
-                      ✕
-                    </button>
+                    <button onClick={() => setSelectedRecipe(null)} className="w-9 h-9 rounded-full bg-black/30 flex items-center justify-center font-bold text-sm hover:bg-black/50 transition">✕</button>
                   )}
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
-                  {/* LEFT: INGREDIENTS */}
                   <div className="md:col-span-4 space-y-3">
-                    <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: '#20B2AA' }}>
-                      Ingredients ({selectedRecipe.ingredients.length})
-                    </h3>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#20B2AA]">Ingredients ({selectedRecipe.ingredients.length})</h3>
                     <div className="space-y-2">
                       {selectedRecipe.ingredients.map((ing, i) => {
                         const { status, requiredText, availableText } = getIngredientStatus(ing, items);
-
                         let badgeColor = '#FF7B7B';
                         let badgeText = '✕ Missing';
 
@@ -948,13 +900,9 @@ export default function Home() {
                         }
 
                         return (
-                          <div 
-                            key={i} 
-                            className="flex justify-between items-center text-xs p-3 rounded-xl"
-                            style={{ backgroundColor: '#1A2836' }}
-                          >
+                          <div key={i} className="flex justify-between items-center text-xs p-3 rounded-xl bg-[#1A2836]">
                             <span style={{ color: status === 'in_stock' ? '#FFFFFF' : '#8A9FB4' }}>{ing}</span>
-                            <span className="text-[10px] font-bold shrink-0 ml-2 px-2 py-0.5 rounded-md" style={{ color: badgeColor, backgroundColor: '#0D151D' }}>
+                            <span className="text-[10px] font-bold shrink-0 ml-2 px-2 py-0.5 rounded-md bg-[#0D151D]" style={{ color: badgeColor }}>
                               {badgeText}
                             </span>
                           </div>
@@ -963,22 +911,19 @@ export default function Home() {
                     </div>
                   </div>
 
-                  {/* RIGHT: INSTRUCTIONS */}
                   <div className="md:col-span-8 space-y-4">
-                    <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: '#20B2AA' }}>
-                      Method & Instructions
-                    </h3>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#20B2AA]">Method & Instructions</h3>
                     {selectedRecipe.instructions && selectedRecipe.instructions.length > 0 ? (
-                      <div className="space-y-3 text-sm" style={{ color: '#D0E0F0' }}>
+                      <div className="space-y-3 text-sm text-[#D0E0F0]">
                         {selectedRecipe.instructions.map((step, idx) => (
-                          <div key={idx} className="p-4 rounded-2xl space-y-1.5" style={{ backgroundColor: '#1A2836' }}>
-                            <span className="font-bold text-xs uppercase" style={{ color: '#FFD166' }}>Step {idx + 1}</span>
+                          <div key={idx} className="p-4 rounded-2xl space-y-1.5 bg-[#1A2836]">
+                            <span className="font-bold text-xs uppercase text-[#FFD166]">Step {idx + 1}</span>
                             <p className="leading-relaxed">{step}</p>
                           </div>
                         ))}
                       </div>
                     ) : (
-                      <p className="text-xs italic" style={{ color: '#6C8299' }}>No step-by-step instructions available.</p>
+                      <p className="text-xs italic text-[#6C8299]">No step-by-step instructions available.</p>
                     )}
 
                     {selectedRecipe.source_url && (
@@ -986,8 +931,7 @@ export default function Home() {
                         href={selectedRecipe.source_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-block px-5 py-3 rounded-2xl text-xs font-bold transition mt-4"
-                        style={{ backgroundColor: '#0D151D', color: '#20B2AA', border: '1px solid #20B2AA' }}
+                        className="inline-block px-5 py-3 rounded-2xl text-xs font-bold transition mt-4 bg-[#0D151D] text-[#20B2AA] border border-[#20B2AA]"
                       >
                         🔗 View Original Web Recipe Page
                       </a>
