@@ -292,7 +292,8 @@ export default function Home() {
         cook_time: recipeData.cook_time || '25 mins',
         category: recipeData.category || 'Dinner',
         ingredients: recipeData.ingredients || [],
-        instructions: recipeData.instructions || [],
+        // Replace the scraped instructions with an array containing your link
+        instructions: [`For full cooking instructions, visit the original recipe here: ${importUrl}`],
         source_url: importUrl,
       };
 
