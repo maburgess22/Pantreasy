@@ -1,5 +1,13 @@
 import type { Metadata } from 'next';
+import localFont from 'next/font/local';
 import './globals.css';
+
+// 1. Load the custom font
+const clattering = localFont({
+  src: '../public/fonts/Clattering.ttf', // Change to 'Calttering.ttf' if you didn't rename the file
+  variable: '--font-clattering',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'Pantreasy - Smart Stock & Recipe Hub',
@@ -13,7 +21,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="antialiased">
+      {/* 2. Add the font variable and background color to the body */}
+      <body className={`antialiased ${clattering.variable} bg-[#f3f0e8]`}>
         {children}
       </body>
     </html>
