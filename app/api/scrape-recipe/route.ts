@@ -33,7 +33,9 @@ export async function POST(req: Request) {
     let category = 'Other';
     let image = '';
     let ingredients: string[] = [];
-    let instructions: string[] = [];
+    
+    // 🛑 We hardcode the instructions here and NEVER scrape them!
+    let instructions: string[] = [`For full cooking instructions, visit the original recipe here: ${url}`];
 
     // Helper to extract image URL from various schema formats
     const parseSchemaImage = (imgData: any): string => {
@@ -86,28 +88,8 @@ export async function POST(req: Request) {
             if (Array.isArray(recipeObj.recipeIngredient)) {
               ingredients = recipeObj.recipeIngredient.map((i: string) => i.trim()).filter(Boolean);
             }
-
-            if (recipeObj.recipeInstructions) {
-              const rawSteps = Array.isArray(recipeObj.recipeInstructions)
-                ? recipeObj.recipeInstructions
-                : [recipeObj.recipeInstructions];
-
-              const parsedSteps: string[] = [];
-              const extractStepText = (step: any) => {
-                if (typeof step === 'string') {
-                  parsedSteps.push(step.trim());
-                } else if (step['@type'] === 'HowToStep' && step.text) {
-                  parsedSteps.push(step.text.trim());
-                } else if (step['@type'] === 'HowToSection' && Array.isArray(step.itemListElement)) {
-                  step.itemListElement.forEach(extractStepText);
-                } else if (step.text) {
-                  parsedSteps.push(step.text.trim());
-                }
-              };
-
-              rawSteps.forEach(extractStepText);
-              if (parsedSteps.length > 0) instructions = parsedSteps;
-            }
+            
+            // NOTICE: All the messy instruction-parsing code that used to be here has been deleted!
             break;
           }
         }
@@ -138,14 +120,7 @@ export async function POST(req: Request) {
       });
     }
 
-    if (instructions.length === 0) {
-      $('[itemprop="recipeInstructions"], .instruction, .instructions li, .step, [class*="instruction"]').each((_, el) => {
-        const text = $(el).text().trim().replace(/\s+/g, ' ');
-        if (text && text.length > 5 && !instructions.includes(text)) {
-          instructions.push(text);
-        }
-      });
-    }
+    // NOTICE: The fallback instruction-parsing code that used to be here has also been deleted!
 
     return NextResponse.json({
       title: title || 'Imported Recipe',
@@ -153,7 +128,7 @@ export async function POST(req: Request) {
       category,
       image,
       ingredients,
-      instructions,
+      instructions, // This now safely passes our single hardcoded link string
       source_url: url,
     });
   } catch (err: any) {
