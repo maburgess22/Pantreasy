@@ -1,4 +1,6 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 @layer base {
   body {
@@ -8,7 +10,6 @@
   }
 }
 
-/* Custom styles for your new aesthetic */
 .bg-recipeCard {
   background-color: #B0B9A8;
 }
