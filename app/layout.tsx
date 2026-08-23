@@ -1,11 +1,18 @@
 import type { Metadata } from 'next';
 import localFont from 'next/font/local';
-import './globals.css';
+import { Montserrat } from 'next/font/google'; // Added this import
+import './global.css';
 
-// 1. Load the custom font
-const clattering = localFont({
-  src: '../public/fonts/Clattering.ttf', // Change to 'Calttering.ttf' if you didn't rename the file
-  variable: '--font-clattering',
+const mogena = localFont({
+  src: '../public/fonts/Mogena.ttf',
+  variable: '--font-mogena',
+  display: 'swap',
+});
+
+// Initialized Montserrat
+const montserrat = Montserrat({
+  subsets: ['latin'],
+  variable: '--font-montserrat',
   display: 'swap',
 });
 
@@ -21,8 +28,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      {/* 2. Add the font variable and background color to the body */}
-      <body className={`antialiased ${clattering.variable} bg-[#f3f0e8]`}>
+      {/* Added montserrat.variable here */}
+      <body className={`antialiased ${mogena.variable} ${montserrat.variable} bg-[#F7F5DC]`}>
         {children}
       </body>
     </html>
