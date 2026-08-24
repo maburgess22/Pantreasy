@@ -1,42 +1,55 @@
 'use client';
 
 import { useState } from 'react';
-import { createClient } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
+import { createClient } from '@/utils/supabase/client';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  
   const router = useRouter();
   const supabase = createClient();
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setErrorMsg(null);
+    setError(null);
     setMessage(null);
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
     if (error) {
-      setErrorMsg(error.message);
+      setError(error.message);
+      setLoading(false);
     } else {
       router.push('/');
       router.refresh();
     }
-    setLoading(false);
   };
 
-  const handleSignUp = async () => {
+  const handleSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
     setLoading(true);
-    setErrorMsg(null);
+    setError(null);
     setMessage(null);
 
-    const { error } = await supabase.auth.signUp({ email, password });
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: `${location.origin}/auth/callback`,
+      },
+    });
+
     if (error) {
-      setErrorMsg(error.message);
+      setError(error.message);
     } else {
       setMessage('Check your email for the confirmation link!');
     }
@@ -44,73 +57,89 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-zinc-100 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-[#121212] border border-zinc-800 rounded-xl p-8 shadow-2xl">
-        <div className="mb-6 text-center">
-          <h1 className="text-2xl font-bold tracking-tight text-white">Pantreasy</h1>
-          <p className="text-sm text-zinc-400 mt-1">Sign in or create an account to manage your pantry</p>
-        </div>
+    <main className="min-h-screen bg-[#F7F5DC] flex flex-col items-center justify-center p-4 font-montserrat text-black">
+      
+      {/* HEADER */}
+      <div className="text-center mb-10 space-y-2">
+        <h1 className="text-6xl md:text-7xl font-mogena tracking-tight text-black drop-shadow-sm">
+          Pantreasy
+        </h1>
+        <p className="text-lg text-black/70 font-medium">
+          Your smart kitchen companion
+        </p>
+      </div>
 
-        {errorMsg && (
-          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded text-red-400 text-sm">
-            {errorMsg}
-          </div>
-        )}
-
-        {message && (
-          <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded text-emerald-400 text-sm">
-            {message}
-          </div>
-        )}
-
-        <form onSubmit={handleSignIn} className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-zinc-300 uppercase tracking-wider mb-1.5">
+      {/* LOGIN CARD */}
+      <div className="w-full max-w-md bg-[#6B705C]/20 border border-black/10 rounded-[32px] p-8 shadow-xl">
+        <h2 className="text-2xl font-bold text-center mb-6 text-black">Welcome Back</h2>
+        
+        <form className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-sm font-semibold uppercase tracking-wider text-black/80 ml-1">
               Email
             </label>
             <input
               type="email"
-              required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
-              className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-md text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+              className="w-full px-4 py-3 rounded-2xl text-base focus:outline-none focus:ring-2 focus:ring-black/20 bg-[#F7F5DC] border border-black/20 text-black placeholder:text-black/40 transition"
+              required
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-medium text-zinc-300 uppercase tracking-wider mb-1.5">
+          <div className="space-y-1.5">
+            <label className="text-sm font-semibold uppercase tracking-wider text-black/80 ml-1">
               Password
             </label>
             <input
               type="password"
-              required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
-              className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-md text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+              className="w-full px-4 py-3 rounded-2xl text-base focus:outline-none focus:ring-2 focus:ring-black/20 bg-[#F7F5DC] border border-black/20 text-black placeholder:text-black/40 transition"
+              required
             />
           </div>
 
-          <div className="pt-2 flex flex-col gap-2.5">
+          {/* ALERTS */}
+          {error && (
+            <div className="p-3 bg-red-100 border border-red-300 text-red-800 text-sm rounded-xl text-center font-medium">
+              {error}
+            </div>
+          )}
+          {message && (
+            <div className="p-3 bg-emerald-100 border border-emerald-300 text-emerald-800 text-sm rounded-xl text-center font-medium">
+              {message}
+            </div>
+          )}
+
+          {/* ACTION BUTTONS */}
+          <div className="pt-2 space-y-3">
             <button
-              type="submit"
+              onClick={handleSignIn}
               disabled={loading}
-              className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-md text-sm transition focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-zinc-900 disabled:opacity-50"
+              className="w-full px-6 py-3.5 font-medium rounded-2xl transition shadow-md active:scale-[0.98] disabled:opacity-50 bg-black text-[#F7F5DC] hover:bg-black/80 text-lg"
             >
-              {loading ? 'Signing in...' : 'Sign In'}
+              {loading ? 'Processing...' : 'Sign In'}
             </button>
+            
+            <div className="relative flex items-center justify-center py-2">
+              <div className="absolute border-t border-black/10 w-full"></div>
+              <span className="bg-[#6B705C]/0 px-3 text-sm text-black/50 relative z-10 backdrop-blur-3xl rounded-full">or</span>
+            </div>
+
             <button
-              type="button"
               onClick={handleSignUp}
               disabled={loading}
-              className="w-full py-2.5 px-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 font-medium rounded-md text-sm transition focus:outline-none focus:ring-2 focus:ring-zinc-600 disabled:opacity-50"
+              className="w-full px-6 py-3.5 font-medium rounded-2xl transition border border-black/20 active:scale-[0.98] disabled:opacity-50 bg-[#F7F5DC] text-black hover:bg-black/5 text-lg"
             >
-              Sign Up
+              Create an Account
             </button>
           </div>
         </form>
       </div>
-    </div>
+      
+    </main>
   );
 }

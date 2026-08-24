@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
 
 // --- TYPES ---
@@ -22,12 +23,23 @@ interface Recipe {
   instructions?: string[];
   image?: string;
   source_url?: string;
+  portions?: number;
 }
 
 interface ShoppingItem {
   id: string;
   name: string;
   checked: boolean;
+}
+
+interface MealPlanItem {
+  id: string;
+  date: string;
+  meal_type: string;
+  recipe_id?: string;
+  manual_name?: string;
+  portions: number;
+  recipes?: { title: string };
 }
 
 // --- CONSTANTS ---
@@ -67,15 +79,45 @@ function getItemIcon(name: string, category: string): string {
   return catMatch ? catMatch.icon : '📦';
 }
 
+function scaleIngredient(ingredient: string, multiplier: number): string {
+  if (multiplier === 1) return ingredient;
+  return ingredient.replace(/^([\d.]+)/, (match) => {
+    const num = parseFloat(match);
+    return (num * multiplier).toFixed(1).replace(/\.0$/, ''); 
+  });
+}
+
+const getNext7Days = () => {
+  return Array.from({ length: 7 }).map((_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() + i);
+    return d.toISOString().split('T')[0];
+  });
+};
+
 export default function PantryManager() {
   const supabase = createClient();
+  const router = useRouter();
 
   // --- STATE ---
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'pantry' | 'recipes' | 'shopping'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'pantry' | 'recipes' | 'shopping' | 'planner'>('dashboard');
   const [items, setItems] = useState<PantryItem[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [shoppingList, setShoppingList] = useState<ShoppingItem[]>([]);
+  const [mealPlans, setMealPlans] = useState<MealPlanItem[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Recipe Modal & Scaling State
+  const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
+  const [targetPortions, setTargetPortions] = useState(4);
+  
+  // Meal Plan Distribution State
+  const [showDistributionModal, setShowDistributionModal] = useState(false);
+  const [planTargetPortions, setPlanTargetPortions] = useState(4);
+  const [allocationsGrid, setAllocationsGrid] = useState<Record<string, number>>({});
+
+  // Manual Meal Planner Input State
+  const [manualInputs, setManualInputs] = useState<Record<string, string>>({});
 
   // AI Scanner State
   const [isScanning, setIsScanning] = useState(false);
@@ -102,7 +144,8 @@ export default function PantryManager() {
   const [editUnit, setEditUnit] = useState('');
   const [editTrackLowStock, setEditTrackLowStock] = useState(true);
   const [showLowStockModal, setShowLowStockModal] = useState(false);
-  const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
+
+  const next7Days = getNext7Days();
 
   // --- LOAD DATA FROM SUPABASE ---
   useEffect(() => {
@@ -115,11 +158,24 @@ export default function PantryManager() {
 
       const { data: sData } = await supabase.from('shopping_list').select('*').order('created_at', { ascending: false });
       if (sData) setShoppingList(sData);
+
+      const today = new Date().toISOString().split('T')[0];
+      const { data: mData } = await supabase
+        .from('meal_plan')
+        .select('*, recipes(title)')
+        .gte('date', today)
+        .order('date', { ascending: true });
+      if (mData) setMealPlans(mData as MealPlanItem[]);
     };
     loadData();
   }, []);
 
   // --- HANDLERS ---
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    router.push('/login');
+  };
+
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setName(val);
@@ -216,7 +272,12 @@ export default function PantryManager() {
     await supabase.from('pantry_items').update(updatedItem).eq('id', id);
   };
 
-  // RECIPE CRUD
+  // RECIPE CRUD & SCALING
+  const openRecipe = (recipe: Recipe) => {
+    setSelectedRecipe(recipe);
+    setTargetPortions(recipe.portions || 4);
+  };
+
   const handleImportRecipe = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!importUrl) return;
@@ -227,6 +288,7 @@ export default function PantryManager() {
         title: 'Imported Pasta Primavera',
         category: 'Main Dish',
         cook_time: '25 mins',
+        portions: 4,
         ingredients: ['1 lbs Pasta', '2 pcs Tomato', '1 pcs Crisp Lettuce'],
         instructions: ['Boil pasta until al dente.', 'Sauté chopped vegetables in olive oil.'],
         source_url: importUrl
@@ -244,6 +306,78 @@ export default function PantryManager() {
     e.stopPropagation();
     setRecipes(prev => prev.filter(r => r.id !== id));
     await supabase.from('recipes').delete().eq('id', id);
+  };
+
+  // MEAL PLAN DISTRIBUTION HANDLERS
+  const startDistribution = () => {
+    setPlanTargetPortions(targetPortions); 
+    setAllocationsGrid({}); 
+    setShowDistributionModal(true);
+  };
+
+  const handleAllocate = (dateStr: string, mealType: string, delta: number) => {
+    const key = `${dateStr}|${mealType}`;
+    const current = allocationsGrid[key] || 0;
+    
+    if (delta > 0 && remainingPortions <= 0) return; 
+    if (delta < 0 && current <= 0) return;
+
+    setAllocationsGrid(prev => ({ ...prev, [key]: current + delta }));
+  };
+
+  const saveMealPlan = async () => {
+    if (!selectedRecipe) return;
+    if (remainingPortions !== 0) {
+      alert(`Please allocate exactly ${planTargetPortions} portions. You currently have ${remainingPortions} left to assign.`);
+      return;
+    }
+
+    setLoading(true);
+    const inserts = Object.entries(allocationsGrid)
+      .filter(([_, qty]) => qty > 0)
+      .map(([key, qty]) => {
+        const [date, meal_type] = key.split('|');
+        return {
+          date,
+          meal_type,
+          recipe_id: selectedRecipe.id,
+          portions: qty
+        };
+      });
+
+    const { data, error } = await supabase.from('meal_plan').insert(inserts).select('*, recipes(title)');
+    if (!error && data) {
+      setMealPlans(prev => [...prev, ...(data as MealPlanItem[])]);
+      alert('Meals added to planner!');
+      setShowDistributionModal(false);
+      setSelectedRecipe(null);
+    } else {
+      alert('Failed to save meal plan.');
+    }
+    setLoading(false);
+  };
+
+  const saveManualMeal = async (date: string, mealType: string) => {
+    const key = `${date}-${mealType}`;
+    const value = manualInputs[key];
+    if (!value || !value.trim()) return;
+
+    const { data } = await supabase.from('meal_plan').insert([{
+      date,
+      meal_type: mealType,
+      manual_name: value.trim(),
+      portions: 1
+    }]).select('*, recipes(title)').single();
+
+    if (data) {
+      setMealPlans(prev => [...prev, data as MealPlanItem]);
+      setManualInputs(prev => ({ ...prev, [key]: '' }));
+    }
+  };
+
+  const deleteMealPlan = async (id: string) => {
+    setMealPlans(prev => prev.filter(m => m.id !== id));
+    await supabase.from('meal_plan').delete().eq('id', id);
   };
 
   // SHOPPING LIST CRUD
@@ -318,8 +452,10 @@ export default function PantryManager() {
     }
   };
 
-  const addMissingRecipeIngredients = async (recipe: Recipe) => {
-    const missing = recipe.ingredients.filter(ing => getIngredientStatus(ing, items).status !== 'in_stock');
+  const addMissingRecipeIngredients = async (recipe: Recipe, currentMultiplier: number) => {
+    const missing = recipe.ingredients.map(ing => scaleIngredient(ing, currentMultiplier))
+      .filter(scaledIng => getIngredientStatus(scaledIng, items).status !== 'in_stock');
+      
     if (missing.length === 0) {
       alert('You already have all the ingredients!');
       return;
@@ -332,6 +468,11 @@ export default function PantryManager() {
       alert('Missing ingredients added to your shopping list!');
     }
   };
+
+  // Recipe & Distribution Calculations
+  const multiplier = selectedRecipe ? (targetPortions / (selectedRecipe.portions || 4)) : 1;
+  const totalAllocated = Object.values(allocationsGrid).reduce((a, b) => a + b, 0);
+  const remainingPortions = planTargetPortions - totalAllocated;
 
   // --- RENDER ---
   return (
@@ -349,7 +490,8 @@ export default function PantryManager() {
               { id: 'dashboard', label: 'Dashboard' },
               { id: 'pantry', label: 'Pantry' },
               { id: 'recipes', label: 'Recipes' },
-              { id: 'shopping', label: 'Shopping List' }
+              { id: 'shopping', label: 'Shopping List' },
+              { id: 'planner', label: 'Planner' }
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -359,6 +501,15 @@ export default function PantryManager() {
                 {tab.label}
               </button>
             ))}
+            
+            <div className="w-px h-6 bg-black/20 mx-1"></div>
+            
+            <button 
+              onClick={handleSignOut}
+              className="px-4 py-2 rounded-xl text-sm font-medium text-red-800 hover:bg-red-800/10 transition"
+            >
+              Sign Out
+            </button>
           </nav>
         </header>
 
@@ -565,19 +716,96 @@ export default function PantryManager() {
             
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
               {recipes.map((recipe) => (
-                <div key={recipe.id} onClick={() => setSelectedRecipe(recipe)} className="rounded-[24px] overflow-hidden cursor-pointer transition border border-black/10 hover:border-black/40 flex flex-col justify-between bg-[#6B705C]/20">
+                <div key={recipe.id} onClick={() => openRecipe(recipe)} className="rounded-[24px] overflow-hidden cursor-pointer transition border border-black/10 hover:border-black/40 flex flex-col justify-between bg-[#6B705C]/20">
                   {recipe.image && <img src={recipe.image} alt={recipe.title} className="w-full h-40 object-cover" />}
                   <div className="p-5 space-y-3 flex-1 flex flex-col justify-between">
                     <div className="flex justify-between items-start">
                       <div>
                         <h3 className="font-bold text-xl text-black">{recipe.title}</h3>
-                        <p className="text-sm mt-1 text-black/70">⏱️ {recipe.cook_time} • {recipe.category}</p>
+                        <p className="text-sm mt-1 text-black/70">⏱️ {recipe.cook_time} • {recipe.portions || 4} portions</p>
                       </div>
                       <button onClick={(e) => deleteRecipe(recipe.id, e)} className="text-sm p-1 text-black/50 hover:text-red-600">✕</button>
                     </div>
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* PLANNER TAB (The 7-Day Calendar View) */}
+        {activeTab === 'planner' && (
+          <div className="space-y-8">
+            <div className="flex justify-between items-center">
+              <h2 className="text-2xl font-bold">Your Week Ahead</h2>
+            </div>
+            
+            <div className="space-y-6">
+              {next7Days.map((dateStr) => {
+                const dateObj = new Date(dateStr);
+                const isToday = dateStr === new Date().toISOString().split('T')[0];
+                const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+                
+                return (
+                  <div key={dateStr} className={`rounded-[28px] p-6 border ${isToday ? 'bg-[#6B705C]/20 border-[#6B705C]/40' : 'bg-[#6B705C]/10 border-black/10'}`}>
+                    <h3 className="text-xl font-bold mb-4 text-black flex items-center gap-2">
+                      {isToday && <span className="text-xs bg-[#6B705C] text-[#F7F5DC] px-2 py-1 rounded-full uppercase tracking-wider">Today</span>}
+                      {dayName}
+                    </h3>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {['Breakfast', 'Lunch', 'Dinner'].map((mealType) => {
+                        const slotKey = `${dateStr}-${mealType}`;
+                        const mealsInSlot = mealPlans.filter(m => m.date === dateStr && m.meal_type === mealType);
+                        
+                        return (
+                          <div key={mealType} className="bg-[#F7F5DC] rounded-2xl p-4 border border-black/10 flex flex-col">
+                            <h4 className="font-semibold text-sm uppercase tracking-wider text-black/70 mb-3">{mealType}</h4>
+                            
+                            <div className="flex-1 space-y-2 mb-3">
+                              {mealsInSlot.length === 0 ? (
+                                <p className="text-sm text-black/40 italic">Nothing planned</p>
+                              ) : (
+                                mealsInSlot.map(meal => (
+                                  <div key={meal.id} className="flex justify-between items-start p-2.5 rounded-xl bg-black/5 border border-black/5 group">
+                                    <div>
+                                      <p className="font-semibold text-sm text-black leading-snug">
+                                        {meal.recipe_id ? meal.recipes?.title : meal.manual_name}
+                                      </p>
+                                      <p className="text-xs text-black/60 mt-0.5">{meal.portions} portion{meal.portions > 1 ? 's' : ''}</p>
+                                    </div>
+                                    <button onClick={() => deleteMealPlan(meal.id)} className="text-black/30 hover:text-red-600 text-xs opacity-0 group-hover:opacity-100 transition">✕</button>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                            
+                            {/* Quick Add Manual Meal */}
+                            <div className="flex gap-2 mt-auto">
+                              <input 
+                                type="text"
+                                placeholder="Quick add..."
+                                value={manualInputs[slotKey] || ''}
+                                onChange={(e) => setManualInputs(prev => ({ ...prev, [slotKey]: e.target.value }))}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') saveManualMeal(dateStr, mealType);
+                                }}
+                                className="flex-1 px-3 py-2 rounded-xl text-sm bg-white border border-black/10 focus:outline-none focus:border-[#6B705C]"
+                              />
+                              <button 
+                                onClick={() => saveManualMeal(dateStr, mealType)}
+                                className="px-3 py-2 bg-[#6B705C] text-[#F7F5DC] rounded-xl text-sm font-medium hover:bg-[#6B705C]/80"
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -613,27 +841,43 @@ export default function PantryManager() {
         )}
 
         {/* RECIPE DETAIL MODAL */}
-        {selectedRecipe && (
+        {selectedRecipe && !showDistributionModal && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 md:p-8 z-50">
             <div className="w-full max-w-5xl rounded-[32px] overflow-hidden max-h-[90vh] flex flex-col bg-[#F7F5DC] border border-black/20 text-black shadow-2xl">
               <div className="p-6 md:p-8 overflow-y-auto space-y-6 flex-1">
                 <div className="flex justify-between items-start border-b pb-4 border-black/10">
                   <div>
                     <h2 className="text-3xl md:text-4xl font-bold text-black leading-snug">{selectedRecipe.title}</h2>
+                    <div className="flex items-center gap-4 mt-3">
+                      <span className="text-sm font-semibold uppercase tracking-wider text-black/70">Scale Ingredients:</span>
+                      <div className="flex items-center gap-2 bg-[#6B705C]/20 rounded-xl p-1 border border-black/10">
+                        <button onClick={() => setTargetPortions(Math.max(1, targetPortions - 1))} className="w-8 h-8 rounded-lg bg-black text-[#F7F5DC] hover:bg-black/80 font-bold">-</button>
+                        <span className="w-8 text-center font-bold text-lg">{targetPortions}</span>
+                        <button onClick={() => setTargetPortions(targetPortions + 1)} className="w-8 h-8 rounded-lg bg-black text-[#F7F5DC] hover:bg-black/80 font-bold">+</button>
+                      </div>
+                    </div>
                   </div>
                   <div className="flex gap-3 items-center">
-                    <button onClick={() => addMissingRecipeIngredients(selectedRecipe)} className="px-4 py-2 bg-black text-[#F7F5DC] rounded-xl text-sm font-medium hover:bg-black/80 transition">+ Missing Items to Shopping List</button>
-                    <button onClick={() => setSelectedRecipe(null)} className="w-9 h-9 rounded-full bg-black/10 flex items-center justify-center font-medium text-base hover:bg-black/20 transition">✕</button>
+                    <button 
+                      onClick={startDistribution} 
+                      className="px-4 py-2.5 bg-black text-[#F7F5DC] rounded-xl text-sm font-medium hover:bg-black/80 transition"
+                    >
+                      + Add to Meal Plan
+                    </button>
+                    <button onClick={() => addMissingRecipeIngredients(selectedRecipe, multiplier)} className="px-4 py-2.5 bg-black text-[#F7F5DC] rounded-xl text-sm font-medium hover:bg-black/80 transition">+ Missing to Shopping</button>
+                    <button onClick={() => setSelectedRecipe(null)} className="w-10 h-10 rounded-full bg-black/10 flex items-center justify-center font-medium text-lg hover:bg-black/20 transition">✕</button>
                   </div>
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
                   <div className="md:col-span-5 space-y-3">
-                    <h3 className="text-sm font-semibold uppercase tracking-wider text-black/80">Ingredients</h3>
+                    <h3 className="text-sm font-semibold uppercase tracking-wider text-black/80">
+                      Ingredients {multiplier !== 1 && <span className="text-emerald-700 normal-case font-medium ml-2">(Scaled {multiplier}x)</span>}
+                    </h3>
                     <div className="space-y-2">
                       {selectedRecipe.ingredients.map((ing, i) => (
-                        <div key={i} className="flex justify-between items-center text-sm p-3 rounded-xl bg-[#6B705C]/20 border border-black/10 text-black">
-                          {ing}
+                        <div key={i} className="flex justify-between items-center text-sm p-3 rounded-xl bg-[#6B705C]/20 border border-black/10 text-black font-medium">
+                          {scaleIngredient(ing, multiplier)}
                         </div>
                       ))}
                     </div>
@@ -653,6 +897,110 @@ export default function PantryManager() {
             </div>
           </div>
         )}
+
+        {/* MEAL PLAN DISTRIBUTION MODAL (The new grid-based tapping UI) */}
+        {showDistributionModal && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
+            <div className="w-full max-w-3xl rounded-[32px] p-6 md:p-8 bg-[#F7F5DC] border border-black/20 text-black shadow-2xl flex flex-col max-h-[90vh]">
+              
+              <div className="flex justify-between items-center border-b pb-4 border-black/10 mb-6 shrink-0">
+                <h2 className="text-2xl font-bold">Plan Your Meals</h2>
+                <button onClick={() => setShowDistributionModal(false)} className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-black">✕</button>
+              </div>
+
+              <div className="overflow-y-auto pr-2 space-y-6 flex-1">
+                {/* Step 1: How many portions? */}
+                <div className="p-5 rounded-2xl bg-[#6B705C]/10 border border-[#6B705C]/20 flex flex-col sm:flex-row justify-between items-center gap-4">
+                  <div>
+                    <h3 className="font-bold text-lg text-black">How many portions to plan?</h3>
+                    <p className="text-black/60 text-sm">For {selectedRecipe?.title}</p>
+                  </div>
+                  <div className="flex items-center gap-3 bg-[#F7F5DC] p-1.5 rounded-xl border border-black/10 shadow-sm">
+                    <button 
+                      onClick={() => {
+                        const newTarget = Math.max(1, planTargetPortions - 1);
+                        setPlanTargetPortions(newTarget);
+                        if (totalAllocated > newTarget) setAllocationsGrid({}); // Clear grid if they reduce below current assignments
+                      }} 
+                      className="w-10 h-10 rounded-lg bg-black text-[#F7F5DC] hover:bg-black/80 font-bold text-lg"
+                    >
+                      -
+                    </button>
+                    <span className="w-8 text-center font-bold text-xl">{planTargetPortions}</span>
+                    <button 
+                      onClick={() => setPlanTargetPortions(planTargetPortions + 1)} 
+                      className="w-10 h-10 rounded-lg bg-black text-[#F7F5DC] hover:bg-black/80 font-bold text-lg"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                {/* Step 2: Grid Assignment */}
+                <div>
+                  <div className="flex justify-between items-center mb-4 px-1">
+                    <span className="font-semibold text-black/70 uppercase tracking-wider text-sm">Tap to Assign Portions</span>
+                    <span className={`text-sm font-bold px-3 py-1 rounded-full ${remainingPortions === 0 ? 'bg-emerald-200 text-emerald-800' : 'bg-amber-200 text-amber-900'}`}>
+                      {remainingPortions} remaining
+                    </span>
+                  </div>
+
+                  <div className="space-y-3">
+                    {next7Days.map(dateStr => {
+                       const dateObj = new Date(dateStr);
+                       const isToday = dateStr === new Date().toISOString().split('T')[0];
+                       const dayName = isToday ? 'Today' : dateObj.toLocaleDateString('en-US', { weekday: 'short' });
+                       
+                       return (
+                         <div key={dateStr} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 p-3 bg-white rounded-2xl border border-black/10">
+                           <span className="w-16 font-bold text-sm text-center sm:text-left">{dayName}</span>
+                           <div className="flex-1 grid grid-cols-3 gap-2">
+                             {['Breakfast', 'Lunch', 'Dinner'].map(meal => {
+                               const key = `${dateStr}|${meal}`;
+                               const qty = allocationsGrid[key] || 0;
+                               return (
+                                 <div key={meal} className="flex flex-col items-center">
+                                   <span className="text-[10px] uppercase font-semibold text-black/50 mb-1">{meal}</span>
+                                   {qty > 0 ? (
+                                     <div className="flex items-center justify-between w-full bg-[#6B705C] text-[#F7F5DC] rounded-xl p-1 px-2 text-sm shadow-sm transition">
+                                       <button onClick={() => handleAllocate(dateStr, meal, -1)} className="font-bold px-2 py-1 hover:text-black/50 transition">-</button>
+                                       <span className="font-bold">{qty}</span>
+                                       <button onClick={() => handleAllocate(dateStr, meal, 1)} className="font-bold px-2 py-1 hover:text-black/50 transition">+</button>
+                                     </div>
+                                   ) : (
+                                     <button 
+                                       onClick={() => handleAllocate(dateStr, meal, 1)}
+                                       disabled={remainingPortions <= 0}
+                                       className="w-full py-1.5 rounded-xl border-2 border-dashed border-black/20 text-black/40 hover:bg-black/5 hover:border-black/40 text-sm disabled:opacity-30 transition"
+                                     >
+                                       +
+                                     </button>
+                                   )}
+                                 </div>
+                               )
+                             })}
+                           </div>
+                         </div>
+                       )
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-6 mt-4 border-t border-black/10 shrink-0">
+                <button 
+                  onClick={saveMealPlan} 
+                  disabled={remainingPortions !== 0 || loading} 
+                  className="w-full py-4 rounded-2xl font-bold text-lg bg-black text-[#F7F5DC] hover:bg-black/80 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                >
+                  {loading ? 'Saving...' : remainingPortions === 0 ? 'Confirm Meal Plan' : `Allocate exactly ${planTargetPortions} portions to save`}
+                </button>
+              </div>
+
+            </div>
+          </div>
+        )}
+
       </div>
     </main>
   );
