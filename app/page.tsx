@@ -119,12 +119,13 @@ export default function PantryManager() {
   // Manual Meal Planner Input State
   const [manualInputs, setManualInputs] = useState<Record<string, string>>({});
 
-  // AI Scanner State
+  // AI Scanner & Review State
   const [isScanning, setIsScanning] = useState(false);
+  const [scannedItems, setScannedItems] = useState<any[] | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Form State
-  const [name, setName] = useState('');
+  const [name, useStateName] = useState('');
   const [category, setCategory] = useState('Produce');
   const [quantity, setQuantity] = useState('1');
   const [unit, setUnit] = useState('pcs');
@@ -178,7 +179,7 @@ export default function PantryManager() {
 
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
-    setName(val);
+    useStateName(val);
     if (!isManualCategory && val.length > 2) {
       const lower = val.toLowerCase();
       if (lower.includes('milk') || lower.includes('cheese') || lower.includes('egg')) setCategory('Dairy & Eggs');
@@ -201,13 +202,13 @@ export default function PantryManager() {
 
     if (data) setItems(prev => [data, ...prev]);
     
-    setName('');
+    useStateName('');
     setQuantity('1');
     setIsManualCategory(false);
     setLoading(false);
   };
 
-  // AI RECEIPT SCANNER
+  // AI RECEIPT SCANNER & REVIEW
   const handleScanReceipt = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -221,18 +222,56 @@ export default function PantryManager() {
       const data = await res.json();
       
       if (data.items && data.items.length > 0) {
-         const { data: insertedData } = await supabase.from('pantry_items').insert(data.items).select();
-         if (insertedData) {
-           setItems(prev => [...insertedData, ...prev]);
-           alert(`Successfully added ${insertedData.length} items from your receipt!`);
-         }
+         setScannedItems(data.items);
       } else {
         alert(data.message || 'Could not find any items on this receipt.');
       }
     } catch {
       alert('Failed to read receipt. Please try another photo.');
     }
+    
+    if (fileInputRef.current) fileInputRef.current.value = '';
     setIsScanning(false);
+  };
+
+  const updateScannedItem = (index: number, field: string, value: string | number) => {
+    setScannedItems(prev => {
+      if (!prev) return prev;
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  };
+
+  const removeScannedItem = (index: number) => {
+    setScannedItems(prev => {
+      if (!prev) return prev;
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+
+  const confirmScannedItems = async () => {
+    if (!scannedItems || scannedItems.length === 0) {
+      setScannedItems(null);
+      return;
+    }
+    setLoading(true);
+    
+    const inserts = scannedItems.map(item => ({
+      ...item,
+      track_low_stock: true
+    }));
+
+    const { data: insertedData, error } = await supabase.from('pantry_items').insert(inserts).select();
+    
+    if (!error && insertedData) {
+      setItems(prev => [...insertedData, ...prev]);
+      alert(`Successfully added ${insertedData.length} items to your pantry!`);
+      setScannedItems(null);
+    } else {
+      alert('Failed to save items to database.');
+    }
+    setLoading(false);
   };
 
   const deleteItem = async (id: string) => {
@@ -283,23 +322,43 @@ export default function PantryManager() {
     if (!importUrl) return;
     setIsImporting(true);
     
-    setTimeout(async () => {
-      const scraped = {
-        title: 'Imported Pasta Primavera',
-        category: 'Main Dish',
-        cook_time: '25 mins',
-        portions: 4,
-        ingredients: ['1 lbs Pasta', '2 pcs Tomato', '1 pcs Crisp Lettuce'],
-        instructions: ['Boil pasta until al dente.', 'Sauté chopped vegetables in olive oil.'],
-        source_url: importUrl
-      };
+    try {
+      const res = await fetch('/api/scrape-recipe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: importUrl })
+      });
       
-      const { data } = await supabase.from('recipes').insert([scraped]).select().single();
-      if (data) setRecipes(prev => [data, ...prev]);
+      const data = await res.json();
       
-      setImportUrl('');
-      setIsImporting(false);
-    }, 1200);
+      if (res.ok && data.title) {
+        const newRecipe = {
+          ...data,
+          portions: 4
+        };
+
+        const { data: insertedData, error } = await supabase
+          .from('recipes')
+          .insert([newRecipe])
+          .select()
+          .single();
+          
+        if (error) throw error;
+
+        if (insertedData) {
+          setRecipes(prev => [insertedData, ...prev]);
+          alert('Recipe imported successfully!');
+        }
+      } else {
+        alert(data.error || 'Could not extract a recipe from that URL.');
+      }
+    } catch (error) {
+      console.error('Import error:', error);
+      alert('Failed to import recipe. Make sure it is a valid food blog URL.');
+    }
+    
+    setImportUrl('');
+    setIsImporting(false);
   };
 
   const deleteRecipe = async (id: string, e: React.MouseEvent) => {
@@ -476,16 +535,31 @@ export default function PantryManager() {
 
   // --- RENDER ---
   return (
-    <main className="min-h-screen bg-[#f7f4ce] text-black p-4 md:p-8 font-montserrat">
+    <main className="min-h-screen bg-[#fae7b9] text-black p-4 md:p-8 font-montserrat">
+      
+      {/* HTML Datalist for flexible unit suggestions */}
+      <datalist id="common-units">
+        {COMMON_UNITS.map(u => <option key={u} value={u} />)}
+      </datalist>
+
       <div className="max-w-6xl mx-auto space-y-8">
+        
         {/* HEADER / NAVIGATION */}
         <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-6 border-b border-black/10">
-          <div>
-            <h1 className="text-5xl md:text-6xl font-mogena tracking-tight text-black">Pantreasy</h1>
-            <p className="text-base text-black/70 mt-2 font-normal">Keep track of your ingredients & dinner plans</p>
+          
+          <div className="flex items-center gap-3 md:gap-4">
+            <img 
+              src="/logo.jpg" 
+              alt="Pantreasy Logo" 
+              className="w-12 h-12 md:w-16 md:h-16 rounded-full object-cover shrink-0 mix-blend-multiply" 
+            />
+            <div>
+              <h1 className="text-5xl md:text-6xl font-mogena tracking-tight text-black">Pantreasy</h1>
+              <p className="text-base text-black/70 mt-1 md:mt-2 font-normal">Keep track of your ingredients & dinner plans</p>
+            </div>
           </div>
           
-          <nav className="flex flex-wrap items-center gap-1 bg-[#6B705C]/40 p-1.5 rounded-2xl border border-black/10">
+          <nav className="flex flex-wrap items-center gap-1 bg-white p-1.5 rounded-2xl border border-black/10 shadow-sm">
             {[
               { id: 'dashboard', label: 'Dashboard' },
               { id: 'pantry', label: 'Pantry' },
@@ -496,7 +570,7 @@ export default function PantryManager() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`px-4 py-2 rounded-xl text-sm transition ${activeTab === tab.id ? 'bg-black text-[#f7f4ce] font-medium' : 'text-black/80 hover:text-black font-normal'}`}
+                className={`px-4 py-2 rounded-xl text-sm transition ${activeTab === tab.id ? 'bg-black text-[#fae7b9] font-medium' : 'text-black/80 hover:text-black font-normal'}`}
               >
                 {tab.label}
               </button>
@@ -517,27 +591,27 @@ export default function PantryManager() {
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div onClick={() => setActiveTab('pantry')} className="rounded-[28px] p-6 cursor-pointer transition hover:border-black/40 space-y-2 bg-[#6B705C] text-[#f7f4ce] border border-black/20">
-                <div className="flex justify-between items-center"><span className="text-3xl">🥗</span><span className="text-sm font-medium text-[#f7f4ce]/80">View Pantry →</span></div>
-                <h3 className="text-5xl font-bold text-[#f7f4ce]">{items.length}</h3>
-                <p className="text-base font-normal text-[#f7f4ce]/80">Pantry Items In Stock</p>
+              <div onClick={() => setActiveTab('pantry')} className="rounded-[28px] p-6 cursor-pointer transition hover:border-black/40 space-y-2 bg-[#6B705C] text-white border border-black/20">
+                <div className="flex justify-between items-center"><span className="text-3xl">🥗</span><span className="text-sm font-medium text-white/80">View Pantry →</span></div>
+                <h3 className="text-5xl font-bold text-white">{items.length}</h3>
+                <p className="text-base font-normal text-white/80">Pantry Items In Stock</p>
               </div>
-              <div onClick={() => setActiveTab('recipes')} className="rounded-[28px] p-6 cursor-pointer transition hover:border-black/40 space-y-2 bg-[#6B705C] text-[#f7f4ce] border border-black/20">
-                <div className="flex justify-between items-center"><span className="text-3xl">📖</span><span className="text-sm font-medium text-[#f7f4ce]/80">View Recipes →</span></div>
-                <h3 className="text-5xl font-bold text-[#f7f4ce]">{recipes.length}</h3>
-                <p className="text-base font-normal text-[#f7f4ce]/80">Saved Recipes</p>
+              <div onClick={() => setActiveTab('recipes')} className="rounded-[28px] p-6 cursor-pointer transition hover:border-black/40 space-y-2 bg-[#6B705C] text-white border border-black/20">
+                <div className="flex justify-between items-center"><span className="text-3xl">📖</span><span className="text-sm font-medium text-white/80">View Recipes →</span></div>
+                <h3 className="text-5xl font-bold text-white">{recipes.length}</h3>
+                <p className="text-base font-normal text-white/80">Saved Recipes</p>
               </div>
-              <div onClick={() => setShowLowStockModal(true)} className="rounded-[28px] p-6 cursor-pointer transition hover:border-red-500/50 space-y-3 bg-[#6B705C] text-[#f7f4ce] border border-black/20">
+              <div onClick={() => setShowLowStockModal(true)} className="rounded-[28px] p-6 cursor-pointer transition hover:border-red-500/50 space-y-3 bg-[#6B705C] text-white border border-black/20">
                 <div className="flex justify-between items-center"><span className="text-sm font-semibold uppercase tracking-wider text-red-200">⚠️ Low Stock Alert</span><span className="text-sm font-medium text-red-200">Expand →</span></div>
                 {lowStockItems.length > 0 ? (
                   <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                     {lowStockItems.map((item) => (
-                      <div key={item.id} className="flex justify-between items-center p-3 rounded-xl text-sm bg-[#f7f4ce] border border-black/10">
+                      <div key={item.id} className="flex justify-between items-center p-3 rounded-xl text-sm bg-white border border-black/10">
                         <span className="font-semibold text-black">{item.name}</span><span className="text-red-800 font-medium">{item.quantity} {item.unit} left</span>
                       </div>
                     ))}
                   </div>
-                ) : <p className="text-sm italic text-[#f7f4ce]/70">Pantry stock looks good!</p>}
+                ) : <p className="text-sm italic text-white/70">Pantry stock looks good!</p>}
               </div>
             </div>
           </div>
@@ -551,7 +625,7 @@ export default function PantryManager() {
               <button 
                 onClick={addLowStockToShopping}
                 disabled={lowStockItems.length === 0}
-                className="px-4 py-2 bg-[#6B705C] text-[#f7f4ce] rounded-xl text-sm font-medium disabled:opacity-50 hover:bg-[#6B705C]/80 transition"
+                className="px-4 py-2 bg-[#6B705C] text-[#fae7b9] rounded-xl text-sm font-medium disabled:opacity-50 hover:bg-[#6B705C]/80 transition"
               >
                 + Add Low Stock Items
               </button>
@@ -561,7 +635,7 @@ export default function PantryManager() {
               <button 
                 type="button"
                 onClick={startListening}
-                className={`p-4 rounded-2xl transition border border-black/20 ${isListening ? 'bg-red-500 text-white animate-pulse border-red-500' : 'bg-[#f7f4ce] text-black hover:bg-black/5'}`}
+                className={`p-4 rounded-2xl transition border border-black/20 shadow-sm ${isListening ? 'bg-red-500 text-white animate-pulse border-red-500' : 'bg-white text-black hover:bg-black/5'}`}
                 title="Use microphone"
               >
                 🎙️
@@ -571,9 +645,9 @@ export default function PantryManager() {
                 value={shoppingInput}
                 onChange={(e) => setShoppingInput(e.target.value)}
                 placeholder={isListening ? "Listening..." : "Add a product..."}
-                className="flex-1 px-4 py-3 rounded-2xl text-base focus:outline-none bg-[#f7f4ce] border border-black/20 text-black placeholder:text-black/50"
+                className="flex-1 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black placeholder:text-black/50 shadow-sm"
               />
-              <button type="submit" className="px-6 py-3 font-medium rounded-2xl bg-black text-[#f7f4ce] hover:bg-black/80">
+              <button type="submit" className="px-6 py-3 font-medium rounded-2xl bg-black text-[#fae7b9] hover:bg-black/80">
                 Add
               </button>
             </form>
@@ -583,7 +657,7 @@ export default function PantryManager() {
                 <p className="text-center text-black/60 py-8">Your list is empty.</p>
               ) : (
                 shoppingList.map(item => (
-                  <div key={item.id} className={`flex items-center justify-between p-4 rounded-2xl border border-black/10 transition ${item.checked ? 'bg-black/5 opacity-60' : 'bg-[#6B705C]/20'}`}>
+                  <div key={item.id} className={`flex items-center justify-between p-4 rounded-2xl border border-black/10 transition ${item.checked ? 'bg-black/5 opacity-60' : 'bg-white'}`}>
                     <label className="flex items-center gap-3 cursor-pointer flex-1">
                       <input 
                         type="checkbox" 
@@ -604,7 +678,7 @@ export default function PantryManager() {
         {/* PANTRY TAB */}
         {activeTab === 'pantry' && (
           <div className="space-y-6">
-             <div className="rounded-[28px] p-6 space-y-4 bg-[#6B705C] text-[#f7f4ce] border border-black/10">
+             <div className="rounded-[28px] p-6 space-y-4 bg-[#6B705C] text-[#fae7b9] border border-black/10">
               
               <div className="flex justify-between items-center">
                 <h2 className="text-sm font-semibold uppercase tracking-wider">Add Essential</h2>
@@ -614,7 +688,7 @@ export default function PantryManager() {
                   type="button" 
                   onClick={() => fileInputRef.current?.click()} 
                   disabled={isScanning}
-                  className="px-4 py-2 bg-black text-[#f7f4ce] rounded-xl text-sm font-medium transition active:scale-95 disabled:opacity-50 hover:bg-black/80"
+                  className="px-4 py-2 bg-black text-[#fae7b9] rounded-xl text-sm font-medium transition active:scale-95 disabled:opacity-50 hover:bg-black/80 shadow-sm"
                 >
                   {isScanning ? '🤖 Reading...' : '📸 Scan Receipt'}
                 </button>
@@ -622,17 +696,17 @@ export default function PantryManager() {
 
               <form onSubmit={addItem} className="space-y-3">
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                  <input type="text" placeholder="Item name (e.g. Crisp Lettuce)" value={name} onChange={handleNameChange} className="sm:col-span-5 px-4 py-3 rounded-2xl text-base focus:outline-none bg-[#f7f4ce] border border-black/20 text-black placeholder:text-black/50" required />
-                  <select value={category} onChange={(e) => { setCategory(e.target.value); setIsManualCategory(true); }} className="sm:col-span-3 px-3 py-3 rounded-2xl text-base focus:outline-none cursor-pointer bg-[#f7f4ce] border border-black/20 text-black">
-                    {CATEGORIES.map((cat) => <option key={cat.name} value={cat.name} className="bg-[#f7f4ce] text-black">{cat.icon} {cat.name}</option>)}
+                  <input type="text" placeholder="Item name (e.g. Crisp Lettuce)" value={name} onChange={handleNameChange} className="sm:col-span-5 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black placeholder:text-black/50 shadow-sm" required />
+                  <select value={category} onChange={(e) => { setCategory(e.target.value); setIsManualCategory(true); }} className="sm:col-span-3 px-3 py-3 rounded-2xl text-base focus:outline-none cursor-pointer bg-white border border-black/20 text-black shadow-sm">
+                    {CATEGORIES.map((cat) => <option key={cat.name} value={cat.name} className="text-black">{cat.icon} {cat.name}</option>)}
                   </select>
                   <div className="sm:col-span-2 flex gap-1.5">
-                    <input type="number" step="any" min="0.01" placeholder="Qty" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-16 px-2 py-3 rounded-2xl text-center text-base focus:outline-none bg-[#f7f4ce] border border-black/20 text-black" />
-                    <select value={unit} onChange={(e) => setUnit(e.target.value)} className="flex-1 px-2 py-3 rounded-2xl text-base focus:outline-none cursor-pointer capitalize bg-[#f7f4ce] border border-black/20 text-black">
-                      {COMMON_UNITS.map((u) => <option key={u} value={u} className="bg-[#f7f4ce] text-black">{u}</option>)}
+                    <input type="number" step="any" min="0.01" placeholder="Qty" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-16 px-2 py-3 rounded-2xl text-center text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm" />
+                    <select value={unit} onChange={(e) => setUnit(e.target.value)} className="flex-1 px-2 py-3 rounded-2xl text-base focus:outline-none cursor-pointer capitalize bg-white border border-black/20 text-black shadow-sm">
+                      {COMMON_UNITS.map((u) => <option key={u} value={u} className="text-black">{u}</option>)}
                     </select>
                   </div>
-                  <button type="submit" disabled={loading} className="sm:col-span-2 font-medium py-3.5 rounded-2xl transition text-base shadow-md active:scale-95 disabled:opacity-50 bg-black text-[#f7f4ce] hover:bg-black/80">Add</button>
+                  <button type="submit" disabled={loading} className="sm:col-span-2 font-medium py-3.5 rounded-2xl transition text-base shadow-md active:scale-95 disabled:opacity-50 bg-black text-[#fae7b9] hover:bg-black/80">Add</button>
                 </div>
               </form>
             </div>
@@ -653,11 +727,11 @@ export default function PantryManager() {
                           const productIcon = getItemIcon(item.name, item.category);
                           const isTracked = item.track_low_stock ?? true;
                           return (
-                            <div key={item.id} className="rounded-[20px] p-3 transition bg-[#f7f4ce] border border-black/10">
+                            <div key={item.id} className="rounded-[20px] p-3 transition bg-white border border-black/10 shadow-sm">
                               {!isEditing ? (
                                 <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-full flex items-center justify-center text-lg shrink-0 bg-[#6B705C]/40 border border-black/10">{productIcon}</div>
+                                    <div className="w-10 h-10 rounded-full flex items-center justify-center text-lg shrink-0 bg-[#6B705C]/10 border border-black/10">{productIcon}</div>
                                     <div>
                                       <h3 className="font-semibold text-base capitalize text-black">{item.name}</h3>
                                       <p className="text-sm text-black/70 font-normal">{item.quantity} {item.unit}</p>
@@ -665,8 +739,8 @@ export default function PantryManager() {
                                   </div>
                                   <div className="flex items-center gap-1.5">
                                     <button onClick={() => toggleLowStockTracking(item)} className={`p-1.5 text-sm rounded-lg transition ${isTracked ? 'text-amber-700' : 'text-black/30'}`}>{isTracked ? '🔔' : '🔕'}</button>
-                                    <button onClick={() => adjustQuantity(item, -1)} className="w-7 h-7 rounded-lg text-sm flex items-center justify-center bg-[#6B705C]/20 text-red-700 border border-black/10 hover:bg-black/5">-</button>
-                                    <button onClick={() => adjustQuantity(item, 1)} className="w-7 h-7 rounded-lg text-sm flex items-center justify-center bg-[#6B705C]/20 text-emerald-800 border border-black/10 hover:bg-black/5">+</button>
+                                    <button onClick={() => adjustQuantity(item, -1)} className="w-7 h-7 rounded-lg text-sm flex items-center justify-center bg-[#6B705C]/10 text-red-700 border border-black/10 hover:bg-black/5">-</button>
+                                    <button onClick={() => adjustQuantity(item, 1)} className="w-7 h-7 rounded-lg text-sm flex items-center justify-center bg-[#6B705C]/10 text-emerald-800 border border-black/10 hover:bg-black/5">+</button>
                                     <button onClick={() => startEditing(item)} className="p-1.5 text-sm text-black/60 hover:text-black">✏️</button>
                                     <button onClick={() => deleteItem(item.id)} className="p-1.5 text-sm text-black/40 hover:text-red-600">✕</button>
                                   </div>
@@ -679,13 +753,13 @@ export default function PantryManager() {
                                   </div>
                                   <div className="flex gap-2">
                                     <select value={editCategory} onChange={(e) => setEditCategory(e.target.value)} className="w-28 px-2 py-2 rounded-xl text-sm focus:outline-none bg-white border border-black/20 text-black">
-                                      {CATEGORIES.map((cat) => <option key={cat.name} value={cat.name} className="bg-white text-black">{cat.icon} {cat.name}</option>)}
+                                      {CATEGORIES.map((cat) => <option key={cat.name} value={cat.name} className="text-black">{cat.icon} {cat.name}</option>)}
                                     </select>
                                     <input type="number" step="any" min="0.01" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} className="w-16 px-2 py-2 rounded-xl text-center text-sm focus:outline-none bg-white border border-black/20 text-black" />
                                     <select value={editUnit} onChange={(e) => setEditUnit(e.target.value)} className="flex-1 px-2 py-2 rounded-xl text-sm focus:outline-none capitalize bg-white border border-black/20 text-black">
-                                      {COMMON_UNITS.map((u) => <option key={u} value={u} className="bg-white text-black">{u}</option>)}
+                                      {COMMON_UNITS.map((u) => <option key={u} value={u} className="text-black">{u}</option>)}
                                     </select>
-                                    <button onClick={() => saveEdit(item.id)} className="px-3 py-2 rounded-xl text-sm font-medium bg-black text-[#f7f4ce]">Save</button>
+                                    <button onClick={() => saveEdit(item.id)} className="px-3 py-2 rounded-xl text-sm font-medium bg-black text-[#fae7b9]">Save</button>
                                   </div>
                                 </div>
                               )}
@@ -706,17 +780,17 @@ export default function PantryManager() {
         {/* RECIPES TAB */}
         {activeTab === 'recipes' && (
           <div className="space-y-6">
-             <div className="rounded-[28px] p-6 space-y-3 bg-[#6B705C] text-[#f7f4ce] border border-black/10">
-              <h2 className="text-sm font-semibold uppercase tracking-wider">🌐 Import Recipe via Web URL</h2>
+             <div className="rounded-[28px] p-6 space-y-3 bg-[#6B705C] text-[#fae7b9] border border-black/10">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-white">🌐 Import Recipe via Web URL</h2>
               <form onSubmit={handleImportRecipe} className="flex flex-col sm:flex-row gap-3">
-                <input type="url" placeholder="Paste recipe URL (e.g. foodnetwork.com/...)" value={importUrl} onChange={(e) => setImportUrl(e.target.value)} className="flex-1 px-4 py-3 rounded-2xl text-base focus:outline-none bg-[#f7f4ce] border border-black/20 text-black placeholder:text-black/50" required />
-                <button type="submit" disabled={isImporting} className="px-8 font-medium py-3.5 rounded-2xl transition text-base shadow-md active:scale-95 disabled:opacity-50 bg-black text-[#f7f4ce] hover:bg-black/80">Import</button>
+                <input type="url" placeholder="Paste recipe URL (e.g. foodnetwork.com/...)" value={importUrl} onChange={(e) => setImportUrl(e.target.value)} className="flex-1 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black placeholder:text-black/50 shadow-sm" required />
+                <button type="submit" disabled={isImporting} className="px-8 font-medium py-3.5 rounded-2xl transition text-base shadow-md active:scale-95 disabled:opacity-50 bg-black text-[#fae7b9] hover:bg-black/80">Import</button>
               </form>
             </div>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
               {recipes.map((recipe) => (
-                <div key={recipe.id} onClick={() => openRecipe(recipe)} className="rounded-[24px] overflow-hidden cursor-pointer transition border border-black/10 hover:border-black/40 flex flex-col justify-between bg-[#6B705C]/20">
+                <div key={recipe.id} onClick={() => openRecipe(recipe)} className="rounded-[24px] overflow-hidden cursor-pointer transition border border-black/10 hover:border-black/40 flex flex-col justify-between bg-white shadow-sm">
                   {recipe.image && <img src={recipe.image} alt={recipe.title} className="w-full h-40 object-cover" />}
                   <div className="p-5 space-y-3 flex-1 flex flex-col justify-between">
                     <div className="flex justify-between items-start">
@@ -749,7 +823,7 @@ export default function PantryManager() {
                 return (
                   <div key={dateStr} className={`rounded-[28px] p-6 border ${isToday ? 'bg-[#6B705C]/20 border-[#6B705C]/40' : 'bg-[#6B705C]/10 border-black/10'}`}>
                     <h3 className="text-xl font-bold mb-4 text-black flex items-center gap-2">
-                      {isToday && <span className="text-xs bg-[#6B705C] text-[#f7f4ce] px-2 py-1 rounded-full uppercase tracking-wider">Today</span>}
+                      {isToday && <span className="text-xs bg-[#6B705C] text-white px-2 py-1 rounded-full uppercase tracking-wider">Today</span>}
                       {dayName}
                     </h3>
                     
@@ -759,7 +833,7 @@ export default function PantryManager() {
                         const mealsInSlot = mealPlans.filter(m => m.date === dateStr && m.meal_type === mealType);
                         
                         return (
-                          <div key={mealType} className="bg-[#f7f4ce] rounded-2xl p-4 border border-black/10 flex flex-col">
+                          <div key={mealType} className="bg-white rounded-2xl p-4 border border-black/10 flex flex-col shadow-sm">
                             <h4 className="font-semibold text-sm uppercase tracking-wider text-black/70 mb-3">{mealType}</h4>
                             
                             <div className="flex-1 space-y-2 mb-3">
@@ -790,11 +864,11 @@ export default function PantryManager() {
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') saveManualMeal(dateStr, mealType);
                                 }}
-                                className="flex-1 px-3 py-2 rounded-xl text-sm bg-white border border-black/10 focus:outline-none focus:border-[#6B705C]"
+                                className="flex-1 px-3 py-2 rounded-xl text-sm bg-black/5 border border-transparent focus:outline-none focus:border-[#6B705C] transition"
                               />
                               <button 
                                 onClick={() => saveManualMeal(dateStr, mealType)}
-                                className="px-3 py-2 bg-[#6B705C] text-[#f7f4ce] rounded-xl text-sm font-medium hover:bg-[#6B705C]/80"
+                                className="px-3 py-2 bg-[#6B705C] text-white rounded-xl text-sm font-medium hover:bg-[#6B705C]/80 shadow-sm"
                               >
                                 +
                               </button>
@@ -813,7 +887,7 @@ export default function PantryManager() {
         {/* LOW STOCK MODAL */}
         {showLowStockModal && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="w-full max-w-lg rounded-[32px] p-6 space-y-6 bg-[#f7f4ce] border border-black/20 text-black shadow-2xl">
+            <div className="w-full max-w-lg rounded-[32px] p-6 space-y-6 bg-[#fae7b9] border border-black/20 text-black shadow-2xl">
               <div className="flex justify-between items-center border-b pb-4 border-black/10">
                 <h2 className="text-xl font-bold flex items-center gap-2 text-red-800">
                   <span>⚠️</span> Low Stock Alerts
@@ -824,13 +898,13 @@ export default function PantryManager() {
               <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
                 {lowStockItems.length > 0 ? (
                   lowStockItems.map((item) => (
-                    <div key={item.id} className="flex justify-between items-center p-4 rounded-2xl bg-[#6B705C]/20 border border-black/10">
+                    <div key={item.id} className="flex justify-between items-center p-4 rounded-2xl bg-white border border-black/10 shadow-sm">
                       <div>
                         <h4 className="font-semibold text-base capitalize text-black">{item.name}</h4>
                         <p className="text-sm text-red-800 font-medium">{item.quantity} {item.unit} remaining</p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <button onClick={() => adjustQuantity(item, 1)} className="px-3 py-1.5 rounded-xl text-sm font-medium bg-black text-[#f7f4ce]">+ Restock 1</button>
+                        <button onClick={() => adjustQuantity(item, 1)} className="px-3 py-1.5 rounded-xl text-sm font-medium bg-black text-[#fae7b9]">+ Restock 1</button>
                       </div>
                     </div>
                   ))
@@ -843,28 +917,28 @@ export default function PantryManager() {
         {/* RECIPE DETAIL MODAL */}
         {selectedRecipe && !showDistributionModal && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 md:p-8 z-50">
-            <div className="w-full max-w-5xl rounded-[32px] overflow-hidden max-h-[90vh] flex flex-col bg-[#f7f4ce] border border-black/20 text-black shadow-2xl">
+            <div className="w-full max-w-5xl rounded-[32px] overflow-hidden max-h-[90vh] flex flex-col bg-[#fae7b9] border border-black/20 text-black shadow-2xl">
               <div className="p-6 md:p-8 overflow-y-auto space-y-6 flex-1">
                 <div className="flex justify-between items-start border-b pb-4 border-black/10">
                   <div>
                     <h2 className="text-3xl md:text-4xl font-bold text-black leading-snug">{selectedRecipe.title}</h2>
                     <div className="flex items-center gap-4 mt-3">
                       <span className="text-sm font-semibold uppercase tracking-wider text-black/70">Scale Ingredients:</span>
-                      <div className="flex items-center gap-2 bg-[#6B705C]/20 rounded-xl p-1 border border-black/10">
-                        <button onClick={() => setTargetPortions(Math.max(1, targetPortions - 1))} className="w-8 h-8 rounded-lg bg-black text-[#f7f4ce] hover:bg-black/80 font-bold">-</button>
+                      <div className="flex items-center gap-2 bg-white rounded-xl p-1 border border-black/10 shadow-sm">
+                        <button onClick={() => setTargetPortions(Math.max(1, targetPortions - 1))} className="w-8 h-8 rounded-lg bg-black text-[#fae7b9] hover:bg-black/80 font-bold">-</button>
                         <span className="w-8 text-center font-bold text-lg">{targetPortions}</span>
-                        <button onClick={() => setTargetPortions(targetPortions + 1)} className="w-8 h-8 rounded-lg bg-black text-[#f7f4ce] hover:bg-black/80 font-bold">+</button>
+                        <button onClick={() => setTargetPortions(targetPortions + 1)} className="w-8 h-8 rounded-lg bg-black text-[#fae7b9] hover:bg-black/80 font-bold">+</button>
                       </div>
                     </div>
                   </div>
                   <div className="flex gap-3 items-center">
                     <button 
                       onClick={startDistribution} 
-                      className="px-4 py-2.5 bg-black text-[#f7f4ce] rounded-xl text-sm font-medium hover:bg-black/80 transition shadow-sm"
+                      className="px-4 py-2.5 bg-black text-[#fae7b9] rounded-xl text-sm font-medium hover:bg-black/80 transition shadow-sm"
                     >
                       + Add to Meal Plan
                     </button>
-                    <button onClick={() => addMissingRecipeIngredients(selectedRecipe, multiplier)} className="px-4 py-2.5 bg-black text-[#f7f4ce] rounded-xl text-sm font-medium hover:bg-black/80 transition">+ Missing to Shopping</button>
+                    <button onClick={() => addMissingRecipeIngredients(selectedRecipe, multiplier)} className="px-4 py-2.5 bg-black text-[#fae7b9] rounded-xl text-sm font-medium hover:bg-black/80 transition shadow-sm">+ Missing to Shopping</button>
                     <button onClick={() => setSelectedRecipe(null)} className="w-10 h-10 rounded-full bg-black/10 flex items-center justify-center font-medium text-lg hover:bg-black/20 transition">✕</button>
                   </div>
                 </div>
@@ -875,21 +949,57 @@ export default function PantryManager() {
                       Ingredients {multiplier !== 1 && <span className="text-emerald-700 normal-case font-medium ml-2">(Scaled {multiplier}x)</span>}
                     </h3>
                     <div className="space-y-2">
-                      {selectedRecipe.ingredients.map((ing, i) => (
-                        <div key={i} className="flex justify-between items-center text-sm p-3 rounded-xl bg-[#6B705C]/20 border border-black/10 text-black font-medium">
-                          {scaleIngredient(ing, multiplier)}
-                        </div>
-                      ))}
+                      {selectedRecipe.ingredients.map((ing, i) => {
+                        const scaledIng = scaleIngredient(ing, multiplier);
+                        const statusObj = getIngredientStatus(scaledIng, items);
+                        return (
+                          <div key={i} className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 text-sm p-3 rounded-xl bg-white border border-black/10 text-black font-medium shadow-sm">
+                            <span>{scaledIng}</span>
+                            <div className="shrink-0">
+                              {statusObj.status === 'in_stock' && (
+                                <span className="text-[10px] px-2.5 py-1 bg-[#6B705C] text-[#fae7b9] rounded-full font-bold uppercase tracking-wider shadow-sm">
+                                  In Pantry ({statusObj.availableText})
+                                </span>
+                              )}
+                              {statusObj.status === 'insufficient' && (
+                                <span className="text-[10px] px-2.5 py-1 border border-[#6B705C]/50 text-[#6B705C] rounded-full font-bold uppercase tracking-wider">
+                                  Low Stock
+                                </span>
+                              )}
+                              {statusObj.status === 'missing' && (
+                                <span className="text-[10px] px-2.5 py-1 bg-black text-[#fae7b9] rounded-full font-bold uppercase tracking-wider shadow-sm">
+                                  Missing
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
-                  <div className="md:col-span-7 space-y-4">
+                  <div className="md:col-span-7 space-y-4 flex flex-col">
                     <h3 className="text-sm font-semibold uppercase tracking-wider text-black/80">Method & Instructions</h3>
-                    {selectedRecipe.instructions?.map((step, idx) => (
-                      <div key={idx} className="p-4 rounded-2xl space-y-1.5 bg-[#6B705C]/20 border border-black/10">
-                        <span className="font-medium text-sm uppercase text-black/70">Step {idx + 1}</span>
-                        <p className="leading-relaxed text-black">{step}</p>
-                      </div>
-                    ))}
+                    {selectedRecipe.instructions?.map((step, idx) => {
+                      if (step.includes('For full cooking instructions, visit')) return null;
+                      return (
+                        <div key={idx} className="p-4 rounded-2xl space-y-1.5 bg-white border border-black/10 shadow-sm">
+                          <span className="font-medium text-sm uppercase text-black/70">Step {idx + 1}</span>
+                          <p className="leading-relaxed text-black">{step}</p>
+                        </div>
+                      );
+                    })}
+
+                    {/* NEW CLICKABLE ORIGINAL RECIPE LINK */}
+                    {selectedRecipe.source_url && (
+                      <a 
+                        href={selectedRecipe.source_url} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="mt-4 px-6 py-4 bg-white border border-black/20 rounded-2xl text-black font-semibold text-center hover:bg-black/5 transition shadow-sm block"
+                      >
+                        🔗 View Full Original Recipe
+                      </a>
+                    )}
                   </div>
                 </div>
 
@@ -898,10 +1008,10 @@ export default function PantryManager() {
           </div>
         )}
 
-        {/* MEAL PLAN DISTRIBUTION MODAL (The new grid-based tapping UI) */}
+        {/* MEAL PLAN DISTRIBUTION MODAL */}
         {showDistributionModal && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
-            <div className="w-full max-w-3xl rounded-[32px] p-6 md:p-8 bg-[#f7f4ce] border border-black/20 text-black shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="w-full max-w-3xl rounded-[32px] p-6 md:p-8 bg-[#fae7b9] border border-black/20 text-black shadow-2xl flex flex-col max-h-[90vh]">
               
               <div className="flex justify-between items-center border-b pb-4 border-black/10 mb-6 shrink-0">
                 <h2 className="text-2xl font-bold">Plan Your Meals</h2>
@@ -909,38 +1019,36 @@ export default function PantryManager() {
               </div>
 
               <div className="overflow-y-auto pr-2 space-y-6 flex-1">
-                {/* Step 1: How many portions? */}
-                <div className="p-5 rounded-2xl bg-[#6B705C]/10 border border-[#6B705C]/20 flex flex-col sm:flex-row justify-between items-center gap-4">
+                <div className="p-5 rounded-2xl bg-white border border-black/10 flex flex-col sm:flex-row justify-between items-center gap-4 shadow-sm">
                   <div>
                     <h3 className="font-bold text-lg text-black">How many portions to plan?</h3>
                     <p className="text-black/60 text-sm">For {selectedRecipe?.title}</p>
                   </div>
-                  <div className="flex items-center gap-3 bg-[#f7f4ce] p-1.5 rounded-xl border border-black/10 shadow-sm">
+                  <div className="flex items-center gap-3 bg-[#fae7b9] p-1.5 rounded-xl border border-black/10 shadow-sm">
                     <button 
                       onClick={() => {
                         const newTarget = Math.max(1, planTargetPortions - 1);
                         setPlanTargetPortions(newTarget);
-                        if (totalAllocated > newTarget) setAllocationsGrid({}); // Clear grid if they reduce below current assignments
+                        if (totalAllocated > newTarget) setAllocationsGrid({}); 
                       }} 
-                      className="w-10 h-10 rounded-lg bg-black text-[#f7f4ce] hover:bg-black/80 font-bold text-lg"
+                      className="w-10 h-10 rounded-lg bg-black text-[#fae7b9] hover:bg-black/80 font-bold text-lg"
                     >
                       -
                     </button>
                     <span className="w-8 text-center font-bold text-xl">{planTargetPortions}</span>
                     <button 
                       onClick={() => setPlanTargetPortions(planTargetPortions + 1)} 
-                      className="w-10 h-10 rounded-lg bg-black text-[#f7f4ce] hover:bg-black/80 font-bold text-lg"
+                      className="w-10 h-10 rounded-lg bg-black text-[#fae7b9] hover:bg-black/80 font-bold text-lg"
                     >
                       +
                     </button>
                   </div>
                 </div>
 
-                {/* Step 2: Grid Assignment */}
                 <div>
                   <div className="flex justify-between items-center mb-4 px-1">
                     <span className="font-semibold text-black/70 uppercase tracking-wider text-sm">Tap to Assign Portions</span>
-                    <span className={`text-sm font-bold px-3 py-1 rounded-full ${remainingPortions === 0 ? 'bg-emerald-200 text-emerald-800' : 'bg-amber-200 text-amber-900'}`}>
+                    <span className={`text-sm font-bold px-3 py-1 rounded-full ${remainingPortions === 0 ? 'bg-[#6B705C] text-[#fae7b9]' : 'bg-amber-200 text-amber-900'}`}>
                       {remainingPortions} remaining
                     </span>
                   </div>
@@ -952,7 +1060,7 @@ export default function PantryManager() {
                        const dayName = isToday ? 'Today' : dateObj.toLocaleDateString('en-US', { weekday: 'short' });
                        
                        return (
-                         <div key={dateStr} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 p-3 bg-white rounded-2xl border border-black/10">
+                         <div key={dateStr} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 p-3 bg-white rounded-2xl border border-black/10 shadow-sm">
                            <span className="w-16 font-bold text-sm text-center sm:text-left">{dayName}</span>
                            <div className="flex-1 grid grid-cols-3 gap-2">
                              {['Breakfast', 'Lunch', 'Dinner'].map(meal => {
@@ -962,10 +1070,10 @@ export default function PantryManager() {
                                  <div key={meal} className="flex flex-col items-center">
                                    <span className="text-[10px] uppercase font-semibold text-black/50 mb-1">{meal}</span>
                                    {qty > 0 ? (
-                                     <div className="flex items-center justify-between w-full bg-[#6B705C] text-[#f7f4ce] rounded-xl p-1 px-2 text-sm shadow-sm transition">
-                                       <button onClick={() => handleAllocate(dateStr, meal, -1)} className="font-bold px-2 py-1 hover:text-black/50 transition">-</button>
+                                     <div className="flex items-center justify-between w-full bg-[#6B705C] text-white rounded-xl p-1 px-2 text-sm shadow-sm transition">
+                                       <button onClick={() => handleAllocate(dateStr, meal, -1)} className="font-bold px-2 py-1 hover:text-white/70 transition">-</button>
                                        <span className="font-bold">{qty}</span>
-                                       <button onClick={() => handleAllocate(dateStr, meal, 1)} className="font-bold px-2 py-1 hover:text-black/50 transition">+</button>
+                                       <button onClick={() => handleAllocate(dateStr, meal, 1)} className="font-bold px-2 py-1 hover:text-white/70 transition">+</button>
                                      </div>
                                    ) : (
                                      <button 
@@ -991,9 +1099,90 @@ export default function PantryManager() {
                 <button 
                   onClick={saveMealPlan} 
                   disabled={remainingPortions !== 0 || loading} 
-                  className="w-full py-4 rounded-2xl font-bold text-lg bg-black text-[#f7f4ce] hover:bg-black/80 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                  className="w-full py-4 rounded-2xl font-bold text-lg bg-black text-[#fae7b9] hover:bg-black/80 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-sm"
                 >
                   {loading ? 'Saving...' : remainingPortions === 0 ? 'Confirm Meal Plan' : `Allocate exactly ${planTargetPortions} portions to save`}
+                </button>
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* RECEIPT REVIEW MODAL */}
+        {scannedItems && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
+            <div className="w-full max-w-4xl rounded-[32px] p-6 md:p-8 bg-[#fae7b9] border border-black/20 text-black shadow-2xl flex flex-col max-h-[90vh]">
+              
+              <div className="flex justify-between items-center border-b pb-4 border-black/10 mb-6 shrink-0">
+                <h2 className="text-2xl font-bold">Review Scanned Items</h2>
+                <button onClick={() => setScannedItems(null)} className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-black">✕</button>
+              </div>
+
+              <div className="overflow-y-auto pr-2 space-y-4 flex-1">
+                <p className="text-black/70 text-sm mb-2 font-medium">Adjust names, quantities, and units before saving to your pantry.</p>
+                
+                {scannedItems.map((item, idx) => (
+                  <div key={idx} className="flex flex-wrap sm:flex-nowrap gap-3 items-center p-4 bg-white rounded-2xl border border-black/10 shadow-sm">
+                    <input 
+                      type="text" 
+                      value={item.name} 
+                      onChange={(e) => updateScannedItem(idx, 'name', e.target.value)}
+                      className="flex-1 min-w-[150px] px-3 py-2 rounded-xl text-sm border border-black/20 focus:outline-none focus:border-[#6B705C]"
+                      placeholder="Item name"
+                    />
+                    
+                    <select 
+                      value={item.category} 
+                      onChange={(e) => updateScannedItem(idx, 'category', e.target.value)}
+                      className="w-36 px-3 py-2 rounded-xl text-sm border border-black/20 bg-white focus:outline-none focus:border-[#6B705C]"
+                    >
+                      {CATEGORIES.map(c => <option key={c.name} value={c.name}>{c.icon} {c.name}</option>)}
+                    </select>
+
+                    <div className="flex items-center gap-1.5 w-full sm:w-auto">
+                      <input 
+                        type="number" 
+                        step="any" 
+                        value={item.quantity} 
+                        onChange={(e) => updateScannedItem(idx, 'quantity', parseFloat(e.target.value) || 0)}
+                        className="w-16 px-2 py-2 rounded-xl text-center text-sm border border-black/20 focus:outline-none focus:border-[#6B705C]"
+                      />
+                      <input 
+                        type="text" 
+                        list="common-units"
+                        value={item.unit} 
+                        onChange={(e) => updateScannedItem(idx, 'unit', e.target.value)}
+                        placeholder="Unit (e.g. litre)"
+                        className="w-28 px-3 py-2 rounded-xl text-sm border border-black/20 bg-white focus:outline-none focus:border-[#6B705C]"
+                      />
+                    </div>
+                    
+                    <button onClick={() => removeScannedItem(idx)} className="p-2 text-black/40 hover:text-red-600 font-bold" title="Remove item">✕</button>
+                  </div>
+                ))}
+                
+                <button 
+                  onClick={() => setScannedItems([...scannedItems, { name: '', category: 'Other', quantity: 1, unit: 'pcs' }])} 
+                  className="w-full py-4 rounded-2xl border-2 border-dashed border-black/20 text-black/60 font-medium hover:bg-white hover:text-black hover:border-black/40 transition text-sm"
+                >
+                  + Add missed item
+                </button>
+              </div>
+
+              <div className="pt-6 mt-4 border-t border-black/10 shrink-0 flex gap-3">
+                 <button 
+                   onClick={() => setScannedItems(null)} 
+                   className="flex-1 py-4 rounded-2xl font-bold text-lg border border-black/20 bg-transparent text-black hover:bg-black/5 transition"
+                 >
+                  Cancel
+                </button>
+                <button 
+                  onClick={confirmScannedItems} 
+                  disabled={loading} 
+                  className="flex-1 py-4 rounded-2xl font-bold text-lg bg-black text-[#fae7b9] hover:bg-black/80 disabled:opacity-50 transition shadow-sm"
+                >
+                  {loading ? 'Saving...' : 'Confirm & Save to Pantry'}
                 </button>
               </div>
 

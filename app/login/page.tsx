@@ -57,16 +57,23 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="min-h-screen bg-[#F7F5DC] flex flex-col items-center justify-center p-4 font-montserrat text-black">
+    <main className="min-h-screen bg-[#fae7b9] flex flex-col items-center justify-center p-4 font-montserrat text-black">
       
-      {/* HEADER */}
-      <div className="text-center mb-10 space-y-2">
-        <h1 className="text-6xl md:text-7xl font-mogena tracking-tight text-black drop-shadow-sm">
-          Pantreasy
-        </h1>
-        <p className="text-lg text-black/70 font-medium">
-          Your smart kitchen companion
-        </p>
+      {/* HEADER WITH LOGO */}
+      <div className="text-center mb-10 space-y-4 flex flex-col items-center">
+        <img 
+          src="/logo.jpg" 
+          alt="Pantreasy Logo" 
+          className="w-20 h-20 rounded-full object-cover mix-blend-multiply" 
+        />
+        <div>
+          <h1 className="text-6xl md:text-7xl font-mogena tracking-tight text-black drop-shadow-sm">
+            Pantreasy
+          </h1>
+          <p className="text-lg text-black/70 font-medium mt-2">
+            Your smart kitchen companion
+          </p>
+        </div>
       </div>
 
       {/* LOGIN CARD */}
@@ -83,7 +90,7 @@ export default function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
-              className="w-full px-4 py-3 rounded-2xl text-base focus:outline-none focus:ring-2 focus:ring-black/20 bg-[#F7F5DC] border border-black/20 text-black placeholder:text-black/40 transition"
+              className="w-full px-4 py-3 rounded-2xl text-base focus:outline-none focus:ring-2 focus:ring-black/20 bg-[#fae7b9] border border-black/20 text-black placeholder:text-black/40 transition"
               required
             />
           </div>
@@ -97,7 +104,7 @@ export default function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
-              className="w-full px-4 py-3 rounded-2xl text-base focus:outline-none focus:ring-2 focus:ring-black/20 bg-[#F7F5DC] border border-black/20 text-black placeholder:text-black/40 transition"
+              className="w-full px-4 py-3 rounded-2xl text-base focus:outline-none focus:ring-2 focus:ring-black/20 bg-[#fae7b9] border border-black/20 text-black placeholder:text-black/40 transition"
               required
             />
           </div>
@@ -119,7 +126,7 @@ export default function LoginPage() {
             <button
               onClick={handleSignIn}
               disabled={loading}
-              className="w-full px-6 py-3.5 font-medium rounded-2xl transition shadow-md active:scale-[0.98] disabled:opacity-50 bg-black text-[#F7F5DC] hover:bg-black/80 text-lg"
+              className="w-full px-6 py-3.5 font-medium rounded-2xl transition shadow-md active:scale-[0.98] disabled:opacity-50 bg-black text-[#fae7b9] hover:bg-black/80 text-lg"
             >
               {loading ? 'Processing...' : 'Sign In'}
             </button>
@@ -132,7 +139,7 @@ export default function LoginPage() {
             <button
               onClick={handleSignUp}
               disabled={loading}
-              className="w-full px-6 py-3.5 font-medium rounded-2xl transition border border-black/20 active:scale-[0.98] disabled:opacity-50 bg-[#F7F5DC] text-black hover:bg-black/5 text-lg"
+              className="w-full px-6 py-3.5 font-medium rounded-2xl transition border border-black/20 active:scale-[0.98] disabled:opacity-50 bg-[#fae7b9] text-black hover:bg-black/5 text-lg"
             >
               Create an Account
             </button>

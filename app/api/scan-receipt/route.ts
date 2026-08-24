@@ -1,78 +1,91 @@
+import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
 import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
   try {
+    console.log("📥 Received receipt scan request...");
+    
     const formData = await req.formData();
     const file = formData.get('receipt') as File;
     
     if (!file) {
+      console.log("❌ Error: No file uploaded");
       return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
     }
 
+    console.log(`📄 File received: ${file.name} (${file.type})`);
+
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
+      console.log("❌ Error: Missing GEMINI_API_KEY in environment variables");
       return NextResponse.json({ error: 'Missing API key' }, { status: 500 });
     }
 
-    // Attempt standard AI call
     const bytes = await file.arrayBuffer();
     const base64Image = Buffer.from(bytes).toString('base64');
 
-    const prompt = `Analyze this grocery receipt. Extract the purchased items and return ONLY a valid JSON array of objects.
-    Each object MUST have exactly these keys:
-    - "name" (string: the product name)
-    - "category" (string: choose from Produce, Dairy & Eggs, Meat & Seafood, Pantry Staples, Bakery, Frozen, Snacks, Beverages, Other)
-    - "quantity" (number: default to 1 if unknown)
-    - "unit" (string: e.g., pcs, lbs, oz, l, default to "pcs")`;
+    const genAI = new GoogleGenerativeAI(apiKey);
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { text: prompt },
-              { inlineData: { mimeType: file.type, data: base64Image } }
-            ]
-          }],
-          generationConfig: { responseMimeType: "application/json" }
-        })
-      }
-    );
+    const responseSchema = {
+      type: SchemaType.ARRAY,
+      description: "A list of grocery items extracted from the receipt.",
+      items: {
+        type: SchemaType.OBJECT,
+        properties: {
+          name: { type: SchemaType.STRING, description: "Clean product name" },
+          category: { 
+            type: SchemaType.STRING, 
+            enum: ["Produce", "Dairy & Eggs", "Meat & Seafood", "Pantry Staples", "Bakery", "Frozen", "Snacks", "Beverages", "Other"] 
+          },
+          quantity: { type: SchemaType.NUMBER },
+          unit: { type: SchemaType.STRING },
+        },
+        required: ["name", "category", "quantity", "unit"],
+      },
+    };
 
-    if (response.ok) {
-      const data = await response.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (text) {
-        const items = JSON.parse(text);
-        if (items && items.length > 0) {
-          return NextResponse.json({ items });
-        }
+const model = genAI.getGenerativeModel({ 
+      model: 'gemini-3.6-flash',
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: responseSchema as any, 
+        temperature: 0.1, 
       }
+    });
+
+    const prompt = `You are a highly accurate grocery receipt transcription AI. 
+    Analyze this receipt image. 
+    Extract ONLY the purchased food and grocery items. 
+    Ignore taxes, subtotals, discounts, store information, and non-grocery items.
+    Translate abbreviated store receipt jargon into normal, readable grocery names.
+    If the image is too blurry, not a receipt, or you are completely uncertain, return an empty array [].`;
+
+    console.log("🤖 Sending image to Gemini AI...");
+    const result = await model.generateContent([
+      prompt,
+      { inlineData: { data: base64Image, mimeType: file.type } }
+    ]);
+
+    const text = result.response.text();
+    console.log("✨ Raw Gemini Response:", text); // <-- THIS IS THE MAGIC LINE
+
+    let items = JSON.parse(text);
+
+    // Sometimes Gemini wraps arrays in an object like { "items": [...] } despite the schema. Let's catch that!
+    if (!Array.isArray(items) && items.items && Array.isArray(items.items)) {
+       items = items.items;
     }
 
-    // --- SMART FALLBACK FOR NEW AQ TOKENS ---
-    // If the API key format restricts direct REST generation, we provide a seamless fallback
-    console.log("Using smart receipt parsing fallback...");
-    const fallbackItems = [
-      { name: "Whole Milk", category: "Dairy & Eggs", quantity: 1, unit: "l" },
-      { name: "Sourdough Bread", category: "Bakery", quantity: 1, unit: "pcs" },
-      { name: "Organic Eggs", category: "Dairy & Eggs", quantity: 12, unit: "pcs" },
-      { name: "Avocados", category: "Produce", quantity: 3, unit: "pcs" },
-      { name: "Chicken Breast", category: "Meat & Seafood", quantity: 1, unit: "kg" }
-    ];
+    if (!Array.isArray(items) || items.length === 0) {
+      console.log("⚠️ Result was empty or not an array after parsing.");
+      return NextResponse.json({ items: [], message: "No clear grocery items could be read from this receipt." });
+    }
 
-    return NextResponse.json({ items: fallbackItems });
-
-  } catch (error) {
-    console.error("❌ API Route Crash:", error);
-    // Even on error, return fallback items so the UI experience remains flawless
-    const emergencyItems = [
-      { name: "Fresh Apples", category: "Produce", quantity: 5, unit: "pcs" },
-      { name: "Cheddar Cheese", category: "Dairy & Eggs", quantity: 1, unit: "packs" }
-    ];
-    return NextResponse.json({ items: emergencyItems });
+    console.log(`✅ Successfully parsed ${items.length} items!`);
+    return NextResponse.json({ items });
+    
+  } catch (error: any) {
+    console.error("❌ Receipt Scan Error:", error.message || error);
+    return NextResponse.json({ error: 'Failed to process receipt image', details: error.message }, { status: 500 });
   }
 }
