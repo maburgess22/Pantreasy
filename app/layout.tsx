@@ -18,7 +18,7 @@ const montserrat = Montserrat({
 
 export const metadata: Metadata = {
   title: 'Pantreasy - Smart Stock & Recipe Hub',
-  description: 'Track pantry inventory and discover recipes with what you have in stock.',
+  description: 'Track pantry inventory, manage recipes and plan your weeks meals with ease.',
 };
 
 export default function RootLayout({
