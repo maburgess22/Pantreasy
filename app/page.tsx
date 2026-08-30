@@ -850,21 +850,27 @@ export default function PantryManager() {
 
   // 3. MAIN APP VIEW WITH NAVIGATION
   return (
-    <main className="min-h-screen bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 md:p-8 font-montserrat">
+    <main className="min-h-screen bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 pb-28 md:p-8 md:pb-8 font-montserrat">
       <datalist id="common-units">{COMMON_UNITS.map(u => <option key={u} value={u} />)}</datalist>
       <input type="file" accept="image/*" ref={recipeFileInputRef} className="hidden" onChange={handleRecipeScreenshot} />
 
       <div className="max-w-6xl mx-auto space-y-8">
         
         <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-6 border-b border-black/10">
-          <div className="flex items-center gap-3 md:gap-4">
-            <img src="/logo.png" alt="Pantreasy Logo" className="w-[72px] h-[72px] md:w-24 md:h-24 object-contain shrink-0 mix-blend-multiply" />
-            <div>
-              <h1 className="text-5xl md:text-6xl font-mogena tracking-tight text-black">Pantreasy</h1>
-              <p className="text-base text-black/70 mt-1 md:mt-2 font-normal">Keep track of your ingredients & dinner plans</p>
+          <div className="flex items-center justify-between w-full sm:w-auto">
+            <div className="flex items-center gap-3 md:gap-4">
+              <img src="/logo.png" alt="Pantreasy Logo" className="w-[72px] h-[72px] md:w-20 md:h-20 object-contain shrink-0 mix-blend-multiply" />
+              <div>
+                <h1 className="text-4xl md:text-6xl font-mogena tracking-tight text-black mt-1">Pantreasy</h1>
+                <p className="text-sm md:text-base text-black/70 mt-1 font-normal hidden md:block">Keep track of your ingredients & dinner plans</p>
+              </div>
             </div>
+            {/* Mobile Sign Out */}
+            <button onClick={handleSignOut} className="md:hidden text-xs font-bold uppercase tracking-wider text-red-800 bg-red-50 px-3 py-1.5 rounded-lg border border-red-200">Sign Out</button>
           </div>
-          <nav className="flex flex-wrap items-center gap-1 p-1.5">
+          
+          {/* Desktop Nav (Hidden on Mobile) */}
+          <nav className="hidden md:flex flex-wrap items-center gap-1 p-1.5">
             {[{ id: 'dashboard', label: 'Dashboard' }, { id: 'pantry', label: 'Pantry' }, { id: 'recipes', label: 'Recipes' }, { id: 'shopping', label: 'Shopping List' }, { id: 'planner', label: 'Planner' }].map((tab) => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`px-4 py-2 rounded-xl text-sm transition ${activeTab === tab.id ? 'bg-black text-white font-medium' : 'text-black/80 hover:text-black font-normal'}`}>
                 {tab.label}
@@ -1342,6 +1348,26 @@ export default function PantryManager() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* MOBILE BOTTOM NAVIGATION */}
+      <div className="md:hidden fixed bottom-0 inset-x-0 bg-white/90 backdrop-blur-md border-t border-black/10 px-6 pt-3 pb-6 flex justify-between items-center z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
+        {[
+          { id: 'dashboard', label: 'Home', svg: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /> },
+          { id: 'pantry', label: 'Pantry', svg: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /> },
+          { id: 'recipes', label: 'Recipes', svg: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /> },
+          { id: 'shopping', label: 'List', svg: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" /> },
+          { id: 'planner', label: 'Plan', svg: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /> }
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id as any)}
+            className={`flex flex-col items-center gap-1 transition ${activeTab === tab.id ? 'text-[#6B705C] scale-110' : 'text-black/40 hover:text-black/70'}`}
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">{tab.svg}</svg>
+            <span className="text-[10px] font-bold tracking-wide">{tab.label}</span>
+          </button>
+        ))}
       </div>
     </main>
   );
