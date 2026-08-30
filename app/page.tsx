@@ -33,6 +33,8 @@ interface ShoppingItem {
   id: string;
   name: string;
   checked: boolean;
+  quantity?: number;
+  unit?: string;
 }
 
 interface MealPlanItem {
@@ -158,7 +160,13 @@ export default function PantryManager() {
   // Shopping List States
   const [showAddShoppingMenu, setShowAddShoppingMenu] = useState(false);
   const [showShoppingInput, setShowShoppingInput] = useState(false);
-  const [shoppingInput, setShoppingInput] = useState('');
+  const [shoppingInputName, setShoppingInputName] = useState('');
+  const [shoppingInputQty, setShoppingInputQty] = useState('1');
+  const [shoppingInputUnit, setShoppingInputUnit] = useState('pcs');
+  
+  // Voice Input States
+  const [showVoiceInputScreen, setShowVoiceInputScreen] = useState(false);
+  const [voiceTranscript, setVoiceTranscript] = useState('');
   const [isListening, setIsListening] = useState(false);
 
   // Meal Planner State
@@ -173,6 +181,8 @@ export default function PantryManager() {
   const [scannedItems, setScannedItems] = useState<any[] | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recipeFileInputRef = useRef<HTMLInputElement>(null);
+  const recipeDropdownRef = useRef<HTMLDivElement>(null);
+  const shoppingDropdownRef = useRef<HTMLDivElement>(null);
   const [name, useStateName] = useState('');
   const [category, setCategory] = useState('Produce');
   const [quantity, setQuantity] = useState('1');
@@ -194,18 +204,16 @@ export default function PantryManager() {
   const todayStr = new Date().toISOString().split('T')[0];
 
   /* ==========================================================================
-     4. DATA FETCHING & AUTH CHECK
+     4. DATA FETCHING & EVENT LISTENERS
      ========================================================================== */
   useEffect(() => {
     const loadData = async () => {
-      // 1. Authenticate user before showing anything
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         router.push('/login');
         return;
       }
 
-      // 2. Fetch User's Data
       const { data: pData } = await supabase.from('pantry_items').select('*').order('created_at', { ascending: false });
       if (pData) setItems(pData);
       
@@ -226,9 +234,21 @@ export default function PantryManager() {
     loadData();
   }, [router, supabase.auth]);
 
-  /* ==========================================================================
-     5. HISTORY API NAVIGATION (Enables Phone 'Back' Button)
-     ========================================================================== */
+  // Click Outside Listener for Dropdowns
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (recipeDropdownRef.current && !recipeDropdownRef.current.contains(event.target as Node)) {
+        setShowAddRecipeMenu(false);
+      }
+      if (shoppingDropdownRef.current && !shoppingDropdownRef.current.contains(event.target as Node)) {
+        setShowAddShoppingMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // History API Navigation (Enables Phone 'Back' Button)
   useEffect(() => {
     window.history.replaceState({ tab: 'dashboard', type: 'tab' }, '', window.location.pathname);
     
@@ -284,6 +304,68 @@ export default function PantryManager() {
     await supabase.auth.signOut();
     router.push('/login');
   };
+
+  /* ==========================================================================
+     5. VOICE INPUT PARSING (Smart Data Extraction)
+     ========================================================================== */
+  const startListening = () => {
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) return alert('Web Speech API not supported.');
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.continuous = false;
+    
+    recognition.onstart = () => setIsListening(true);
+    recognition.onresult = (event: any) => {
+      const text = event.results[0][0].transcript;
+      setVoiceTranscript(text);
+    };
+    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => setIsListening(false);
+    recognition.start();
+  };
+
+  const parseAndAddVoiceInput = async () => {
+    if (!voiceTranscript.trim()) return;
+    setLoading(true);
+    
+    // Split natural language into segments
+    const rawItems = voiceTranscript.split(/\s+and\s+|,|\s+plus\s+/i).map(s => s.trim()).filter(Boolean);
+    
+    const inserts = rawItems.map(itemStr => {
+      // Regex to cleanly separate "Quantity", "Unit", and "Item Name"
+      const regex = /^([\d.]+)?\s*(?:\b(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs)\b)?\s*(.*)$/i;
+      const match = itemStr.match(regex);
+      
+      let qty = 1;
+      let unit = 'pcs';
+      let parsedName = itemStr;
+
+      if (match) {
+        if (match[1]) qty = parseFloat(match[1]);
+        if (match[2]) unit = match[2].toLowerCase();
+        if (match[3]) parsedName = match[3];
+      }
+
+      // Auto-correct common units if none were spoken
+      if (unit === 'pcs') {
+        if (parsedName.toLowerCase().includes('milk') || parsedName.toLowerCase().includes('water')) unit = 'l';
+        if (parsedName.toLowerCase().includes('flour') || parsedName.toLowerCase().includes('sugar') || parsedName.toLowerCase().includes('rice')) unit = 'g';
+      }
+
+      return { name: parsedName.trim(), quantity: qty, unit };
+    });
+
+    if (inserts.length > 0) {
+      const { data } = await supabase.from('shopping_list').insert(inserts).select();
+      if (data) setShoppingList(prev => [...data, ...prev]);
+    }
+    
+    setVoiceTranscript('');
+    setShowVoiceInputScreen(false);
+    setLoading(false);
+  };
+
 
   /* ==========================================================================
      6. CRUD HANDLERS (Pantry, Recipes, Shopping, Meal Planner)
@@ -518,9 +600,14 @@ export default function PantryManager() {
   };
 
   const handleAddShoppingItem = async (e: React.FormEvent) => {
-    e.preventDefault(); if (!shoppingInput.trim()) return;
-    const { data } = await supabase.from('shopping_list').insert([{ name: shoppingInput.trim() }]).select().single();
-    if (data) setShoppingList(prev => [data, ...prev]); setShoppingInput('');
+    e.preventDefault(); if (!shoppingInputName.trim()) return;
+    const { data } = await supabase.from('shopping_list').insert([{ 
+      name: shoppingInputName.trim(),
+      quantity: parseFloat(shoppingInputQty) || 1,
+      unit: shoppingInputUnit
+    }]).select().single();
+    if (data) setShoppingList(prev => [data, ...prev]); 
+    setShoppingInputName(''); setShoppingInputQty('1'); setShoppingInputUnit('pcs');
   };
 
   const toggleShoppingItem = async (id: string) => {
@@ -531,18 +618,6 @@ export default function PantryManager() {
 
   const deleteShoppingItem = async (id: string) => {
     setShoppingList(prev => prev.filter(item => item.id !== id)); await supabase.from('shopping_list').delete().eq('id', id);
-  };
-
-  const startListening = () => {
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) return alert('Web Speech API not supported.');
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'en-US';
-    recognition.onstart = () => setIsListening(true);
-    recognition.onresult = (event: any) => setShoppingInput(event.results[0][0].transcript);
-    recognition.onend = () => setIsListening(false);
-    recognition.onerror = () => setIsListening(false);
-    recognition.start();
   };
 
   /* ==========================================================================
@@ -599,8 +674,43 @@ export default function PantryManager() {
   const totalAllocated = Object.values(allocationsGrid).reduce((a, b) => a + b, 0);
   const remainingPortions = planTargetPortions - totalAllocated;
 
+
   /* ==========================================================================
-     8. RENDER VIEW: LOW STOCK MANAGEMENT SCREEN
+     8. RENDER VIEW: DEDICATED VOICE INPUT SCREEN
+     ========================================================================== */
+  if (showVoiceInputScreen) {
+    return (
+      <main className="min-h-screen bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 md:p-8 font-montserrat flex flex-col items-center justify-center">
+        <div className="bg-white/90 backdrop-blur-xl p-8 rounded-[32px] shadow-2xl w-full max-w-lg flex flex-col items-center gap-8 border border-black/10 text-center animate-in fade-in zoom-in-95">
+          <div>
+            <h2 className="text-3xl font-bold mb-2">Voice Entry</h2>
+            <p className="text-black/60 text-sm">Say something like: "3 bananas and 200g of flour"</p>
+          </div>
+          
+          <button 
+            onClick={isListening ? () => {} : startListening}
+            className={`w-32 h-32 rounded-full flex items-center justify-center shadow-lg transition-all ${isListening ? 'bg-red-500 text-white animate-pulse scale-110' : 'bg-black text-white hover:bg-black/80 hover:scale-105 cursor-pointer'}`}
+          >
+            <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
+          </button>
+
+          <div className="w-full min-h-[80px] p-4 bg-black/5 rounded-2xl border border-black/10 flex items-center justify-center">
+            <p className="text-lg font-medium italic">{voiceTranscript || "Tap the microphone to start..."}</p>
+          </div>
+
+          <div className="flex gap-4 w-full">
+            <button onClick={() => { setShowVoiceInputScreen(false); setVoiceTranscript(''); }} className="flex-1 py-4 font-bold rounded-2xl bg-transparent border border-black/20 text-black hover:bg-black/5 transition">Cancel</button>
+            <button onClick={parseAndAddVoiceInput} disabled={!voiceTranscript || loading} className="flex-1 py-4 font-bold rounded-2xl bg-black text-white disabled:opacity-50 hover:bg-black/80 transition shadow-sm">
+              {loading ? 'Processing...' : 'Add to List'}
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  /* ==========================================================================
+     9. RENDER VIEW: LOW STOCK MANAGEMENT SCREEN
      ========================================================================== */
   if (showLowStockPage && !selectedRecipe) {
     return (
@@ -702,7 +812,7 @@ export default function PantryManager() {
   }
 
   /* ==========================================================================
-     9. RENDER VIEW: RECIPE DETAIL OR EDITOR
+     10. RENDER VIEW: RECIPE DETAIL OR EDITOR
      ========================================================================== */
   if (selectedRecipe && !showDistributionModal) {
     if (isEditingRecipe) {
@@ -810,7 +920,6 @@ export default function PantryManager() {
             
             <div className="p-6 md:p-10">
               <div className="flex justify-between items-center mb-6">
-                {/* NEW TABS FOR MOBILE/DESKTOP VIEWING */}
                 <div className="flex bg-black/5 p-1 rounded-2xl w-full md:w-auto">
                   <button onClick={() => setRecipeDetailTab('ingredients')} className={`flex-1 md:px-8 py-3 text-sm font-bold rounded-xl transition ${recipeDetailTab === 'ingredients' ? 'bg-white shadow-sm text-black' : 'text-black/60 hover:text-black'}`}>Ingredients</button>
                   <button onClick={() => setRecipeDetailTab('instructions')} className={`flex-1 md:px-8 py-3 text-sm font-bold rounded-xl transition ${recipeDetailTab === 'instructions' ? 'bg-white shadow-sm text-black' : 'text-black/60 hover:text-black'}`}>Method</button>
@@ -819,7 +928,6 @@ export default function PantryManager() {
                 <button onClick={startEditingRecipe} className="hidden md:block text-sm font-medium text-black/60 hover:text-black transition underline">Edit Recipe</button>
               </div>
 
-              {/* TAB CONTENT: INGREDIENTS */}
               {recipeDetailTab === 'ingredients' && (
                 <div className="space-y-4 animate-in fade-in">
                   <h3 className="text-sm font-semibold uppercase tracking-wider text-black/80">Ingredients {multiplier !== 1 && <span className="text-emerald-700 normal-case font-medium ml-2">(Scaled {multiplier}x)</span>}</h3>
@@ -842,7 +950,6 @@ export default function PantryManager() {
                 </div>
               )}
 
-              {/* TAB CONTENT: INSTRUCTIONS */}
               {recipeDetailTab === 'instructions' && (
                 <div className="space-y-5 animate-in fade-in">
                   <h3 className="text-sm font-semibold uppercase tracking-wider text-black/80">Method & Instructions</h3>
@@ -860,7 +967,6 @@ export default function PantryManager() {
                 </div>
               )}
 
-              {/* Mobile Edit Fallback */}
               <div className="mt-8 md:hidden text-center">
                  <button onClick={startEditingRecipe} className="text-sm font-medium text-black/60 hover:text-black transition underline">Edit Recipe Details</button>
               </div>
@@ -872,7 +978,7 @@ export default function PantryManager() {
   }
 
   /* ==========================================================================
-     10. RENDER VIEW: MAIN APPLICATION DASHBOARD & TABS
+     11. RENDER VIEW: MAIN APPLICATION DASHBOARD & TABS
      ========================================================================== */
   return (
     <main className="min-h-screen w-full overflow-x-hidden bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 pb-28 md:p-8 md:pb-8 font-montserrat">
@@ -891,7 +997,6 @@ export default function PantryManager() {
                 <p className="text-sm md:text-base text-black/70 mt-1 font-normal hidden md:block">Keep track of your ingredients & dinner plans</p>
               </div>
             </div>
-            {/* Plain Text Sign Out for Mobile */}
             <button onClick={handleSignOut} className="md:hidden text-sm font-bold text-black hover:opacity-70 transition px-2 py-1">Sign Out</button>
           </div>
           
@@ -987,16 +1092,15 @@ export default function PantryManager() {
                 <p className="text-white/80 text-sm mt-2 font-medium">Keep track of what you need to buy, sorted by supermarket aisle.</p>
               </div>
               
-              {/* NEW SHOPPING LIST DROPDOWN BUTTON */}
               <div className="flex flex-col gap-3 shrink-0 w-full md:w-auto md:items-end">
-                <div className="relative w-full md:w-auto">
+                <div className="relative w-full md:w-auto" ref={shoppingDropdownRef}>
                   <button onClick={() => setShowAddShoppingMenu(!showAddShoppingMenu)} className="w-full md:w-auto px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-between md:justify-center gap-2 border border-black/20">
                     Add Item ▾
                   </button>
                   {showAddShoppingMenu && (
                     <div className="absolute left-0 md:left-auto md:right-0 mt-2 w-full md:w-[240px] max-w-[90vw] bg-[#1A1A1A] rounded-2xl shadow-2xl border border-white/10 overflow-hidden z-[100] flex flex-col text-white">
                       <button onClick={() => { setShowShoppingInput(true); setShowAddShoppingMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Type Item Name</button>
-                      <button onClick={() => { startListening(); setShowShoppingInput(true); setShowAddShoppingMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Voice Input</button>
+                      <button onClick={() => { setShowVoiceInputScreen(true); setShowAddShoppingMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition">Voice Input</button>
                     </div>
                   )}
                 </div>
@@ -1008,9 +1112,15 @@ export default function PantryManager() {
 
             {/* CONDITIONAL TEXT INPUT BELOW HEADER */}
             {showShoppingInput && (
-              <form onSubmit={handleAddShoppingItem} className="flex gap-2 mb-8 mt-2 animate-in fade-in slide-in-from-top-2">
-                <input type="text" value={shoppingInput} onChange={(e) => setShoppingInput(e.target.value)} placeholder={isListening ? "Listening..." : "Type product name..."} className="flex-1 min-w-0 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black placeholder:text-black/50 shadow-sm" autoFocus />
-                <button type="submit" className="px-6 py-3 font-medium rounded-2xl bg-black text-white hover:bg-black/80 shrink-0 shadow-sm">Add</button>
+              <form onSubmit={handleAddShoppingItem} className="flex flex-col gap-3 mb-8 animate-in fade-in slide-in-from-top-2">
+                <div className="flex gap-2 w-full">
+                  <input type="text" value={shoppingInputName} onChange={(e) => setShoppingInputName(e.target.value)} placeholder="Type product name..." className="flex-1 min-w-0 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black placeholder:text-black/50 shadow-sm" autoFocus required />
+                  <input type="number" step="any" min="0.01" value={shoppingInputQty} onChange={(e) => setShoppingInputQty(e.target.value)} className="w-16 md:w-20 px-2 py-3 rounded-2xl text-center text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm" />
+                  <select value={shoppingInputUnit} onChange={(e) => setShoppingInputUnit(e.target.value)} className="w-20 md:w-24 px-2 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm capitalize cursor-pointer">
+                    {COMMON_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                </div>
+                <button type="submit" className="w-full px-6 py-3 font-medium rounded-2xl bg-black text-white hover:bg-black/80 shadow-sm">Add Item</button>
               </form>
             )}
 
@@ -1025,10 +1135,12 @@ export default function PantryManager() {
                       {aisleItems.map(item => (
                         <div key={item.id} className={`flex items-center justify-between p-3 rounded-xl border border-black/10 transition ${item.checked ? 'bg-black/5 opacity-60' : 'bg-white shadow-sm'}`}>
                           <label className="flex items-center gap-3 cursor-pointer flex-1">
-                            <input type="checkbox" checked={item.checked} onChange={() => toggleShoppingItem(item.id)} className="w-5 h-5 accent-black rounded cursor-pointer" />
-                            <span className={`font-medium ${item.checked ? 'line-through' : ''}`}>{item.name}</span>
+                            <input type="checkbox" checked={item.checked} onChange={() => toggleShoppingItem(item.id)} className="w-5 h-5 accent-black rounded cursor-pointer shrink-0" />
+                            <span className={`font-medium ${item.checked ? 'line-through text-black/50' : ''}`}>
+                              {item.name} <span className="text-xs font-normal text-black/60 ml-1">({item.quantity || 1} {item.unit || 'pcs'})</span>
+                            </span>
                           </label>
-                          <button onClick={() => deleteShoppingItem(item.id)} className="text-black/40 hover:text-red-600 font-bold px-2 text-sm">✕</button>
+                          <button onClick={() => deleteShoppingItem(item.id)} className="text-black/40 hover:text-red-600 font-bold px-2 text-sm shrink-0">✕</button>
                         </div>
                       ))}
                     </div>
@@ -1130,7 +1242,6 @@ export default function PantryManager() {
           <div className="space-y-6">
              <div className="rounded-[28px] p-6 bg-[#6B705C] text-white border border-black/10 shadow-sm flex flex-col gap-4">
               
-              {/* Layout for Search and Toggles */}
               <div className="flex flex-col sm:flex-row gap-3">
                 <div className="w-full sm:flex-1 min-w-0">
                   <input 
@@ -1150,7 +1261,6 @@ export default function PantryManager() {
                     {uniqueRecipeCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                   </select>
                   
-                  {/* Grid/List View Toggle Icons */}
                   <div className="flex bg-white rounded-2xl p-1 shadow-sm border border-black/20 shrink-0">
                     <button onClick={() => setRecipeViewMode('grid')} className={`px-3 flex items-center justify-center rounded-xl transition ${recipeViewMode === 'grid' ? 'bg-[#6B705C] text-white' : 'text-black/40 hover:text-black'}`}>
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
@@ -1165,8 +1275,7 @@ export default function PantryManager() {
               <div className="w-full h-px bg-white/20 my-2"></div>
 
               <div className="flex justify-end relative">
-                {/* ADD RECIPE DROPDOWN */}
-                <div className="relative w-full md:w-auto">
+                <div className="relative w-full md:w-auto" ref={recipeDropdownRef}>
                   <button onClick={() => setShowAddRecipeMenu(!showAddRecipeMenu)} className="w-full md:w-auto px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-between md:justify-center gap-2 border border-black/20">
                     Add Recipe ▾
                   </button>
@@ -1188,11 +1297,9 @@ export default function PantryManager() {
               )}
             </div>
             
-            {/* CONDITIONAL RENDER: GRID vs LIST VIEW */}
             <div className={recipeViewMode === 'grid' ? "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6" : "flex flex-col gap-4"}>
               {filteredRecipes.map((recipe) => (
                 recipeViewMode === 'grid' ? (
-                  // Grid View Card
                   <div key={recipe.id} onClick={() => handleOpenRecipe(recipe)} className="rounded-[24px] overflow-hidden cursor-pointer transition border border-black/10 hover:border-black/40 flex flex-col justify-between bg-white shadow-sm hover:shadow-md">
                     {recipe.image && <img src={recipe.image} alt={recipe.title} className="w-full h-40 object-cover" />}
                     <div className="p-5 space-y-3 flex-1 flex flex-col justify-between">
@@ -1206,7 +1313,6 @@ export default function PantryManager() {
                     </div>
                   </div>
                 ) : (
-                  // List View Card (Thumbnail left, text right)
                   <div key={recipe.id} onClick={() => handleOpenRecipe(recipe)} className="flex items-center gap-4 p-3 rounded-[24px] bg-white border border-black/10 shadow-sm cursor-pointer hover:shadow-md transition">
                     {recipe.image ? (
                       <img src={recipe.image} alt={recipe.title} className="w-20 h-20 rounded-[16px] object-cover shrink-0" />
@@ -1241,7 +1347,6 @@ export default function PantryManager() {
                 return (
                   <div key={dateStr} className={`rounded-[28px] p-6 border transition-all ${isToday ? 'bg-[#6B705C] border-black/20' : 'bg-[#6B705C]/90 border-black/10 shadow-sm'}`}>
                     
-                    {/* Collapsible Header */}
                     <div 
                       onClick={() => setCollapsedDays(prev => ({ ...prev, [dateStr]: !prev[dateStr] }))}
                       className="flex justify-between items-center cursor-pointer select-none group"
@@ -1255,7 +1360,6 @@ export default function PantryManager() {
                       </span>
                     </div>
 
-                    {/* Collapsible Content */}
                     {!isCollapsed && (
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5 animate-in fade-in slide-in-from-top-2">
                         {['Breakfast', 'Lunch', 'Dinner'].map((mealType) => {
@@ -1442,7 +1546,7 @@ export default function PantryManager() {
       </div>
 
       {/* ==========================================================================
-         11. MOBILE BOTTOM NAVIGATION BAR (Anchored)
+         12. MOBILE BOTTOM NAVIGATION BAR (Anchored)
          ========================================================================== */}
       <div className="md:hidden fixed bottom-0 inset-x-0 bg-white/90 backdrop-blur-md border-t border-black/10 px-6 pt-3 pb-6 flex justify-between items-center z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
         {[
