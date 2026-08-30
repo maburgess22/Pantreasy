@@ -232,7 +232,6 @@ export default function PantryManager() {
   const shoppingDropdownRef = useRef<HTMLDivElement>(null);
   const pantryDropdownRef = useRef<HTMLDivElement>(null);
   
-  // Low Stock Dropdown State
   const [showAddTrackMenu, setShowAddTrackMenu] = useState(false);
   const [showTrackPantryInput, setShowTrackPantryInput] = useState(false);
   const [showTrackNewInput, setShowTrackNewInput] = useState(false);
@@ -662,7 +661,6 @@ export default function PantryManager() {
     const rawMissing = recipe.ingredients.map(ing => scaleAndConvertIngredient(ing, currentMultiplier, measurementSystem)).filter(scaledIng => getIngredientStatus(scaledIng, items).status !== 'in_stock');
     if (rawMissing.length === 0) return showToast('You already have all ingredients!');
     
-    // Apply Smart Grocery Rounding logic to missing ingredients
     const standardizedMissing = rawMissing.map(ing => getStandardGroceryItem(ing));
     
     const { data } = await supabase.from('shopping_list').insert(standardizedMissing.map(name => ({ name, user_id: userId }))).select();
@@ -1320,6 +1318,7 @@ export default function PantryManager() {
                                       if (meal.recipe_id) {
                                         const matchedRecipe = recipes.find(r => r.id === meal.recipe_id);
                                         if (matchedRecipe) handleOpenRecipe(matchedRecipe);
+                                        else showToast('Recipe details are loading or unavailable.');
                                       }
                                     }}
                                     className={`flex items-center gap-3 bg-white p-3 rounded-2xl border border-black/5 transition ${meal.recipe_id ? 'cursor-pointer hover:shadow-md hover:border-black/20' : ''}`}
@@ -1335,6 +1334,12 @@ export default function PantryManager() {
                                       <p className="font-bold text-sm text-black truncate">{meal.recipe_id ? meal.recipes?.title : meal.manual_name}</p>
                                       <p className="text-xs font-medium text-black/60 mt-0.5">{meal.portions} portion{meal.portions > 1 ? 's' : ''}</p>
                                     </div>
+                                    <button 
+                                      onClick={(e) => { e.stopPropagation(); deleteMealPlan(meal.id); }} 
+                                      className="w-8 h-8 shrink-0 flex items-center justify-center text-black/30 hover:text-red-600 bg-black/5 hover:bg-red-50 font-bold rounded-xl transition"
+                                    >
+                                      ✕
+                                    </button>
                                   </div>
                                 ))}
                               </div>
@@ -1697,22 +1702,30 @@ export default function PantryManager() {
                                             if (meal.recipe_id) {
                                               const matchedRecipe = recipes.find(r => r.id === meal.recipe_id);
                                               if (matchedRecipe) handleOpenRecipe(matchedRecipe);
+                                              else showToast('Recipe details are loading or unavailable.');
                                             }
                                           }}
-                                          className={`flex items-center gap-3 bg-white p-3 rounded-2xl border border-black/5 transition group relative ${meal.recipe_id ? 'cursor-pointer hover:shadow-md hover:border-black/20' : ''}`}
+                                          className={`flex items-center justify-between p-2.5 rounded-xl bg-black/5 border border-transparent transition group relative ${meal.recipe_id ? 'cursor-pointer hover:bg-black/10' : ''}`}
                                         >
-                                          {meal.recipe_id && meal.recipes?.image ? (
-                                            <img src={meal.recipes.image} alt={meal.recipes.title} className="w-14 h-14 rounded-xl object-cover shrink-0 border border-black/5" />
-                                          ) : (
-                                            <div className="w-14 h-14 rounded-xl bg-[#6B705C]/10 flex items-center justify-center shrink-0 border border-black/5">
-                                              <span className="text-[10px] font-semibold text-black/40 text-center leading-tight">{meal.recipe_id ? 'No Img' : 'Manual'}</span>
+                                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                                            {meal.recipe_id && meal.recipes?.image ? (
+                                              <img src={meal.recipes.image} alt={meal.recipes.title} className="w-10 h-10 rounded-lg object-cover shrink-0 border border-black/5" />
+                                            ) : (
+                                              <div className="w-10 h-10 rounded-lg bg-[#6B705C]/10 flex items-center justify-center shrink-0 border border-black/5">
+                                                <span className="text-[8px] font-semibold text-black/40 text-center leading-tight">{meal.recipe_id ? 'No Img' : 'Manual'}</span>
+                                              </div>
+                                            )}
+                                            <div className="flex-1 min-w-0 pr-2">
+                                              <p className="font-semibold text-sm text-black leading-snug truncate">{meal.recipe_id ? meal.recipes?.title : meal.manual_name}</p>
+                                              <p className="text-xs text-black/60 mt-0.5">{meal.portions} portion{meal.portions > 1 ? 's' : ''}</p>
                                             </div>
-                                          )}
-                                          <div className="flex-1 min-w-0 pr-6">
-                                            <p className="font-bold text-sm text-black truncate">{meal.recipe_id ? meal.recipes?.title : meal.manual_name}</p>
-                                            <p className="text-xs font-medium text-black/60 mt-0.5">{meal.portions} portion{meal.portions > 1 ? 's' : ''}</p>
                                           </div>
-                                          <button onClick={(e) => { e.stopPropagation(); deleteMealPlan(meal.id); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-black/30 hover:text-red-600 font-bold p-1 text-xs opacity-0 group-hover:opacity-100 transition z-10 bg-white rounded-full shadow-sm">✕</button>
+                                          <button 
+                                            onClick={(e) => { e.stopPropagation(); deleteMealPlan(meal.id); }} 
+                                            className="w-8 h-8 shrink-0 flex items-center justify-center text-black/30 hover:text-red-600 bg-white/50 hover:bg-red-50 font-bold rounded-lg transition ml-2 shadow-sm border border-black/5"
+                                          >
+                                            ✕
+                                          </button>
                                         </div>
                                       ))}
                                     </div>
