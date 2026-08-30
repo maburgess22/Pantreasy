@@ -138,8 +138,8 @@ export default function PantryManager() {
 
   // Recipe Views & Layout State
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
-  const [recipeViewMode, setRecipeViewMode] = useState<'grid' | 'list'>('grid'); // Grid vs List Toggle
-  const [recipeDetailTab, setRecipeDetailTab] = useState<'ingredients' | 'instructions'>('ingredients'); // Details Tab
+  const [recipeViewMode, setRecipeViewMode] = useState<'grid' | 'list'>('grid');
+  const [recipeDetailTab, setRecipeDetailTab] = useState<'ingredients' | 'instructions'>('ingredients');
   const [targetPortions, setTargetPortions] = useState(4);
   const [measurementSystem, setMeasurementSystem] = useState<'metric' | 'imperial'>('metric');
   const [recipeSearchQuery, setRecipeSearchQuery] = useState('');
@@ -155,8 +155,14 @@ export default function PantryManager() {
   const [importUrl, setImportUrl] = useState('');
   const [isImporting, setIsImporting] = useState(false);
 
+  // Shopping List States
+  const [showAddShoppingMenu, setShowAddShoppingMenu] = useState(false);
+  const [showShoppingInput, setShowShoppingInput] = useState(false);
+  const [shoppingInput, setShoppingInput] = useState('');
+  const [isListening, setIsListening] = useState(false);
+
   // Meal Planner State
-  const [collapsedDays, setCollapsedDays] = useState<Record<string, boolean>>({}); // Collapsible planner days
+  const [collapsedDays, setCollapsedDays] = useState<Record<string, boolean>>({});
   const [showDistributionModal, setShowDistributionModal] = useState(false);
   const [planTargetPortions, setPlanTargetPortions] = useState(4);
   const [allocationsGrid, setAllocationsGrid] = useState<Record<string, number>>({});
@@ -172,8 +178,6 @@ export default function PantryManager() {
   const [quantity, setQuantity] = useState('1');
   const [unit, setUnit] = useState('pcs');
   const [isManualCategory, setIsManualCategory] = useState(false);
-  const [shoppingInput, setShoppingInput] = useState('');
-  const [isListening, setIsListening] = useState(false);
 
   // Modals & Low Stock
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -190,10 +194,18 @@ export default function PantryManager() {
   const todayStr = new Date().toISOString().split('T')[0];
 
   /* ==========================================================================
-     4. DATA FETCHING (SUPABASE INITIALIZATION)
+     4. DATA FETCHING & AUTH CHECK
      ========================================================================== */
   useEffect(() => {
     const loadData = async () => {
+      // 1. Authenticate user before showing anything
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        router.push('/login');
+        return;
+      }
+
+      // 2. Fetch User's Data
       const { data: pData } = await supabase.from('pantry_items').select('*').order('created_at', { ascending: false });
       if (pData) setItems(pData);
       
@@ -206,13 +218,13 @@ export default function PantryManager() {
       const today = new Date().toISOString().split('T')[0];
       const { data: mData } = await supabase
         .from('meal_plan')
-        .select('*, recipes(title, image, cook_time, category)') // Updated to fetch image data for dashboard
+        .select('*, recipes(title, image, cook_time, category)')
         .gte('date', today)
         .order('date', { ascending: true });
       if (mData) setMealPlans(mData as MealPlanItem[]);
     };
     loadData();
-  }, []);
+  }, [router, supabase.auth]);
 
   /* ==========================================================================
      5. HISTORY API NAVIGATION (Enables Phone 'Back' Button)
@@ -974,18 +986,33 @@ export default function PantryManager() {
                 <h2 className="text-4xl md:text-5xl font-bold leading-snug">Shopping List</h2>
                 <p className="text-white/80 text-sm mt-2 font-medium">Keep track of what you need to buy, sorted by supermarket aisle.</p>
               </div>
-              <button onClick={addLowStockToShopping} disabled={lowStockItems.length === 0} className="px-5 py-3 bg-black text-white rounded-xl text-sm font-medium hover:bg-black/80 transition disabled:opacity-50 shadow-sm shrink-0">
-                + Restock Alerts to List
-              </button>
+              
+              {/* NEW SHOPPING LIST DROPDOWN BUTTON */}
+              <div className="flex flex-col gap-3 shrink-0 w-full md:w-auto md:items-end">
+                <div className="relative w-full md:w-auto">
+                  <button onClick={() => setShowAddShoppingMenu(!showAddShoppingMenu)} className="w-full md:w-auto px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-between md:justify-center gap-2 border border-black/20">
+                    Add Item ▾
+                  </button>
+                  {showAddShoppingMenu && (
+                    <div className="absolute left-0 md:left-auto md:right-0 mt-2 w-full md:w-[240px] max-w-[90vw] bg-[#1A1A1A] rounded-2xl shadow-2xl border border-white/10 overflow-hidden z-[100] flex flex-col text-white">
+                      <button onClick={() => { setShowShoppingInput(true); setShowAddShoppingMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Type Item Name</button>
+                      <button onClick={() => { startListening(); setShowShoppingInput(true); setShowAddShoppingMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Voice Input</button>
+                    </div>
+                  )}
+                </div>
+                <button onClick={addLowStockToShopping} disabled={lowStockItems.length === 0} className="w-full md:w-auto px-5 py-2.5 bg-white text-black rounded-xl text-sm font-bold transition hover:bg-gray-100 disabled:opacity-50 shadow-sm border border-black/20 text-center">
+                  Add Low Stock Alert Items
+                </button>
+              </div>
             </div>
 
-            <form onSubmit={handleAddShoppingItem} className="flex flex-col sm:flex-row gap-3 mb-8">
-              <div className="flex gap-2 flex-1 w-full">
-                <input type="text" value={shoppingInput} onChange={(e) => setShoppingInput(e.target.value)} placeholder={isListening ? "Listening..." : "Add a product..."} className="flex-1 min-w-0 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black placeholder:text-black/50 shadow-sm" />
-                <button type="submit" className="px-6 py-3 font-medium rounded-2xl bg-black text-white hover:bg-black/80 shrink-0">Add</button>
-              </div>
-              <button type="button" onClick={startListening} className={`p-4 rounded-2xl transition border border-black/20 shadow-sm font-bold text-sm w-full sm:w-auto shrink-0 ${isListening ? 'bg-red-500 text-white animate-pulse border-red-500' : 'bg-white text-black hover:bg-black/5'}`} title="Use microphone">Voice Input</button>
-            </form>
+            {/* CONDITIONAL TEXT INPUT BELOW HEADER */}
+            {showShoppingInput && (
+              <form onSubmit={handleAddShoppingItem} className="flex gap-2 mb-8 mt-2 animate-in fade-in slide-in-from-top-2">
+                <input type="text" value={shoppingInput} onChange={(e) => setShoppingInput(e.target.value)} placeholder={isListening ? "Listening..." : "Type product name..."} className="flex-1 min-w-0 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black placeholder:text-black/50 shadow-sm" autoFocus />
+                <button type="submit" className="px-6 py-3 font-medium rounded-2xl bg-black text-white hover:bg-black/80 shrink-0 shadow-sm">Add</button>
+              </form>
+            )}
 
             <div className="space-y-6">
               {Object.keys(groupedShoppingList).length === 0 ? (
@@ -1105,20 +1132,20 @@ export default function PantryManager() {
               
               {/* Layout for Search and Toggles */}
               <div className="flex flex-col sm:flex-row gap-3">
-                <div className="w-full sm:flex-1">
+                <div className="w-full sm:flex-1 min-w-0">
                   <input 
                     type="text" 
                     placeholder="Search recipes..." 
                     value={recipeSearchQuery}
                     onChange={(e) => setRecipeSearchQuery(e.target.value)}
-                    className="w-full px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black placeholder:text-black/50 shadow-sm"
+                    className="w-full min-w-0 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black placeholder:text-black/50 shadow-sm"
                   />
                 </div>
                 <div className="flex gap-2 w-full sm:w-auto">
                   <select 
                     value={recipeCategoryFilter}
                     onChange={(e) => setRecipeCategoryFilter(e.target.value)}
-                    className="flex-1 sm:flex-none px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm sm:w-[200px] min-w-0"
+                    className="flex-1 sm:flex-none min-w-0 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm sm:w-[200px]"
                   >
                     {uniqueRecipeCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                   </select>
@@ -1138,13 +1165,13 @@ export default function PantryManager() {
               <div className="w-full h-px bg-white/20 my-2"></div>
 
               <div className="flex justify-end relative">
-                {/* NEW DROPDOWN STYLING (Header text removed) */}
-                <div className="relative">
-                  <button onClick={() => setShowAddRecipeMenu(!showAddRecipeMenu)} className="px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center gap-2 border border-black/20">
+                {/* ADD RECIPE DROPDOWN */}
+                <div className="relative w-full md:w-auto">
+                  <button onClick={() => setShowAddRecipeMenu(!showAddRecipeMenu)} className="w-full md:w-auto px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-between md:justify-center gap-2 border border-black/20">
                     Add Recipe ▾
                   </button>
                   {showAddRecipeMenu && (
-                    <div className="absolute right-0 mt-2 w-[240px] max-w-[90vw] bg-[#1A1A1A] rounded-2xl shadow-2xl border border-white/10 overflow-hidden z-[100] flex flex-col text-white">
+                    <div className="absolute left-0 md:left-auto md:right-0 mt-2 w-full md:w-[240px] max-w-[90vw] bg-[#1A1A1A] rounded-2xl shadow-2xl border border-white/10 overflow-hidden z-[100] flex flex-col text-white">
                       <button onClick={() => { setShowManualAddRecipe(true); setShowAddRecipeMenu(false); setShowImportInput(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Create New Recipe</button>
                       <button onClick={() => { setShowImportInput(true); setShowAddRecipeMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Add using Recipe URL</button>
                       <button onClick={() => { recipeFileInputRef.current?.click(); setShowAddRecipeMenu(false); setShowImportInput(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition">Add using Screenshot</button>
@@ -1155,8 +1182,8 @@ export default function PantryManager() {
               
               {showImportInput && (
                 <form onSubmit={handleImportRecipe} className="flex flex-col sm:flex-row gap-3 pt-2">
-                  <input type="url" placeholder="Paste recipe URL (e.g. foodnetwork.com/...)" value={importUrl} onChange={(e) => setImportUrl(e.target.value)} className="flex-1 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black placeholder:text-black/50 shadow-sm" required />
-                  <button type="submit" disabled={isImporting} className="px-8 font-medium py-3.5 rounded-2xl transition text-base shadow-md active:scale-95 disabled:opacity-50 bg-black text-white hover:bg-black/80">Import</button>
+                  <input type="url" placeholder="Paste recipe URL (e.g. foodnetwork.com/...)" value={importUrl} onChange={(e) => setImportUrl(e.target.value)} className="flex-1 min-w-0 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black placeholder:text-black/50 shadow-sm" required />
+                  <button type="submit" disabled={isImporting} className="px-8 font-medium py-3.5 rounded-2xl transition text-base shadow-md active:scale-95 disabled:opacity-50 bg-black text-white hover:bg-black/80 shrink-0">Import</button>
                 </form>
               )}
             </div>
@@ -1174,7 +1201,7 @@ export default function PantryManager() {
                           <h3 className="font-bold text-xl text-black">{recipe.title}</h3>
                           <p className="text-sm mt-1 text-black/70">{recipe.cook_time} &bull; {recipe.portions || 4} portions</p>
                         </div>
-                        <button onClick={(e) => deleteRecipe(recipe.id, e)} className="text-sm p-1 text-black/50 hover:text-red-600 font-bold">✕</button>
+                        <button onClick={(e) => deleteRecipe(recipe.id, e)} className="text-sm p-1 text-black/50 hover:text-red-600 font-bold shrink-0">✕</button>
                       </div>
                     </div>
                   </div>
@@ -1257,8 +1284,8 @@ export default function PantryManager() {
                                   {recipes.map(r => <option key={r.id} value={r.id}>{r.title}</option>)}
                                 </select>
                                 <div className="flex gap-2">
-                                  <input type="text" placeholder="Quick add manual..." value={manualInputs[slotKey] || ''} onChange={(e) => setManualInputs(prev => ({ ...prev, [slotKey]: e.target.value }))} onKeyDown={(e) => { if (e.key === 'Enter') saveManualMeal(dateStr, mealType); }} className="flex-1 px-3 py-2 rounded-xl text-sm bg-black/5 border border-transparent focus:outline-none focus:border-[#6B705C] transition text-black" />
-                                  <button onClick={() => saveManualMeal(dateStr, mealType)} className="px-3 py-2 bg-[#6B705C] text-white rounded-xl text-sm font-bold hover:bg-[#6B705C]/80 shadow-sm">+</button>
+                                  <input type="text" placeholder="Quick add manual..." value={manualInputs[slotKey] || ''} onChange={(e) => setManualInputs(prev => ({ ...prev, [slotKey]: e.target.value }))} onKeyDown={(e) => { if (e.key === 'Enter') saveManualMeal(dateStr, mealType); }} className="flex-1 min-w-0 px-3 py-2 rounded-xl text-sm bg-black/5 border border-transparent focus:outline-none focus:border-[#6B705C] transition text-black" />
+                                  <button onClick={() => saveManualMeal(dateStr, mealType)} className="px-3 py-2 bg-[#6B705C] text-white rounded-xl text-sm font-bold hover:bg-[#6B705C]/80 shadow-sm shrink-0">+</button>
                                 </div>
                               </div>
                             </div>
