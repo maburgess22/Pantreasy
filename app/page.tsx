@@ -1,10 +1,12 @@
 'use client';
 
+/* ==========================================================================
+   1. IMPORTS, TYPES & CONSTANTS
+   ================================================================---------- */
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
 
-// --- TYPES ---
 interface PantryItem {
   id: string;
   name: string;
@@ -43,7 +45,6 @@ interface MealPlanItem {
   recipes?: { title: string };
 }
 
-// --- CONSTANTS ---
 const CATEGORIES = [
   { name: 'Produce' },
   { name: 'Dairy & Eggs' },
@@ -58,6 +59,9 @@ const CATEGORIES = [
 
 const COMMON_UNITS = ['pcs', 'kg', 'g', 'lbs', 'oz', 'ml', 'l', 'cups', 'tbsp', 'tsp', 'cans', 'packs'];
 
+/* ==========================================================================
+   2. HELPER FUNCTIONS (Scaling, Unit Conversions, Aisles)
+   ================================================================---------- */
 function scaleAndConvertIngredient(ingredient: string, multiplier: number, targetSystem: 'metric' | 'imperial'): string {
   let result = ingredient;
   
@@ -117,11 +121,13 @@ const getNext7Days = () => {
   });
 };
 
+/* ==========================================================================
+   3. MAIN COMPONENT & STATE MANAGEMENT
+   ================================================================---------- */
 export default function PantryManager() {
   const supabase = createClient();
   const router = useRouter();
 
-  // --- STATE ---
   const [activeTab, setActiveTab] = useState<'dashboard' | 'pantry' | 'recipes' | 'shopping' | 'planner'>('dashboard');
   const [items, setItems] = useState<PantryItem[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -192,7 +198,9 @@ export default function PantryManager() {
   const next7Days = getNext7Days();
   const todayStr = new Date().toISOString().split('T')[0];
 
-  // --- LOAD DATA FROM SUPABASE ---
+  /* ==========================================================================
+     4. DATA FETCHING (SUPABASE INITIALIZATION)
+     ================================================================---------- */
   useEffect(() => {
     const loadData = async () => {
       const { data: pData } = await supabase.from('pantry_items').select('*').order('created_at', { ascending: false });
@@ -242,7 +250,9 @@ export default function PantryManager() {
     }
   };
 
-  // PANTRY CRUD
+  /* ==========================================================================
+     5. CRUD HANDLERS (Pantry, Recipes, Shopping, Meal Planner)
+     ================================================================---------- */
   const addItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
@@ -277,30 +287,6 @@ export default function PantryManager() {
     if (recipeFileInputRef.current) recipeFileInputRef.current.value = '';
   };
 
-  const updateScannedItem = (index: number, field: string, value: string | number) => {
-    setScannedItems(prev => {
-      if (!prev) return prev;
-      const updated = [...prev];
-      updated[index] = { ...updated[index], [field]: value };
-      return updated;
-    });
-  };
-
-  const removeScannedItem = (index: number) => setScannedItems(prev => prev ? prev.filter((_, i) => i !== index) : prev);
-
-  const confirmScannedItems = async () => {
-    if (!scannedItems || scannedItems.length === 0) return setScannedItems(null);
-    setLoading(true);
-    const inserts = scannedItems.map(item => ({ ...item, track_low_stock: false, low_stock_threshold: 1 }));
-    const { data: insertedData, error } = await supabase.from('pantry_items').insert(inserts).select();
-    if (!error && insertedData) {
-      setItems(prev => [...insertedData, ...prev]);
-      alert(`Successfully added ${insertedData.length} items to your pantry!`);
-      setScannedItems(null);
-    } else alert('Failed to save items to database.');
-    setLoading(false);
-  };
-
   const deleteItem = async (id: string) => {
     setItems(prev => prev.filter(item => item.id !== id));
     await supabase.from('pantry_items').delete().eq('id', id);
@@ -324,7 +310,6 @@ export default function PantryManager() {
     await supabase.from('pantry_items').update(updatedItem).eq('id', id);
   };
 
-  // LOW STOCK MANAGEMENT HANDLERS
   const enableTrackingForId = async (id: string) => {
     if (!id) return;
     setItems(prev => prev.map(i => i.id === id ? { ...i, track_low_stock: true, low_stock_threshold: 1 } : i));
@@ -354,7 +339,6 @@ export default function PantryManager() {
     setNewTrackName(''); setLoading(false);
   };
 
-  // RECIPE CRUD, IMPORT & EDITING
   const openRecipe = (recipe: Recipe) => {
     setSelectedRecipe(recipe);
     setTargetPortions(recipe.portions || 4);
@@ -381,7 +365,6 @@ export default function PantryManager() {
     setImportUrl(''); setIsImporting(false);
   };
 
-  // Base64 Image Uploader Helper
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setFormState: Function) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -460,7 +443,6 @@ export default function PantryManager() {
     await supabase.from('recipes').delete().eq('id', id);
   };
 
-  // MEAL PLAN DISTRIBUTION HANDLERS
   const startDistribution = () => { setPlanTargetPortions(targetPortions); setAllocationsGrid({}); setShowDistributionModal(true); };
 
   const handleAllocate = (dateStr: string, mealType: string, delta: number) => {
@@ -499,7 +481,6 @@ export default function PantryManager() {
     setMealPlans(prev => prev.filter(m => m.id !== id)); await supabase.from('meal_plan').delete().eq('id', id);
   };
 
-  // SHOPPING LIST CRUD
   const handleAddShoppingItem = async (e: React.FormEvent) => {
     e.preventDefault(); if (!shoppingInput.trim()) return;
     const { data } = await supabase.from('shopping_list').insert([{ name: shoppingInput.trim() }]).select().single();
@@ -573,26 +554,25 @@ export default function PantryManager() {
       .filter(scaledIng => getIngredientStatus(scaledIng, items).status !== 'in_stock');
     if (missing.length === 0) return alert('You already have all ingredients!');
     const { data } = await supabase.from('shopping_list').insert(missing.map(name => ({ name }))).select();
-    if (data) { setShoppingList(prev => [...data, ...prev]); alert('Missing ingredients added!'); }
+    if (data) { setShoppingList(prev => [...prev, ...data]); alert('Missing ingredients added!'); }
   };
 
   const multiplier = selectedRecipe ? (targetPortions / (selectedRecipe.portions || 4)) : 1;
   const totalAllocated = Object.values(allocationsGrid).reduce((a, b) => a + b, 0);
   const remainingPortions = planTargetPortions - totalAllocated;
 
-  // --- RENDER VIEWS ---
-
-  // 1. FULL PAGE LOW STOCK VIEW (Takes over screen if requested)
+  /* ==========================================================================
+     6. RENDER VIEW: LOW STOCK MANAGEMENT SCREEN
+     ================================================================---------- */
   if (showLowStockPage && !selectedRecipe) {
     return (
-      <main className="min-h-screen bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 md:p-8 font-montserrat">
+      <main className="min-h-screen w-full overflow-x-hidden bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 md:p-8 font-montserrat">
         <div className="max-w-6xl mx-auto space-y-6">
           <button onClick={() => setShowLowStockPage(false)} className="flex items-center gap-2 text-black/70 hover:text-black font-semibold transition">
             &larr; Back to Dashboard
           </button>
           
           <div className="bg-white rounded-[32px] overflow-hidden shadow-sm border border-black/10">
-            {/* GREEN HEADER */}
             <div className="bg-[#6B705C] text-white p-6 md:p-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
               <div>
                 <h2 className="text-4xl md:text-5xl font-bold leading-snug">Low Stock Management</h2>
@@ -604,13 +584,9 @@ export default function PantryManager() {
             </div>
 
             <div className="p-6 md:p-10 space-y-10">
-              
-              {/* TOP SECTION: Full Width Tracking */}
               <div className="bg-black/5 p-6 rounded-3xl border border-black/10 space-y-5">
                 <h3 className="text-sm font-semibold uppercase tracking-wider text-black">Start Tracking</h3>
-                
                 <div className="flex flex-col md:flex-row gap-8 items-center">
-                  {/* Option 1: Existing Untracked Items */}
                   <div className="flex-1 w-full flex gap-3">
                     <select value={itemToTrackId} onChange={(e) => setItemToTrackId(e.target.value)} className="flex-1 px-4 py-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm text-sm">
                       <option value="">Select an untracked pantry item...</option>
@@ -621,7 +597,6 @@ export default function PantryManager() {
 
                   <span className="text-[10px] text-black/50 font-bold uppercase tracking-widest shrink-0">Or Add New</span>
 
-                  {/* Option 2: Brand New Item */}
                   <form onSubmit={addNewTrackedItem} className="flex-1 w-full flex gap-2">
                     <input type="text" placeholder="New item name..." value={newTrackName} onChange={handleNewTrackNameChange} className="w-1/2 px-4 py-3 rounded-xl text-sm focus:outline-none bg-white border border-black/20 text-black shadow-sm" required />
                     <select value={newTrackCategory} onChange={(e) => setNewTrackCategory(e.target.value)} className="w-1/4 px-2 py-3 rounded-xl text-xs focus:outline-none bg-white border border-black/20 text-black shadow-sm">
@@ -635,21 +610,16 @@ export default function PantryManager() {
                 </div>
               </div>
 
-              {/* BOTTOM SECTION: 2-Column Grid */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-                
-                {/* LEFT: Set Low Stock Amounts */}
                 <div className="space-y-4">
                   <h3 className="text-sm font-semibold uppercase tracking-wider text-black">Set Low Stock Amounts</h3>
                   <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-2">
                     {trackedItemsList.map(item => (
                        <div key={item.id} className="flex flex-col p-4 rounded-2xl bg-white border border-black/10 shadow-sm gap-3 transition hover:shadow-md">
                          <div className="flex items-center justify-between">
-                           <div className="flex items-center gap-3">
-                             <div>
-                               <h4 className="font-semibold text-base capitalize text-black">{item.name}</h4>
-                               <p className="text-xs text-black/60 font-medium">Stock: {item.quantity} {item.unit}</p>
-                             </div>
+                           <div>
+                             <h4 className="font-semibold text-base capitalize text-black">{item.name}</h4>
+                             <p className="text-xs text-black/60 font-medium">Stock: {item.quantity} {item.unit}</p>
                            </div>
                            <button onClick={() => disableTrackingForId(item.id)} className="text-black/40 hover:text-red-600 font-bold px-2 text-sm">✕</button>
                          </div>
@@ -665,7 +635,6 @@ export default function PantryManager() {
                   </div>
                 </div>
 
-                {/* RIGHT: Actively Low Items */}
                 <div className="space-y-4">
                   <h3 className="text-sm font-semibold uppercase tracking-wider text-red-800">Actively Low Items</h3>
                   {lowStockItems.length > 0 ? (
@@ -686,7 +655,6 @@ export default function PantryManager() {
                     </div>
                   )}
                 </div>
-
               </div>
             </div>
           </div>
@@ -695,11 +663,13 @@ export default function PantryManager() {
     );
   }
 
-  // 2. FULL PAGE RECIPE VIEW / EDIT MODE
+  /* ==========================================================================
+     7. RENDER VIEW: DETAILED RECIPE VIEW & RECIPE EDITOR
+     ================================================================---------- */
   if (selectedRecipe && !showDistributionModal) {
     if (isEditingRecipe) {
       return (
-        <main className="min-h-screen bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 md:p-8 font-montserrat">
+        <main className="min-h-screen w-full overflow-x-hidden bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 md:p-8 font-montserrat">
           <div className="max-w-6xl mx-auto space-y-6">
             <button onClick={() => setIsEditingRecipe(false)} className="flex items-center gap-2 text-black/70 hover:text-black font-semibold transition">&larr; Cancel Edits</button>
             <div className="bg-white rounded-[32px] overflow-hidden shadow-sm border border-black/10 p-6 md:p-10 flex flex-col gap-6">
@@ -763,7 +733,7 @@ export default function PantryManager() {
     }
 
     return (
-      <main className="min-h-screen bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 md:p-8 font-montserrat">
+      <main className="min-h-screen w-full overflow-x-hidden bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 md:p-8 font-montserrat">
         <div className="max-w-6xl mx-auto space-y-6">
           <button onClick={() => setSelectedRecipe(null)} className="flex items-center gap-2 text-black/70 hover:text-black font-semibold transition">&larr; Back to Recipes</button>
           <div className="bg-white rounded-[32px] overflow-hidden shadow-sm border border-black/10">
@@ -772,8 +742,6 @@ export default function PantryManager() {
               <div className="flex-1">
                 <h2 className="text-4xl md:text-5xl font-bold leading-snug">{selectedRecipe.title}</h2>
                 <div className="flex items-center gap-4 mt-4 flex-wrap">
-                  
-                  {/* PORTION SCALER */}
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold uppercase tracking-wider text-white/80">PORTIONS:</span>
                     <div className="flex items-center gap-2 bg-white rounded-xl p-1 border border-black/10 shadow-sm text-black">
@@ -785,7 +753,6 @@ export default function PantryManager() {
 
                   <div className="w-px h-6 bg-white/20 hidden md:block"></div>
 
-                  {/* METRIC / IMPERIAL TOGGLE */}
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold uppercase tracking-wider text-white/80">UNITS:</span>
                     <div className="flex items-center bg-white rounded-xl p-1 border border-black/10 shadow-sm text-black">
@@ -793,7 +760,6 @@ export default function PantryManager() {
                       <button onClick={() => setMeasurementSystem('imperial')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition ${measurementSystem === 'imperial' ? 'bg-black text-white' : 'hover:bg-black/5'}`}>Imperial</button>
                     </div>
                   </div>
-
                 </div>
               </div>
               <div className="flex flex-col gap-3 shrink-0 w-full md:w-56">
@@ -848,14 +814,17 @@ export default function PantryManager() {
     );
   }
 
-  // 3. MAIN APP VIEW WITH NAVIGATION
+  /* ==========================================================================
+     8. RENDER VIEW: MAIN APPLICATION DASHBOARD & TABS
+     ================================================================---------- */
   return (
-    <main className="min-h-screen bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 pb-28 md:p-8 md:pb-8 font-montserrat">
+    <main className="min-h-screen w-full overflow-x-hidden bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 pb-28 md:p-8 md:pb-8 font-montserrat">
       <datalist id="common-units">{COMMON_UNITS.map(u => <option key={u} value={u} />)}</datalist>
       <input type="file" accept="image/*" ref={recipeFileInputRef} className="hidden" onChange={handleRecipeScreenshot} />
 
       <div className="max-w-6xl mx-auto space-y-8">
         
+        {/* --- HEADER & NAVIGATION --- */}
         <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-6 border-b border-black/10">
           <div className="flex items-center justify-between w-full sm:w-auto">
             <div className="flex items-center gap-3 md:gap-4">
@@ -865,11 +834,11 @@ export default function PantryManager() {
                 <p className="text-sm md:text-base text-black/70 mt-1 font-normal hidden md:block">Keep track of your ingredients & dinner plans</p>
               </div>
             </div>
-            {/* Mobile Sign Out */}
-            <button onClick={handleSignOut} className="md:hidden text-xs font-bold uppercase tracking-wider text-red-800 bg-red-50 px-3 py-1.5 rounded-lg border border-red-200">Sign Out</button>
+            {/* Mobile Sign Out (Plain Black Text) */}
+            <button onClick={handleSignOut} className="md:hidden text-sm font-semibold text-black hover:opacity-70 transition px-2 py-1">Sign Out</button>
           </div>
           
-          {/* Desktop Nav (Hidden on Mobile) */}
+          {/* Desktop Navigation */}
           <nav className="hidden md:flex flex-wrap items-center gap-1 p-1.5">
             {[{ id: 'dashboard', label: 'Dashboard' }, { id: 'pantry', label: 'Pantry' }, { id: 'recipes', label: 'Recipes' }, { id: 'shopping', label: 'Shopping List' }, { id: 'planner', label: 'Planner' }].map((tab) => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`px-4 py-2 rounded-xl text-sm transition ${activeTab === tab.id ? 'bg-black text-white font-medium' : 'text-black/80 hover:text-black font-normal'}`}>
@@ -881,10 +850,9 @@ export default function PantryManager() {
           </nav>
         </header>
 
+        {/* --- TAB: DASHBOARD --- */}
         {activeTab === 'dashboard' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
-            {/* LEFT: Today's Meal Plan */}
             <div className="lg:col-span-2 bg-white rounded-[32px] p-6 md:p-8 border border-black/10 shadow-sm flex flex-col">
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-2xl font-bold text-black">Today's Meal Plan</h2>
@@ -914,9 +882,7 @@ export default function PantryManager() {
               </div>
             </div>
 
-            {/* RIGHT: Quick Stats */}
             <div className="space-y-6 flex flex-col">
-              {/* Pantry Count */}
               <div onClick={() => setActiveTab('pantry')} className="bg-[#6B705C] text-white rounded-[32px] p-6 md:p-8 border border-black/10 shadow-sm cursor-pointer hover:bg-[#5a5f4d] transition flex flex-col justify-center min-h-[160px]">
                 <div className="flex justify-between items-center mb-3">
                   <span className="text-sm font-semibold uppercase tracking-wider text-white/80">Pantry Inventory</span>
@@ -925,7 +891,6 @@ export default function PantryManager() {
                 <h3 className="text-6xl font-bold">{items.length} <span className="text-xl font-medium text-white/80">items</span></h3>
               </div>
 
-              {/* Low Stock Overview */}
               <div onClick={() => setShowLowStockPage(true)} className="bg-white rounded-[32px] p-6 md:p-8 border border-black/10 shadow-sm cursor-pointer hover:border-black/30 transition flex flex-col flex-1 max-h-[400px]">
                 <div className="flex justify-between items-center mb-5">
                   <h3 className="text-sm font-semibold uppercase tracking-wider text-red-800">Low Stock Alerts</h3>
@@ -945,13 +910,12 @@ export default function PantryManager() {
                 )}
               </div>
             </div>
-            
           </div>
         )}
 
+        {/* --- TAB: SHOPPING LIST --- */}
         {activeTab === 'shopping' && (
            <div className="space-y-6 max-w-4xl mx-auto">
-            {/* GREEN HEADER */}
             <div className="bg-[#6B705C] text-white p-6 md:p-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 rounded-[32px] shadow-sm border border-black/10">
               <div>
                 <h2 className="text-4xl md:text-5xl font-bold leading-snug">Shopping List</h2>
@@ -962,10 +926,12 @@ export default function PantryManager() {
               </button>
             </div>
 
-            <form onSubmit={handleAddShoppingItem} className="flex gap-2 mb-8">
-              <button type="button" onClick={startListening} className={`p-4 rounded-2xl transition border border-black/20 shadow-sm font-bold text-sm ${isListening ? 'bg-red-500 text-white animate-pulse border-red-500' : 'bg-white text-black hover:bg-black/5'}`} title="Use microphone">Voice Input</button>
-              <input type="text" value={shoppingInput} onChange={(e) => setShoppingInput(e.target.value)} placeholder={isListening ? "Listening..." : "Add a product..."} className="flex-1 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black placeholder:text-black/50 shadow-sm" />
-              <button type="submit" className="px-6 py-3 font-medium rounded-2xl bg-black text-white hover:bg-black/80">Add</button>
+            <form onSubmit={handleAddShoppingItem} className="flex flex-col sm:flex-row gap-3 mb-8">
+              <div className="flex gap-2 flex-1 w-full">
+                <input type="text" value={shoppingInput} onChange={(e) => setShoppingInput(e.target.value)} placeholder={isListening ? "Listening..." : "Add a product..."} className="flex-1 min-w-0 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black placeholder:text-black/50 shadow-sm" />
+                <button type="submit" className="px-6 py-3 font-medium rounded-2xl bg-black text-white hover:bg-black/80 shrink-0">Add</button>
+              </div>
+              <button type="button" onClick={startListening} className={`p-4 rounded-2xl transition border border-black/20 shadow-sm font-bold text-sm w-full sm:w-auto shrink-0 ${isListening ? 'bg-red-500 text-white animate-pulse border-red-500' : 'bg-white text-black hover:bg-black/5'}`} title="Use microphone">Voice Input</button>
             </form>
 
             <div className="space-y-6">
@@ -993,6 +959,7 @@ export default function PantryManager() {
           </div>
         )}
 
+        {/* --- TAB: PANTRY INVENTORY --- */}
         {activeTab === 'pantry' && (
           <div className="space-y-6">
              <div className="rounded-[28px] p-6 space-y-4 bg-[#6B705C] text-white border border-black/10">
@@ -1035,11 +1002,9 @@ export default function PantryManager() {
                             <div key={item.id} className="rounded-[20px] p-3 transition bg-white border border-black/10 shadow-sm">
                               {!isEditing ? (
                                 <div className="flex items-center justify-between">
-                                  <div className="flex items-center gap-3">
-                                    <div>
-                                      <h3 className="font-semibold text-base capitalize text-black">{item.name}</h3>
-                                      <p className="text-sm text-black/70 font-normal">{item.quantity} {item.unit}</p>
-                                    </div>
+                                  <div>
+                                    <h3 className="font-semibold text-base capitalize text-black">{item.name}</h3>
+                                    <p className="text-sm text-black/70 font-normal">{item.quantity} {item.unit}</p>
                                   </div>
                                   <div className="flex items-center gap-1.5">
                                     <button onClick={() => adjustQuantity(item, -1)} className="w-7 h-7 rounded-lg text-sm flex items-center justify-center bg-[#6B705C]/10 text-red-700 border border-black/10 hover:bg-black/5">-</button>
@@ -1080,11 +1045,10 @@ export default function PantryManager() {
           </div>
         )}
 
-        {/* RECIPES TAB */}
+        {/* --- TAB: RECIPES & IMPORT --- */}
         {activeTab === 'recipes' && (
           <div className="space-y-6">
              <div className="rounded-[28px] p-6 bg-[#6B705C] text-white border border-black/10 shadow-sm flex flex-col gap-4">
-              
               <div className="flex flex-col sm:flex-row gap-3">
                 <div className="relative flex-1">
                   <input 
@@ -1150,7 +1114,7 @@ export default function PantryManager() {
           </div>
         )}
 
-        {/* PLANNER TAB (The 7-Day Calendar View) */}
+        {/* --- TAB: MEAL PLANNER (7-DAY CALENDAR) --- */}
         {activeTab === 'planner' && (
           <div className="space-y-8">
             <div className="flex justify-between items-center">
@@ -1208,7 +1172,7 @@ export default function PantryManager() {
           </div>
         )}
 
-        {/* DISTRIBUTION MODAL */}
+        {/* --- MODAL: MEAL DISTRIBUTION PLANNER --- */}
         {showDistributionModal && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
             <div className="w-full max-w-3xl rounded-[32px] p-6 md:p-8 bg-white border border-black/20 text-black shadow-2xl flex flex-col max-h-[90vh]">
@@ -1250,7 +1214,6 @@ export default function PantryManager() {
                                  <div key={meal} className="flex flex-col items-center w-full">
                                    <span className="text-[10px] uppercase font-semibold text-black/50 mb-1">{meal}</span>
                                    
-                                   {/* EXISTING PLANNED CONTEXT BADGES */}
                                    {existingMeals.length > 0 && (
                                      <div className="flex flex-col gap-1 w-full mb-1">
                                        {existingMeals.map(m => (
@@ -1289,7 +1252,7 @@ export default function PantryManager() {
           </div>
         )}
 
-        {/* MANUAL RECIPE CREATION MODAL */}
+        {/* --- MODAL: MANUAL RECIPE BUILDER --- */}
         {showManualAddRecipe && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
             <div className="w-full max-w-4xl rounded-[32px] p-6 md:p-8 bg-white border border-black/20 text-black shadow-2xl flex flex-col max-h-[90vh]">
@@ -1350,7 +1313,9 @@ export default function PantryManager() {
         )}
       </div>
 
-      {/* MOBILE BOTTOM NAVIGATION */}
+      {/* ==========================================================================
+         9. MOBILE BOTTOM NAVIGATION BAR
+         ================================================================---------- */}
       <div className="md:hidden fixed bottom-0 inset-x-0 bg-white/90 backdrop-blur-md border-t border-black/10 px-6 pt-3 pb-6 flex justify-between items-center z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
         {[
           { id: 'dashboard', label: 'Home', svg: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /> },
