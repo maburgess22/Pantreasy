@@ -102,13 +102,11 @@ function getStandardGroceryItem(ingredient: string): string {
   let name = (match[3] || '').trim();
   const lowerName = name.toLowerCase();
 
-  // 1. Staples -> Drop the measurement entirely
   const staples = ['oil', 'vinegar', 'sauce', 'paste', 'mustard', 'mayo', 'ketchup', 'salt', 'pepper', 'spice', 'powder', 'extract', 'sugar', 'flour', 'honey', 'syrup', 'jam', 'butter', 'garlic', 'ginger', 'cinnamon', 'cumin', 'paprika', 'oregano', 'basil', 'thyme', 'chili', 'chilli'];
   if (staples.some(s => lowerName.includes(s))) {
     return name.charAt(0).toUpperCase() + name.slice(1);
   }
 
-  // 2. Liquids -> Round to nearest purchasable container
   const liquids = ['milk', 'cream', 'broth', 'stock', 'water', 'juice'];
   if (liquids.some(l => lowerName.includes(l))) {
     let mlQty = qty;
@@ -126,7 +124,6 @@ function getStandardGroceryItem(ingredient: string): string {
     return name;
   }
 
-  // 3. Dry Carbs -> Round to 500g or 1kg bags
   const dryGoods = ['pasta', 'rice', 'oats', 'lentils', 'beans', 'quinoa', 'couscous'];
   if (dryGoods.some(d => lowerName.includes(d))) {
      let gQty = qty;
@@ -142,7 +139,6 @@ function getStandardGroceryItem(ingredient: string): string {
      return name;
   }
 
-  // Default fallback
   return ingredient;
 }
 
@@ -235,6 +231,12 @@ export default function PantryManager() {
   const recipeDropdownRef = useRef<HTMLDivElement>(null);
   const shoppingDropdownRef = useRef<HTMLDivElement>(null);
   const pantryDropdownRef = useRef<HTMLDivElement>(null);
+  
+  // Low Stock Dropdown State
+  const [showAddTrackMenu, setShowAddTrackMenu] = useState(false);
+  const [showTrackPantryInput, setShowTrackPantryInput] = useState(false);
+  const [showTrackNewInput, setShowTrackNewInput] = useState(false);
+  const lowStockDropdownRef = useRef<HTMLDivElement>(null);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editCategory, setEditCategory] = useState('');
@@ -251,6 +253,9 @@ export default function PantryManager() {
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
 
+  /* ==========================================================================
+     4. DATA FETCHING & EVENT LISTENERS
+     ========================================================================== */
   useEffect(() => {
     const loadData = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -280,6 +285,7 @@ export default function PantryManager() {
       if (recipeDropdownRef.current && !recipeDropdownRef.current.contains(event.target as Node)) setShowAddRecipeMenu(false);
       if (shoppingDropdownRef.current && !shoppingDropdownRef.current.contains(event.target as Node)) setShowAddShoppingMenu(false);
       if (pantryDropdownRef.current && !pantryDropdownRef.current.contains(event.target as Node)) setShowAddPantryMenu(false);
+      if (lowStockDropdownRef.current && !lowStockDropdownRef.current.contains(event.target as Node)) setShowAddTrackMenu(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -311,7 +317,6 @@ export default function PantryManager() {
 
   const handleOpenLowStock = () => { window.history.pushState({ tab: activeTab, type: 'lowstock' }, '', `#lowstock`); setShowLowStockPage(true); };
   const handleBackNavigation = () => window.history.back();
-
   const handleSignOut = async () => { await supabase.auth.signOut(); router.push('/login'); };
 
   const handleUpdateAccount = async () => {
@@ -325,6 +330,9 @@ export default function PantryManager() {
     setLoading(false);
   };
 
+  /* ==========================================================================
+     5. ADVANCED VOICE INPUT PARSING
+     ========================================================================== */
   const toggleListening = () => {
     if (isListening) {
       if (recognitionRef.current) recognitionRef.current.stop();
@@ -413,6 +421,9 @@ export default function PantryManager() {
     setVoiceParsedItems([]); setVoiceTranscript(''); setShowVoiceInputScreen(false); setLoading(false);
   };
 
+  /* ==========================================================================
+     6. CRUD HANDLERS (Pantry, Recipes, Shopping, Meal Planner)
+     ========================================================================== */
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value; useStateName(val);
     if (!isManualCategory && val.length > 2) {
@@ -575,7 +586,7 @@ export default function PantryManager() {
     if (!selectedRecipe) return;
     if (remainingPortions !== 0) return showToast(`Allocate exactly ${planTargetPortions} portions.`); setLoading(true);
     const inserts = Object.entries(allocationsGrid).filter(([_, qty]) => qty > 0).map(([key, qty]) => { const [date, meal_type] = key.split('|'); return { date, meal_type, recipe_id: selectedRecipe.id, portions: qty, user_id: userId }; });
-    const { data } = await supabase.from('meal_plan').insert(inserts).select('*, recipes(title)');
+    const { data } = await supabase.from('meal_plan').insert(inserts).select('*, recipes(title, image, cook_time, category)');
     if (data) { setMealPlans(prev => [...prev, ...(data as MealPlanItem[])]); showToast('Meals added to planner!'); setShowDistributionModal(false); }
     setLoading(false);
   };
@@ -852,7 +863,7 @@ export default function PantryManager() {
         </div>
       )}
 
-      {/* --- MODAL: ADD SAVED RECIPE PICKER (Meal Planner) --- */}
+      {/* --- MODAL: ADD SAVED RECIPE PICKER (Meal Planner & Dashboard) --- */}
       {recipePickerTarget && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[80]">
           <div className="w-full max-w-lg rounded-[32px] p-6 bg-white border border-black/20 shadow-2xl flex flex-col max-h-[80vh] animate-in fade-in zoom-in-95">
@@ -918,6 +929,58 @@ export default function PantryManager() {
         </div>
       )}
 
+      {/* --- SCREENS THAT HIDE MAIN CONTENT --- */}
+      {showVoiceInputScreen && (
+        <div className="flex flex-col items-center justify-center min-h-[80vh]">
+          <div className="bg-[#6B705C] p-6 md:p-8 rounded-[32px] shadow-2xl w-full max-w-2xl flex flex-col gap-6 text-white border border-black/10 animate-in fade-in zoom-in-95">
+            <div className="text-center">
+              <h2 className="text-3xl font-bold mb-2">Voice Entry</h2>
+              <p className="text-white/80 text-sm">Say something like: "3 bananas and 200g of flour"</p>
+            </div>
+            
+            <div className="flex justify-center mt-2">
+              <button 
+                onClick={toggleListening}
+                className={`px-8 py-4 rounded-2xl flex items-center justify-center gap-3 font-bold transition-all shadow-sm ${isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-black text-white hover:bg-black/80'}`}
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
+                {isListening ? 'Tap to Stop...' : 'Tap to Speak'}
+              </button>
+            </div>
+
+            {voiceParsedItems.length > 0 && (
+              <div className="flex flex-col gap-3 mt-4">
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-white/80 border-b border-white/20 pb-2 mb-2">Review Items</h3>
+                {voiceParsedItems.map((item, index) => (
+                  <div key={item.id} className="flex flex-row items-center gap-2 bg-white/10 p-2 rounded-2xl w-full">
+                    <input value={item.name} onChange={e => updateVoiceItem(index, 'name', e.target.value)} className="flex-1 min-w-[80px] bg-white text-black px-2 py-2 rounded-xl text-sm focus:outline-none placeholder:text-black/50" placeholder="Item Name" />
+                    <input type="number" step="any" value={item.quantity} onChange={e => updateVoiceItem(index, 'quantity', e.target.value)} className="w-12 bg-white text-black px-1 py-2 rounded-xl text-sm text-center focus:outline-none" />
+                    <select value={item.unit} onChange={e => updateVoiceItem(index, 'unit', e.target.value)} className="w-[70px] bg-white text-black px-1 py-2 rounded-xl text-sm focus:outline-none capitalize">
+                      {COMMON_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                    </select>
+                    {voiceContext === 'pantry' && (
+                      <select value={item.category} onChange={e => updateVoiceItem(index, 'category', e.target.value)} className="w-24 hidden sm:block bg-white text-black px-2 py-2 rounded-xl text-sm focus:outline-none">
+                        {CATEGORIES.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                      </select>
+                    )}
+                    <button onClick={() => removeVoiceItem(index)} className="w-8 h-8 shrink-0 flex items-center justify-center bg-red-500/80 text-white rounded-xl font-bold hover:bg-red-500 transition">✕</button>
+                  </div>
+                ))}
+                <button onClick={commitVoiceItems} disabled={loading} className="w-full py-4 mt-4 bg-black text-white rounded-2xl font-bold hover:bg-black/80 shadow-sm transition">
+                  {loading ? 'Saving...' : `Confirm & Add to ${voiceContext === 'shopping' ? 'List' : 'Pantry'}`}
+                </button>
+              </div>
+            )}
+
+            <div className="border-t border-white/20 pt-4 mt-2">
+              <button onClick={() => { setShowVoiceInputScreen(false); setVoiceParsedItems([]); setVoiceTranscript(''); }} className="w-full py-3 bg-transparent text-white font-bold hover:bg-white/10 rounded-2xl transition">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* --- STANDARD MAIN VIEWS --- */}
       {!showVoiceInputScreen && (
         <div className="max-w-6xl mx-auto space-y-8">
@@ -967,26 +1030,51 @@ export default function PantryManager() {
                     <h2 className="text-4xl md:text-5xl font-bold leading-snug">Low Stock Management</h2>
                     <p className="text-white/80 text-sm mt-2 font-medium">Set thresholds to trigger alerts when essential items run low.</p>
                   </div>
-                  <button onClick={addLowStockToShopping} disabled={lowStockItems.length === 0} className="px-5 py-3 bg-black text-white rounded-xl text-sm font-medium hover:bg-black/80 transition disabled:opacity-50 shadow-sm shrink-0">
-                    + Restock Alerts to List
-                  </button>
+                  <div className="flex flex-col gap-3 shrink-0 w-full md:w-auto md:items-end">
+                    <div className="relative w-full md:w-auto" ref={lowStockDropdownRef}>
+                      <button onClick={() => setShowAddTrackMenu(!showAddTrackMenu)} className="w-full md:w-auto px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-between md:justify-center gap-2 border border-black/20">
+                        Add Item to Track ▾
+                      </button>
+                      {showAddTrackMenu && (
+                        <div className="absolute left-0 md:left-auto md:right-0 mt-2 w-full md:w-[240px] max-w-[90vw] bg-[#1A1A1A] rounded-2xl shadow-2xl border border-white/10 overflow-hidden z-[100] flex flex-col text-white">
+                          <button onClick={() => { setShowTrackPantryInput(true); setShowTrackNewInput(false); setShowAddTrackMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Add Item from Pantry</button>
+                          <button onClick={() => { setShowTrackNewInput(true); setShowTrackPantryInput(false); setShowAddTrackMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition">Add New Item</button>
+                        </div>
+                      )}
+                    </div>
+                    <button onClick={addLowStockToShopping} disabled={lowStockItems.length === 0} className="w-full md:w-auto px-5 py-2.5 bg-white text-black rounded-xl text-sm font-bold transition hover:bg-gray-100 disabled:opacity-50 shadow-sm border border-black/20 text-center">
+                      + Restock Alerts to List
+                    </button>
+                  </div>
                 </div>
 
                 <div className="p-6 md:p-10 space-y-10">
-                  <div className="bg-black/5 p-6 rounded-3xl border border-black/10 space-y-5">
-                    <h3 className="text-sm font-semibold uppercase tracking-wider text-black">Start Tracking</h3>
-                    <div className="flex flex-col lg:flex-row gap-8 lg:items-center">
-                      <div className="flex-1 w-full flex flex-col sm:flex-row gap-3">
-                        <select value={itemToTrackId} onChange={(e) => setItemToTrackId(e.target.value)} className="w-full sm:flex-1 px-4 py-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm text-sm">
+                  
+                  {/* Track From Pantry Form */}
+                  {showTrackPantryInput && (
+                    <div className="bg-black/5 p-6 rounded-3xl border border-black/10 space-y-3 animate-in fade-in slide-in-from-top-2">
+                      <div className="flex justify-between items-center mb-2">
+                        <h3 className="text-sm font-bold uppercase tracking-wider text-black">Add from Pantry</h3>
+                        <button onClick={() => setShowTrackPantryInput(false)} className="text-sm font-bold text-black/40 hover:text-black">✕ Close</button>
+                      </div>
+                      <div className="flex flex-col sm:flex-row gap-3">
+                        <select value={itemToTrackId} onChange={(e) => setItemToTrackId(e.target.value)} className="flex-1 px-4 py-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm text-sm">
                           <option value="">Select an untracked pantry item...</option>
                           {untrackedItemsList.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
                         </select>
-                        <button onClick={() => enableTrackingForId(itemToTrackId)} disabled={!itemToTrackId} className="w-full sm:w-auto px-5 py-3 bg-black text-white rounded-xl text-sm font-medium hover:bg-black/80 disabled:opacity-50 transition shadow-sm">Track</button>
+                        <button onClick={() => { enableTrackingForId(itemToTrackId); setShowTrackPantryInput(false); }} disabled={!itemToTrackId} className="px-6 py-3 bg-black text-white rounded-xl text-sm font-medium hover:bg-black/80 disabled:opacity-50 transition shadow-sm">Track Item</button>
                       </div>
+                    </div>
+                  )}
 
-                      <span className="text-[10px] text-black/50 font-bold uppercase tracking-widest shrink-0 self-center">Or Add New</span>
-
-                      <form onSubmit={addNewTrackedItem} className="flex-1 w-full flex flex-col sm:flex-row gap-2">
+                  {/* Track New Item Form */}
+                  {showTrackNewInput && (
+                    <div className="bg-black/5 p-6 rounded-3xl border border-black/10 space-y-3 animate-in fade-in slide-in-from-top-2">
+                      <div className="flex justify-between items-center mb-2">
+                        <h3 className="text-sm font-bold uppercase tracking-wider text-black">Add New Item</h3>
+                        <button onClick={() => setShowTrackNewInput(false)} className="text-sm font-bold text-black/40 hover:text-black">✕ Close</button>
+                      </div>
+                      <form onSubmit={(e) => { addNewTrackedItem(e); setShowTrackNewInput(false); }} className="flex flex-col sm:flex-row gap-2">
                         <input type="text" placeholder="New item name..." value={newTrackName} onChange={handleNewTrackNameChange} className="w-full sm:flex-1 px-4 py-3 rounded-xl text-sm focus:outline-none bg-white border border-black/20 text-black shadow-sm" required />
                         <div className="flex gap-2 w-full sm:w-auto">
                           <select value={newTrackCategory} onChange={(e) => setNewTrackCategory(e.target.value)} className="flex-1 sm:w-28 px-2 py-3 rounded-xl text-xs focus:outline-none bg-white border border-black/20 text-black shadow-sm">
@@ -996,10 +1084,10 @@ export default function PantryManager() {
                             {COMMON_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
                           </select>
                         </div>
-                        <button type="submit" disabled={loading} className="w-full sm:w-auto px-5 py-3 bg-black text-white rounded-xl text-sm font-medium hover:bg-black/80 disabled:opacity-50 transition shadow-sm">Add</button>
+                        <button type="submit" disabled={loading} className="w-full sm:w-auto px-6 py-3 bg-black text-white rounded-xl text-sm font-medium hover:bg-black/80 disabled:opacity-50 transition shadow-sm">Add & Track</button>
                       </form>
                     </div>
-                  </div>
+                  )}
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
                     <div className="space-y-4">
@@ -1007,9 +1095,12 @@ export default function PantryManager() {
                       <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-2">
                         {trackedItemsList.map(item => (
                            <div key={item.id} className="flex flex-row items-center gap-3 bg-black/5 p-3 rounded-2xl w-full transition hover:bg-black/10">
-                             <div className="flex-1 font-semibold text-black truncate">{item.name}</div>
-                             <div className="flex items-center gap-2 bg-white px-2 py-1.5 rounded-xl border border-black/10 shrink-0">
-                               <span className="text-[10px] font-bold text-black/50 uppercase tracking-wider hidden sm:block">Alert at:</span>
+                             <div className="flex-1 min-w-[80px]">
+                               <h4 className="font-semibold text-sm capitalize text-black truncate">{item.name}</h4>
+                               <p className="text-[10px] text-black/50 uppercase font-bold truncate">Stock: {item.quantity} {item.unit}</p>
+                             </div>
+                             <div className="flex items-center gap-2 bg-white px-2 py-1.5 rounded-xl border border-black/10 shrink-0 shadow-sm">
+                               <span className="text-[10px] font-bold text-black/50 uppercase tracking-wider hidden sm:block pl-1">Alert at:</span>
                                <input type="number" step="any" min="0" value={item.low_stock_threshold || 0} onChange={(e) => updateLowStockThreshold(item.id, parseFloat(e.target.value) || 0)} className="w-12 text-center text-sm font-bold focus:outline-none bg-transparent" />
                                <span className="text-sm font-bold text-black pr-1">{item.unit}</span>
                              </div>
@@ -1118,26 +1209,6 @@ export default function PantryManager() {
                 <div className="bg-[#6B705C] text-white p-6 md:p-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                   <div className="flex-1">
                     <h2 className="text-4xl md:text-5xl font-bold leading-snug">{selectedRecipe.title}</h2>
-                    <div className="flex items-center gap-4 mt-4 flex-wrap">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold uppercase tracking-wider text-white/80">PORTIONS:</span>
-                        <div className="flex items-center gap-2 bg-white rounded-xl p-1 border border-black/10 shadow-sm text-black">
-                          <button onClick={() => setTargetPortions(Math.max(1, targetPortions - 1))} className="w-8 h-8 rounded-lg bg-black text-white hover:bg-black/80 font-bold">-</button>
-                          <span className="w-8 text-center font-bold text-lg">{targetPortions}</span>
-                          <button onClick={() => setTargetPortions(targetPortions + 1)} className="w-8 h-8 rounded-lg bg-black text-white hover:bg-black/80 font-bold">+</button>
-                        </div>
-                      </div>
-
-                      <div className="w-px h-6 bg-white/20 hidden md:block"></div>
-
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold uppercase tracking-wider text-white/80">UNITS:</span>
-                        <div className="flex items-center bg-white rounded-xl p-1 border border-black/10 shadow-sm text-black">
-                          <button onClick={() => setMeasurementSystem('metric')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition ${measurementSystem === 'metric' ? 'bg-black text-white' : 'hover:bg-black/5'}`}>Metric</button>
-                          <button onClick={() => setMeasurementSystem('imperial')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition ${measurementSystem === 'imperial' ? 'bg-black text-white' : 'hover:bg-black/5'}`}>Imperial</button>
-                        </div>
-                      </div>
-                    </div>
                   </div>
                   <div className="flex flex-col gap-3 shrink-0 w-full md:w-56">
                     <button onClick={startDistribution} className="w-full py-3 bg-black text-white rounded-xl text-sm font-medium hover:bg-black/80 transition shadow-sm text-center">+ Add to Meal Plan</button>
@@ -1157,7 +1228,28 @@ export default function PantryManager() {
 
                   {recipeDetailTab === 'ingredients' && (
                     <div className="space-y-4 animate-in fade-in">
-                      <h3 className="text-sm font-semibold uppercase tracking-wider text-black/80">Ingredients {multiplier !== 1 && <span className="text-emerald-700 normal-case font-medium ml-2">(Scaled {multiplier}x)</span>}</h3>
+                      
+                      {/* INGREDIENT CONTROLS (Portions & Units) */}
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-black/5 p-4 rounded-2xl border border-black/5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold uppercase tracking-wider text-black/60">Portions:</span>
+                          <div className="flex items-center gap-2 bg-white rounded-lg p-1 border border-black/10 shadow-sm text-black">
+                            <button onClick={() => setTargetPortions(Math.max(1, targetPortions - 1))} className="w-6 h-6 rounded-md bg-black text-white hover:bg-black/80 font-bold text-sm flex items-center justify-center">-</button>
+                            <span className="w-6 text-center font-bold text-sm">{targetPortions}</span>
+                            <button onClick={() => setTargetPortions(targetPortions + 1)} className="w-6 h-6 rounded-md bg-black text-white hover:bg-black/80 font-bold text-sm flex items-center justify-center">+</button>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold uppercase tracking-wider text-black/60">Units:</span>
+                          <div className="flex items-center bg-white rounded-lg p-1 border border-black/10 shadow-sm text-black">
+                            <button onClick={() => setMeasurementSystem('metric')} className={`px-3 py-1 rounded-md text-xs font-bold transition ${measurementSystem === 'metric' ? 'bg-black text-white' : 'hover:bg-black/5'}`}>Metric</button>
+                            <button onClick={() => setMeasurementSystem('imperial')} className={`px-3 py-1 rounded-md text-xs font-bold transition ${measurementSystem === 'imperial' ? 'bg-black text-white' : 'hover:bg-black/5'}`}>Imperial</button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <h3 className="text-sm font-semibold uppercase tracking-wider text-black/80 mt-2">Ingredients {multiplier !== 1 && <span className="text-emerald-700 normal-case font-medium ml-2">(Scaled {multiplier}x)</span>}</h3>
                       <div className="space-y-2">
                         {selectedRecipe.ingredients.map((ing, i) => {
                           const scaledIng = scaleAndConvertIngredient(ing, multiplier, measurementSystem);
@@ -1247,7 +1339,7 @@ export default function PantryManager() {
                                 ))}
                               </div>
                             ) : (
-                              <div onClick={() => handleTabChange('planner')} className="p-3 bg-white/50 rounded-2xl border border-dashed border-black/10 text-center cursor-pointer hover:bg-white hover:border-black/30 transition">
+                              <div onClick={() => setRecipePickerTarget({ date: todayStr, mealType })} className="p-3 bg-white/50 rounded-2xl border border-dashed border-black/10 text-center cursor-pointer hover:bg-white hover:border-black/30 transition">
                                 <p className="text-sm text-black/50 italic font-medium">Nothing planned. Tap to add.</p>
                               </div>
                             )}
@@ -1607,13 +1699,20 @@ export default function PantryManager() {
                                               if (matchedRecipe) handleOpenRecipe(matchedRecipe);
                                             }
                                           }}
-                                          className={`flex justify-between items-start p-2.5 rounded-xl bg-black/5 border border-transparent group transition ${meal.recipe_id ? 'cursor-pointer hover:bg-black/10' : ''}`}
+                                          className={`flex items-center gap-3 bg-white p-3 rounded-2xl border border-black/5 transition group relative ${meal.recipe_id ? 'cursor-pointer hover:shadow-md hover:border-black/20' : ''}`}
                                         >
-                                          <div>
-                                            <p className="font-semibold text-sm text-black leading-snug">{meal.recipe_id ? meal.recipes?.title : meal.manual_name}</p>
-                                            <p className="text-xs text-black/60 mt-0.5">{meal.portions} portion{meal.portions > 1 ? 's' : ''}</p>
+                                          {meal.recipe_id && meal.recipes?.image ? (
+                                            <img src={meal.recipes.image} alt={meal.recipes.title} className="w-14 h-14 rounded-xl object-cover shrink-0 border border-black/5" />
+                                          ) : (
+                                            <div className="w-14 h-14 rounded-xl bg-[#6B705C]/10 flex items-center justify-center shrink-0 border border-black/5">
+                                              <span className="text-[10px] font-semibold text-black/40 text-center leading-tight">{meal.recipe_id ? 'No Img' : 'Manual'}</span>
+                                            </div>
+                                          )}
+                                          <div className="flex-1 min-w-0 pr-6">
+                                            <p className="font-bold text-sm text-black truncate">{meal.recipe_id ? meal.recipes?.title : meal.manual_name}</p>
+                                            <p className="text-xs font-medium text-black/60 mt-0.5">{meal.portions} portion{meal.portions > 1 ? 's' : ''}</p>
                                           </div>
-                                          <button onClick={(e) => { e.stopPropagation(); deleteMealPlan(meal.id); }} className="text-black/30 hover:text-red-600 font-bold px-1 text-xs opacity-0 group-hover:opacity-100 transition z-10">✕</button>
+                                          <button onClick={(e) => { e.stopPropagation(); deleteMealPlan(meal.id); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-black/30 hover:text-red-600 font-bold p-1 text-xs opacity-0 group-hover:opacity-100 transition z-10 bg-white rounded-full shadow-sm">✕</button>
                                         </div>
                                       ))}
                                     </div>
