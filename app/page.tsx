@@ -168,11 +168,12 @@ export default function PantryManager() {
   const [voiceTranscript, setVoiceTranscript] = useState('');
   const [voiceParsedItems, setVoiceParsedItems] = useState<{id: number, name: string, quantity: number, unit: string, category?: string}[]>([]);
   const [isListening, setIsListening] = useState(false);
-  const recognitionRef = useRef<any>(null); // Controls start/stop
+  const recognitionRef = useRef<any>(null);
 
   // Meal Planner State
   const [collapsedDays, setCollapsedDays] = useState<Record<string, boolean>>({});
   const [showDistributionModal, setShowDistributionModal] = useState(false);
+  const [recipePickerTarget, setRecipePickerTarget] = useState<{date: string, mealType: string} | null>(null);
   const [planTargetPortions, setPlanTargetPortions] = useState(4);
   const [allocationsGrid, setAllocationsGrid] = useState<Record<string, number>>({});
   const [manualInputs, setManualInputs] = useState<Record<string, string>>({});
@@ -325,16 +326,22 @@ export default function PantryManager() {
     
     recognition.onstart = () => setIsListening(true);
     recognition.onresult = (event: any) => {
-      let fullText = '';
-      for (let i = 0; i < event.results.length; i++) {
-        fullText += event.results[i][0].transcript;
-      }
-      setVoiceTranscript(fullText);
+      const currentTranscript = Array.from(event.results)
+        .map((res: any) => res[0].transcript)
+        .join('');
+      setVoiceTranscript(currentTranscript);
     };
     recognition.onend = () => setIsListening(false);
     recognition.onerror = () => setIsListening(false);
     recognition.start();
   };
+
+  // Auto-parse when listening stops and transcript exists
+  useEffect(() => {
+    if (!isListening && voiceTranscript.trim() && voiceParsedItems.length === 0) {
+      parseVoiceInput();
+    }
+  }, [isListening]);
 
   const parseVoiceInput = () => {
     if (!voiceTranscript.trim()) return;
@@ -432,7 +439,6 @@ export default function PantryManager() {
     setIsScanning(false);
   };
 
-  // RESTORED RECIPE SCREENSHOT FUNCTION FOR VERCEL BUILD
   const handleRecipeScreenshot = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -513,7 +519,8 @@ export default function PantryManager() {
     const cleanedInstructions = manualRecipe.instructionsText.split('\n').map(i => i.trim()).filter(i => i !== '');
     const newRecipe = { title: manualRecipe.title.trim(), category: manualRecipe.category, cook_time: manualRecipe.cook_time, portions: manualRecipe.portions, image: manualRecipe.image, ingredients: cleanedIngredients, instructions: cleanedInstructions };
     const { data, error } = await supabase.from('recipes').insert([newRecipe]).select().single();
-    if (!error && data) { setRecipes(prev => [data, ...prev]); setShowManualAddRecipe(false); setManualRecipe({ title: '', category: 'Main Dish', cook_time: '30 mins', portions: 4, ingredientsText: '', instructionsText: '', image: '' }); } 
+    if (!error && data) {
+      setRecipes(prev => [data, ...prev]); setShowManualAddRecipe(false); setManualRecipe({ title: '', category: 'Main Dish', cook_time: '30 mins', portions: 4, ingredientsText: '', instructionsText: '', image: '' }); } 
     setLoading(false);
   };
 
@@ -563,7 +570,7 @@ export default function PantryManager() {
   
   const saveRecipeToMealPlan = async (date: string, mealType: string, recipeId: string) => {
     if (!recipeId) return;
-    const { data } = await supabase.from('meal_plan').insert([{ date, meal_type: mealType, recipe_id: recipeId, portions: 1 }]).select('*, recipes(title)').single();
+    const { data } = await supabase.from('meal_plan').insert([{ date, meal_type: mealType, recipe_id: recipeId, portions: 1 }]).select('*, recipes(title, image, cook_time, category)').single();
     if (data) { setMealPlans(prev => [...prev, data as MealPlanItem]); }
   };
 
@@ -697,19 +704,7 @@ export default function PantryManager() {
             </button>
           </div>
 
-          {voiceTranscript && voiceParsedItems.length === 0 && (
-            <div className="w-full mt-4 flex flex-col gap-4">
-              <div className="p-4 bg-black/10 rounded-2xl border border-black/10 text-center">
-                <p className="text-lg font-medium italic">"{voiceTranscript}"</p>
-              </div>
-              {!isListening && (
-                <button onClick={parseVoiceInput} className="w-full py-4 bg-white text-black rounded-2xl font-bold hover:bg-gray-100 shadow-sm transition">
-                  Preview Items
-                </button>
-              )}
-            </div>
-          )}
-
+          {/* Editable Parsed List on Single Row */}
           {voiceParsedItems.length > 0 && (
             <div className="flex flex-col gap-3 mt-4">
               <h3 className="text-sm font-semibold uppercase tracking-wider text-white/80 border-b border-white/20 pb-2 mb-2">Review Items</h3>
@@ -1034,7 +1029,7 @@ export default function PantryManager() {
             </div>
             
             {/* Account Settings Button (Mobile) */}
-            <button onClick={() => setShowAccountModal(true)} className="md:hidden text-black hover:opacity-70 transition p-2 bg-white/50 rounded-full shadow-sm border border-black/10">
+            <button onClick={() => setShowAccountModal(true)} className="md:hidden text-black hover:opacity-70 transition p-2">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
             </button>
           </div>
@@ -1048,7 +1043,7 @@ export default function PantryManager() {
             <div className="w-px h-6 bg-black/20 mx-1"></div>
             
             {/* Account Settings Button (Desktop) */}
-            <button onClick={() => setShowAccountModal(true)} className="px-3 py-2 rounded-xl text-black hover:bg-black/5 transition flex items-center gap-2">
+            <button onClick={() => setShowAccountModal(true)} className="px-3 py-2 text-black hover:opacity-70 transition flex items-center gap-2">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
             </button>
           </nav>
@@ -1071,7 +1066,16 @@ export default function PantryManager() {
                       {meals.length > 0 ? (
                         <div className="space-y-3">
                           {meals.map(meal => (
-                            <div key={meal.id} className="flex items-center gap-3 bg-white p-3 rounded-2xl border border-black/5 shadow-sm transition">
+                            <div 
+                              key={meal.id} 
+                              onClick={() => {
+                                if (meal.recipe_id) {
+                                  const matchedRecipe = recipes.find(r => r.id === meal.recipe_id);
+                                  if (matchedRecipe) handleOpenRecipe(matchedRecipe);
+                                }
+                              }}
+                              className={`flex items-center gap-3 bg-white p-3 rounded-2xl border border-black/5 transition ${meal.recipe_id ? 'cursor-pointer hover:shadow-md hover:border-black/20' : ''}`}
+                            >
                               {meal.recipe_id && meal.recipes?.image ? (
                                 <img src={meal.recipes.image} alt={meal.recipes.title} className="w-14 h-14 rounded-xl object-cover shrink-0 border border-black/5" />
                               ) : (
@@ -1087,7 +1091,9 @@ export default function PantryManager() {
                           ))}
                         </div>
                       ) : (
-                        <p className="text-sm text-black/50 italic">Nothing planned</p>
+                        <div onClick={() => handleTabChange('planner')} className="p-3 bg-white/50 rounded-2xl border border-dashed border-black/10 text-center cursor-pointer hover:bg-white hover:border-black/30 transition">
+                          <p className="text-sm text-black/50 italic font-medium">Nothing planned. Tap to add.</p>
+                        </div>
                       )}
                     </div>
                   )
@@ -1308,6 +1314,7 @@ export default function PantryManager() {
           <div className="space-y-6">
              <div className="rounded-[28px] p-6 bg-[#6B705C] text-white border border-black/10 shadow-sm flex flex-col gap-4">
               
+              {/* Layout for Search and Toggles */}
               <div className="flex flex-col sm:flex-row gap-3">
                 <div className="w-full sm:flex-1 min-w-0">
                   <input 
@@ -1327,6 +1334,7 @@ export default function PantryManager() {
                     {uniqueRecipeCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                   </select>
                   
+                  {/* Grid/List View Toggle Icons */}
                   <div className="flex bg-white rounded-2xl p-1 shadow-sm border border-black/20 shrink-0">
                     <button onClick={() => setRecipeViewMode('grid')} className={`px-3 flex items-center justify-center rounded-xl transition ${recipeViewMode === 'grid' ? 'bg-[#6B705C] text-white' : 'text-black/40 hover:text-black'}`}>
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
@@ -1446,13 +1454,12 @@ export default function PantryManager() {
                                 ))}
                               </div>
                               <div className="flex flex-col gap-2 mt-auto">
-                                <select 
-                                  onChange={(e) => { if(e.target.value) saveRecipeToMealPlan(dateStr, mealType, e.target.value); e.target.value=''; }} 
-                                  className="w-full px-3 py-2 rounded-xl text-sm bg-black/5 border border-transparent focus:outline-none focus:border-[#6B705C] transition text-black"
+                                <button 
+                                  onClick={() => setRecipePickerTarget({ date: dateStr, mealType })} 
+                                  className="w-full px-3 py-2.5 rounded-xl text-sm bg-black/5 border border-transparent hover:border-[#6B705C] transition text-black/70 font-semibold text-left mb-1"
                                 >
-                                  <option value="">+ Add saved recipe...</option>
-                                  {recipes.map(r => <option key={r.id} value={r.id}>{r.title}</option>)}
-                                </select>
+                                  + Add saved recipe...
+                                </button>
                                 <div className="flex gap-2">
                                   <input type="text" placeholder="Quick add manual..." value={manualInputs[slotKey] || ''} onChange={(e) => setManualInputs(prev => ({ ...prev, [slotKey]: e.target.value }))} onKeyDown={(e) => { if (e.key === 'Enter') saveManualMeal(dateStr, mealType); }} className="flex-1 min-w-0 px-3 py-2 rounded-xl text-sm bg-black/5 border border-transparent focus:outline-none focus:border-[#6B705C] transition text-black" />
                                   <button onClick={() => saveManualMeal(dateStr, mealType)} className="px-3 py-2 bg-[#6B705C] text-white rounded-xl text-sm font-bold hover:bg-[#6B705C]/80 shadow-sm shrink-0">+</button>
@@ -1467,148 +1474,37 @@ export default function PantryManager() {
                 );
               })}
             </div>
+            
+            {/* Modal: Add Saved Recipe Picker */}
+            {recipePickerTarget && (
+              <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[80]">
+                <div className="w-full max-w-lg rounded-[32px] p-6 bg-white border border-black/20 shadow-2xl flex flex-col max-h-[80vh] animate-in fade-in zoom-in-95">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-bold text-xl">Select a Recipe</h3>
+                    <button onClick={() => setRecipePickerTarget(null)} className="text-black/50 hover:text-black font-bold text-xl">✕</button>
+                  </div>
+                  <div className="overflow-y-auto flex flex-col gap-3 pr-2 flex-1">
+                    {recipes.length === 0 ? <p className="text-sm text-black/50 text-center py-4">No saved recipes found.</p> : recipes.map(r => (
+                      <div key={r.id} onClick={() => { saveRecipeToMealPlan(recipePickerTarget.date, recipePickerTarget.mealType, r.id); setRecipePickerTarget(null); }} className="flex items-center gap-4 p-3 rounded-[24px] bg-white border border-black/10 shadow-sm cursor-pointer hover:shadow-md transition">
+                        {r.image ? (
+                          <img src={r.image} alt={r.title} className="w-16 h-16 rounded-[16px] object-cover shrink-0" />
+                        ) : (
+                          <div className="w-16 h-16 rounded-[16px] bg-[#6B705C]/10 flex items-center justify-center shrink-0 border border-black/5"><span className="text-[10px] font-semibold text-black/40">No Img</span></div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                           <h4 className="font-bold text-base text-black truncate">{r.title}</h4>
+                           <p className="text-xs text-black/60 truncate">{r.cook_time} &bull; {r.category}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
           </div>
         )}
 
-        {/* --- MODAL: MEAL DISTRIBUTION PLANNER --- */}
-        {showDistributionModal && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
-            <div className="w-full max-w-3xl rounded-[32px] p-6 md:p-8 bg-white border border-black/20 text-black shadow-2xl flex flex-col max-h-[90vh]">
-              <div className="flex justify-between items-center border-b pb-4 border-black/10 mb-6 shrink-0">
-                <h2 className="text-2xl font-bold">Plan Your Meals</h2>
-                <button onClick={() => setShowDistributionModal(false)} className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-black font-bold">✕</button>
-              </div>
-              <div className="overflow-y-auto pr-2 space-y-6 flex-1">
-                <div className="p-5 rounded-2xl bg-white border border-black/10 flex flex-col sm:flex-row justify-between items-center gap-4 shadow-sm">
-                  <div>
-                    <h3 className="font-bold text-lg text-black">How many portions to plan?</h3>
-                    <p className="text-black/60 text-sm">For {selectedRecipe?.title}</p>
-                  </div>
-                  <div className="flex items-center gap-3 bg-white p-1.5 rounded-xl border border-black/10 shadow-sm text-black">
-                    <button onClick={() => { const newTarget = Math.max(1, planTargetPortions - 1); setPlanTargetPortions(newTarget); if (totalAllocated > newTarget) setAllocationsGrid({}); }} className="w-10 h-10 rounded-lg bg-black text-white hover:bg-black/80 font-bold text-lg">-</button>
-                    <span className="w-8 text-center font-bold text-xl">{planTargetPortions}</span>
-                    <button onClick={() => setPlanTargetPortions(planTargetPortions + 1)} className="w-10 h-10 rounded-lg bg-black text-white hover:bg-black/80 font-bold text-lg">+</button>
-                  </div>
-                </div>
-                <div>
-                  <div className="flex justify-between items-center mb-4 px-1">
-                    <span className="font-semibold text-black/70 uppercase tracking-wider text-sm">Tap to Assign Portions</span>
-                    <span className={`text-sm font-bold px-3 py-1 rounded-full ${remainingPortions === 0 ? 'bg-[#6B705C] text-white' : 'bg-amber-200 text-amber-900'}`}>{remainingPortions} remaining</span>
-                  </div>
-                  <div className="space-y-3">
-                    {next7Days.map(dateStr => {
-                       const dateObj = new Date(dateStr);
-                       const isToday = dateStr === todayStr;
-                       const dayName = isToday ? 'Today' : dateObj.toLocaleDateString('en-US', { weekday: 'short' });
-                       return (
-                         <div key={dateStr} className="flex flex-col sm:flex-row sm:items-start gap-2 sm:gap-4 p-3 bg-white rounded-2xl border border-black/10 shadow-sm">
-                           <span className="w-16 font-bold text-sm text-center sm:text-left pt-1">{dayName}</span>
-                           <div className="flex-1 grid grid-cols-3 gap-2">
-                             {['Breakfast', 'Lunch', 'Dinner'].map(meal => {
-                               const key = `${dateStr}|${meal}`;
-                               const qty = allocationsGrid[key] || 0;
-                               const existingMeals = mealPlans.filter(m => m.date === dateStr && m.meal_type === meal);
-                               return (
-                                 <div key={meal} className="flex flex-col items-center w-full">
-                                   <span className="text-[10px] uppercase font-semibold text-black/50 mb-1">{meal}</span>
-                                   
-                                   {existingMeals.length > 0 && (
-                                     <div className="flex flex-col gap-1 w-full mb-1">
-                                       {existingMeals.map(m => (
-                                         <span key={m.id} className="text-[9px] bg-amber-100 text-amber-800 px-1 py-0.5 rounded text-center leading-tight truncate w-full" title={`${m.recipe_id ? m.recipes?.title : m.manual_name} (${m.portions})`}>
-                                           {m.portions}x {m.recipe_id ? m.recipes?.title : m.manual_name}
-                                         </span>
-                                       ))}
-                                     </div>
-                                   )}
-
-                                   {qty > 0 ? (
-                                     <div className="flex items-center justify-between w-full bg-[#6B705C] text-white rounded-xl p-1 px-2 text-sm shadow-sm transition mt-auto">
-                                       <button onClick={() => handleAllocate(dateStr, meal, -1)} className="font-bold px-2 py-1 hover:text-white/70 transition">-</button>
-                                       <span className="font-bold">{qty}</span>
-                                       <button onClick={() => handleAllocate(dateStr, meal, 1)} className="font-bold px-2 py-1 hover:text-white/70 transition">+</button>
-                                     </div>
-                                   ) : (
-                                     <button onClick={() => handleAllocate(dateStr, meal, 1)} disabled={remainingPortions <= 0} className="w-full py-1.5 rounded-xl border-2 border-dashed border-black/20 text-black/40 hover:bg-black/5 hover:border-black/40 text-sm disabled:opacity-30 transition font-bold mt-auto">+</button>
-                                   )}
-                                 </div>
-                               )
-                             })}
-                           </div>
-                         </div>
-                       )
-                    })}
-                  </div>
-                </div>
-              </div>
-              <div className="pt-6 mt-4 border-t border-black/10 shrink-0">
-                <button onClick={saveMealPlan} disabled={remainingPortions !== 0 || loading} className="w-full py-4 rounded-2xl font-bold text-lg bg-black text-white hover:bg-black/80 disabled:opacity-50 transition shadow-sm">
-                  {loading ? 'Saving...' : remainingPortions === 0 ? 'Confirm Meal Plan' : `Allocate exactly ${planTargetPortions} portions`}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* --- MODAL: MANUAL RECIPE BUILDER --- */}
-        {showManualAddRecipe && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
-            <div className="w-full max-w-4xl rounded-[32px] p-6 md:p-8 bg-white border border-black/20 text-black shadow-2xl flex flex-col max-h-[90vh]">
-              <div className="flex justify-between items-center border-b pb-4 border-black/10 mb-6 shrink-0">
-                <h2 className="text-2xl font-bold">Create Recipe</h2>
-                <button onClick={() => setShowManualAddRecipe(false)} className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-black font-bold">✕</button>
-              </div>
-              <div className="overflow-y-auto pr-2 space-y-6 flex-1">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Title</label>
-                    <input type="text" value={manualRecipe.title} onChange={e => setManualRecipe({...manualRecipe, title: e.target.value})} className="w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm" placeholder="e.g. Grandma's Lasagna" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Category</label>
-                    <input type="text" value={manualRecipe.category} onChange={e => setManualRecipe({...manualRecipe, category: e.target.value})} className="w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm" placeholder="e.g. Main Dish" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Cook Time</label>
-                    <input type="text" value={manualRecipe.cook_time} onChange={e => setManualRecipe({...manualRecipe, cook_time: e.target.value})} className="w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm" placeholder="e.g. 45 mins" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Portions</label>
-                    <input type="number" value={manualRecipe.portions} onChange={e => setManualRecipe({...manualRecipe, portions: parseInt(e.target.value) || 1})} className="w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm" />
-                  </div>
-                </div>
-
-                <div className="space-y-1.5 mt-6">
-                  <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Ingredients</label>
-                  <textarea 
-                    value={manualRecipe.ingredientsText} 
-                    onChange={e => setManualRecipe({...manualRecipe, ingredientsText: e.target.value})} 
-                    className="w-full p-4 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm min-h-[150px]" 
-                    placeholder="Paste one or multiple ingredients (each on a new line)..." 
-                  />
-                  <p className="text-xs text-black/50">Press Enter for a new ingredient.</p>
-                </div>
-
-                <div className="space-y-1.5 mt-6">
-                  <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Instructions</label>
-                  <textarea 
-                    value={manualRecipe.instructionsText} 
-                    onChange={e => setManualRecipe({...manualRecipe, instructionsText: e.target.value})} 
-                    className="w-full p-4 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm min-h-[150px]" 
-                    placeholder="Paste one or multiple steps (each on a new line)..." 
-                  />
-                  <p className="text-xs text-black/50">Press Enter for a new step.</p>
-                </div>
-              </div>
-              <div className="pt-6 mt-4 border-t border-black/10 shrink-0 flex gap-3">
-                 <button onClick={() => setShowManualAddRecipe(false)} className="flex-1 py-4 rounded-2xl font-bold text-lg border border-black/20 bg-transparent text-black hover:bg-black/5 transition">Cancel</button>
-                 <button onClick={saveManualRecipe} disabled={loading} className="flex-1 py-4 rounded-2xl font-bold text-lg bg-black text-white hover:bg-black/80 disabled:opacity-50 transition shadow-sm">
-                  {loading ? 'Saving...' : 'Save Recipe'}
-                 </button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* ==========================================================================
