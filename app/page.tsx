@@ -646,9 +646,6 @@ export default function PantryManager() {
                        <div key={item.id} className="flex flex-col p-4 rounded-2xl bg-white border border-black/10 shadow-sm gap-3 transition hover:shadow-md">
                          <div className="flex items-center justify-between">
                            <div className="flex items-center gap-3">
-                             <div className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold uppercase shrink-0 bg-[#6B705C]/10 border border-black/10 text-[#6B705C]">
-                               {item.name.substring(0, 2)}
-                             </div>
                              <div>
                                <h4 className="font-semibold text-base capitalize text-black">{item.name}</h4>
                                <p className="text-xs text-black/60 font-medium">Stock: {item.quantity} {item.unit}</p>
@@ -861,7 +858,7 @@ export default function PantryManager() {
         
         <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-6 border-b border-black/10">
           <div className="flex items-center gap-3 md:gap-4">
-            <img src="/logo.png" alt="Pantreasy Logo" className="w-[72px] h-[72px] md:w-24 md:h-24 rounded-full object-cover shrink-0 mix-blend-multiply" />
+            <img src="/logo.png" alt="Pantreasy Logo" className="w-[72px] h-[72px] md:w-24 md:h-24 object-contain shrink-0 mix-blend-multiply" />
             <div>
               <h1 className="text-5xl md:text-6xl font-mogena tracking-tight text-black">Pantreasy</h1>
               <p className="text-base text-black/70 mt-1 md:mt-2 font-normal">Keep track of your ingredients & dinner plans</p>
@@ -1033,9 +1030,6 @@ export default function PantryManager() {
                               {!isEditing ? (
                                 <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold uppercase shrink-0 bg-[#6B705C]/10 border border-black/10 text-[#6B705C]">
-                                      {item.name.substring(0, 2)}
-                                    </div>
                                     <div>
                                       <h3 className="font-semibold text-base capitalize text-black">{item.name}</h3>
                                       <p className="text-sm text-black/70 font-normal">{item.quantity} {item.unit}</p>
