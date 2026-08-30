@@ -157,6 +157,15 @@ export default function PantryManager() {
   const [importUrl, setImportUrl] = useState('');
   const [isImporting, setIsImporting] = useState(false);
 
+  // Pantry Add States
+  const [showAddPantryMenu, setShowAddPantryMenu] = useState(false);
+  const [showPantryInput, setShowPantryInput] = useState(false);
+  const [name, useStateName] = useState('');
+  const [category, setCategory] = useState('Produce');
+  const [quantity, setQuantity] = useState('1');
+  const [unit, setUnit] = useState('pcs');
+  const [isManualCategory, setIsManualCategory] = useState(false);
+
   // Shopping List States
   const [showAddShoppingMenu, setShowAddShoppingMenu] = useState(false);
   const [showShoppingInput, setShowShoppingInput] = useState(false);
@@ -164,9 +173,11 @@ export default function PantryManager() {
   const [shoppingInputQty, setShoppingInputQty] = useState('1');
   const [shoppingInputUnit, setShoppingInputUnit] = useState('pcs');
   
-  // Voice Input States
+  // Advanced Voice Input States
   const [showVoiceInputScreen, setShowVoiceInputScreen] = useState(false);
+  const [voiceContext, setVoiceContext] = useState<'shopping' | 'pantry'>('shopping');
   const [voiceTranscript, setVoiceTranscript] = useState('');
+  const [voiceParsedItems, setVoiceParsedItems] = useState<{id: number, name: string, quantity: number, unit: string, category?: string}[]>([]);
   const [isListening, setIsListening] = useState(false);
 
   // Meal Planner State
@@ -183,11 +194,7 @@ export default function PantryManager() {
   const recipeFileInputRef = useRef<HTMLInputElement>(null);
   const recipeDropdownRef = useRef<HTMLDivElement>(null);
   const shoppingDropdownRef = useRef<HTMLDivElement>(null);
-  const [name, useStateName] = useState('');
-  const [category, setCategory] = useState('Produce');
-  const [quantity, setQuantity] = useState('1');
-  const [unit, setUnit] = useState('pcs');
-  const [isManualCategory, setIsManualCategory] = useState(false);
+  const pantryDropdownRef = useRef<HTMLDivElement>(null);
 
   // Modals & Low Stock
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -242,6 +249,9 @@ export default function PantryManager() {
       }
       if (shoppingDropdownRef.current && !shoppingDropdownRef.current.contains(event.target as Node)) {
         setShowAddShoppingMenu(false);
+      }
+      if (pantryDropdownRef.current && !pantryDropdownRef.current.contains(event.target as Node)) {
+        setShowAddPantryMenu(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -306,10 +316,13 @@ export default function PantryManager() {
   };
 
   /* ==========================================================================
-     5. VOICE INPUT PARSING (Smart Data Extraction)
+     5. ADVANCED VOICE INPUT PARSING
      ========================================================================== */
   const startListening = () => {
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) return alert('Web Speech API not supported.');
+    setVoiceTranscript('');
+    setVoiceParsedItems([]);
+    
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
     recognition.lang = 'en-US';
@@ -325,21 +338,31 @@ export default function PantryManager() {
     recognition.start();
   };
 
-  const parseAndAddVoiceInput = async () => {
+  const parseVoiceInput = () => {
     if (!voiceTranscript.trim()) return;
-    setLoading(true);
     
-    // Split natural language into segments
-    const rawItems = voiceTranscript.split(/\s+and\s+|,|\s+plus\s+/i).map(s => s.trim()).filter(Boolean);
+    const numberMap: Record<string, string> = {
+      'one': '1', 'two': '2', 'three': '3', 'four': '4', 'five': '5',
+      'six': '6', 'seven': '7', 'eight': '8', 'nine': '9', 'ten': '10',
+      'a': '1', 'an': '1'
+    };
     
-    const inserts = rawItems.map(itemStr => {
-      // Regex to cleanly separate "Quantity", "Unit", and "Item Name"
+    let cleanText = voiceTranscript.toLowerCase();
+    Object.keys(numberMap).forEach(word => {
+      const regex = new RegExp(`\\b${word}\\b`, 'g');
+      cleanText = cleanText.replace(regex, numberMap[word]);
+    });
+    
+    const rawItems = cleanText.split(/\s+and\s+|,|\s+plus\s+/i).map(s => s.trim()).filter(Boolean);
+    
+    const parsed = rawItems.map((itemStr, idx) => {
+      let cleanedItemStr = itemStr.replace(/\b(of|some)\b/g, '').replace(/\s+/g, ' ').trim();
       const regex = /^([\d.]+)?\s*(?:\b(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs)\b)?\s*(.*)$/i;
-      const match = itemStr.match(regex);
+      const match = cleanedItemStr.match(regex);
       
       let qty = 1;
       let unit = 'pcs';
-      let parsedName = itemStr;
+      let parsedName = cleanedItemStr;
 
       if (match) {
         if (match[1]) qty = parseFloat(match[1]);
@@ -347,20 +370,60 @@ export default function PantryManager() {
         if (match[3]) parsedName = match[3];
       }
 
-      // Auto-correct common units if none were spoken
       if (unit === 'pcs') {
-        if (parsedName.toLowerCase().includes('milk') || parsedName.toLowerCase().includes('water')) unit = 'l';
-        if (parsedName.toLowerCase().includes('flour') || parsedName.toLowerCase().includes('sugar') || parsedName.toLowerCase().includes('rice')) unit = 'g';
+        if (parsedName.includes('milk') || parsedName.includes('water')) unit = 'ml';
+        if (parsedName.includes('flour') || parsedName.includes('sugar') || parsedName.includes('rice')) unit = 'g';
       }
 
-      return { name: parsedName.trim(), quantity: qty, unit };
+      parsedName = parsedName.charAt(0).toUpperCase() + parsedName.slice(1);
+
+      // Auto-assign category for pantry
+      let predictedCategory = 'Produce';
+      const aisle = getAisle(parsedName);
+      if (aisle.includes('Dairy')) predictedCategory = 'Dairy & Eggs';
+      else if (aisle.includes('Meat')) predictedCategory = 'Meat & Seafood';
+      else if (aisle.includes('Bakery')) predictedCategory = 'Bakery';
+      else if (aisle.includes('Frozen')) predictedCategory = 'Frozen';
+      else if (aisle.includes('Beverages')) predictedCategory = 'Beverages';
+      else if (aisle.includes('Snacks')) predictedCategory = 'Snacks';
+      else if (aisle.includes('World') || aisle.includes('Pantry')) predictedCategory = 'Pantry Staples';
+      else predictedCategory = 'Other';
+
+      return { id: Date.now() + idx, name: parsedName.trim(), quantity: qty, unit, category: predictedCategory };
     });
 
-    if (inserts.length > 0) {
+    setVoiceParsedItems(parsed);
+  };
+
+  const updateVoiceItem = (index: number, field: string, value: string | number) => {
+    setVoiceParsedItems(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  };
+
+  const removeVoiceItem = (index: number) => {
+    setVoiceParsedItems(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const commitVoiceItems = async () => {
+    if (voiceParsedItems.length === 0) return;
+    setLoading(true);
+
+    if (voiceContext === 'shopping') {
+      const inserts = voiceParsedItems.map(item => ({ name: item.name, quantity: item.quantity, unit: item.unit }));
       const { data } = await supabase.from('shopping_list').insert(inserts).select();
       if (data) setShoppingList(prev => [...data, ...prev]);
+    } else {
+      const inserts = voiceParsedItems.map(item => ({
+        name: item.name, category: item.category || 'Other', quantity: item.quantity, unit: item.unit, track_low_stock: false, low_stock_threshold: 1
+      }));
+      const { data } = await supabase.from('pantry_items').insert(inserts).select();
+      if (data) setItems(prev => [...data, ...prev]);
     }
     
+    setVoiceParsedItems([]);
     setVoiceTranscript('');
     setShowVoiceInputScreen(false);
     setLoading(false);
@@ -370,28 +433,6 @@ export default function PantryManager() {
   /* ==========================================================================
      6. CRUD HANDLERS (Pantry, Recipes, Shopping, Meal Planner)
      ========================================================================== */
-  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    useStateName(val);
-    if (!isManualCategory && val.length > 2) {
-      const lower = val.toLowerCase();
-      if (lower.includes('milk') || lower.includes('cheese') || lower.includes('egg')) setCategory('Dairy & Eggs');
-      else if (lower.includes('apple') || lower.includes('lettuce') || lower.includes('berry')) setCategory('Produce');
-      else if (lower.includes('steak') || lower.includes('chicken') || lower.includes('fish')) setCategory('Meat & Seafood');
-    }
-  };
-
-  const handleNewTrackNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setNewTrackName(val);
-    if (val.length > 2) {
-      const lower = val.toLowerCase();
-      if (lower.includes('milk') || lower.includes('cheese') || lower.includes('egg')) setNewTrackCategory('Dairy & Eggs');
-      else if (lower.includes('apple') || lower.includes('lettuce') || lower.includes('berry')) setNewTrackCategory('Produce');
-      else if (lower.includes('steak') || lower.includes('chicken') || lower.includes('fish')) setNewTrackCategory('Meat & Seafood');
-    }
-  };
-
   const addItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
@@ -681,27 +722,66 @@ export default function PantryManager() {
   if (showVoiceInputScreen) {
     return (
       <main className="min-h-screen bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 md:p-8 font-montserrat flex flex-col items-center justify-center">
-        <div className="bg-white/90 backdrop-blur-xl p-8 rounded-[32px] shadow-2xl w-full max-w-lg flex flex-col items-center gap-8 border border-black/10 text-center animate-in fade-in zoom-in-95">
-          <div>
+        <div className="bg-[#6B705C] p-6 md:p-8 rounded-[32px] shadow-2xl w-full max-w-2xl flex flex-col gap-6 text-white border border-black/10 animate-in fade-in zoom-in-95">
+          <div className="text-center">
             <h2 className="text-3xl font-bold mb-2">Voice Entry</h2>
-            <p className="text-black/60 text-sm">Say something like: "3 bananas and 200g of flour"</p>
+            <p className="text-white/80 text-sm">Say something like: "3 bananas and 200g of flour"</p>
           </div>
           
-          <button 
-            onClick={isListening ? () => {} : startListening}
-            className={`w-32 h-32 rounded-full flex items-center justify-center shadow-lg transition-all ${isListening ? 'bg-red-500 text-white animate-pulse scale-110' : 'bg-black text-white hover:bg-black/80 hover:scale-105 cursor-pointer'}`}
-          >
-            <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
-          </button>
-
-          <div className="w-full min-h-[80px] p-4 bg-black/5 rounded-2xl border border-black/10 flex items-center justify-center">
-            <p className="text-lg font-medium italic">{voiceTranscript || "Tap the microphone to start..."}</p>
+          <div className="flex justify-center mt-2">
+            <button 
+              onClick={isListening ? () => {} : startListening}
+              className={`px-8 py-4 rounded-2xl flex items-center justify-center gap-3 font-bold transition-all shadow-sm ${isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-black text-white hover:bg-black/80'}`}
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
+              {isListening ? 'Listening...' : 'Tap to Speak'}
+            </button>
           </div>
 
-          <div className="flex gap-4 w-full">
-            <button onClick={() => { setShowVoiceInputScreen(false); setVoiceTranscript(''); }} className="flex-1 py-4 font-bold rounded-2xl bg-transparent border border-black/20 text-black hover:bg-black/5 transition">Cancel</button>
-            <button onClick={parseAndAddVoiceInput} disabled={!voiceTranscript || loading} className="flex-1 py-4 font-bold rounded-2xl bg-black text-white disabled:opacity-50 hover:bg-black/80 transition shadow-sm">
-              {loading ? 'Processing...' : 'Add to List'}
+          {/* Show raw transcript temporarily until parsed */}
+          {voiceTranscript && voiceParsedItems.length === 0 && (
+            <div className="w-full mt-4 flex flex-col gap-4">
+              <div className="p-4 bg-black/10 rounded-2xl border border-black/10 text-center">
+                <p className="text-lg font-medium italic">"{voiceTranscript}"</p>
+              </div>
+              {!isListening && (
+                <button onClick={parseVoiceInput} className="w-full py-4 bg-white text-black rounded-2xl font-bold hover:bg-gray-100 shadow-sm transition">
+                  Preview Items
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Editable Parsed List */}
+          {voiceParsedItems.length > 0 && (
+            <div className="flex flex-col gap-3 mt-4">
+              <h3 className="text-sm font-semibold uppercase tracking-wider text-white/80 border-b border-white/20 pb-2 mb-2">Review Items</h3>
+              {voiceParsedItems.map((item, index) => (
+                <div key={item.id} className="flex flex-col sm:flex-row gap-2 bg-white/10 p-3 rounded-2xl">
+                  <input value={item.name} onChange={e => updateVoiceItem(index, 'name', e.target.value)} className="bg-white text-black px-3 py-2 rounded-xl flex-1 focus:outline-none placeholder:text-black/50" placeholder="Item Name" />
+                  <div className="flex gap-2">
+                    <input type="number" step="any" value={item.quantity} onChange={e => updateVoiceItem(index, 'quantity', e.target.value)} className="bg-white text-black px-3 py-2 rounded-xl w-16 text-center focus:outline-none" />
+                    <select value={item.unit} onChange={e => updateVoiceItem(index, 'unit', e.target.value)} className="bg-white text-black px-2 py-2 rounded-xl w-20 focus:outline-none capitalize">
+                      {COMMON_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                    </select>
+                  </div>
+                  {voiceContext === 'pantry' && (
+                    <select value={item.category} onChange={e => updateVoiceItem(index, 'category', e.target.value)} className="bg-white text-black px-2 py-2 rounded-xl w-full sm:w-28 focus:outline-none">
+                      {CATEGORIES.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                    </select>
+                  )}
+                  <button onClick={() => removeVoiceItem(index)} className="px-3 py-2 bg-red-500/80 text-white rounded-xl font-bold hover:bg-red-500 transition">✕</button>
+                </div>
+              ))}
+              <button onClick={commitVoiceItems} disabled={loading} className="w-full py-4 mt-4 bg-black text-white rounded-2xl font-bold hover:bg-black/80 shadow-sm transition">
+                {loading ? 'Saving...' : `Confirm & Add to ${voiceContext === 'shopping' ? 'List' : 'Pantry'}`}
+              </button>
+            </div>
+          )}
+
+          <div className="border-t border-white/20 pt-4 mt-2">
+            <button onClick={() => { setShowVoiceInputScreen(false); setVoiceParsedItems([]); setVoiceTranscript(''); }} className="w-full py-3 bg-transparent text-white font-bold hover:bg-white/10 rounded-2xl transition">
+              Cancel
             </button>
           </div>
         </div>
@@ -1089,7 +1169,7 @@ export default function PantryManager() {
             <div className="bg-[#6B705C] text-white p-6 md:p-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 rounded-[32px] shadow-sm border border-black/10">
               <div>
                 <h2 className="text-4xl md:text-5xl font-bold leading-snug">Shopping List</h2>
-                <p className="text-white/80 text-sm mt-2 font-medium">Keep track of what you need to buy, sorted by supermarket aisle.</p>
+                <p className="text-white/80 text-sm mt-2 font-medium">Keep track of what you need to buy.</p>
               </div>
               
               <div className="flex flex-col gap-3 shrink-0 w-full md:w-auto md:items-end">
@@ -1100,7 +1180,7 @@ export default function PantryManager() {
                   {showAddShoppingMenu && (
                     <div className="absolute left-0 md:left-auto md:right-0 mt-2 w-full md:w-[240px] max-w-[90vw] bg-[#1A1A1A] rounded-2xl shadow-2xl border border-white/10 overflow-hidden z-[100] flex flex-col text-white">
                       <button onClick={() => { setShowShoppingInput(true); setShowAddShoppingMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Type Item Name</button>
-                      <button onClick={() => { setShowVoiceInputScreen(true); setShowAddShoppingMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition">Voice Input</button>
+                      <button onClick={() => { setVoiceContext('shopping'); setShowVoiceInputScreen(true); setShowAddShoppingMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition">Voice Input</button>
                     </div>
                   )}
                 </div>
@@ -1110,7 +1190,6 @@ export default function PantryManager() {
               </div>
             </div>
 
-            {/* CONDITIONAL TEXT INPUT BELOW HEADER */}
             {showShoppingInput && (
               <form onSubmit={handleAddShoppingItem} className="flex flex-col gap-3 mb-8 animate-in fade-in slide-in-from-top-2">
                 <div className="flex gap-2 w-full">
@@ -1154,15 +1233,33 @@ export default function PantryManager() {
         {/* --- TAB: PANTRY INVENTORY --- */}
         {activeTab === 'pantry' && (
           <div className="space-y-6">
-             <div className="rounded-[28px] p-6 space-y-4 bg-[#6B705C] text-white border border-black/10">
-              <div className="flex justify-between items-center">
-                <h2 className="text-sm font-semibold uppercase tracking-wider">Add Essential</h2>
-                <input type="file" accept="image/*" capture="environment" ref={fileInputRef} className="hidden" onChange={handleScanReceipt} />
-                <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isScanning} className="px-4 py-2 bg-black text-white rounded-xl text-sm font-medium transition active:scale-95 disabled:opacity-50 hover:bg-black/80 shadow-sm">
-                  {isScanning ? 'Reading...' : 'Scan Receipt'}
-                </button>
+             <div className="bg-[#6B705C] text-white p-6 md:p-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 rounded-[32px] shadow-sm border border-black/10">
+              <div>
+                <h2 className="text-4xl md:text-5xl font-bold leading-snug">Pantry Inventory</h2>
+                <p className="text-white/80 text-sm mt-2 font-medium">Keep track of your ingredients.</p>
               </div>
-              <form onSubmit={addItem} className="space-y-3">
+              <div className="flex flex-col gap-3 shrink-0 w-full md:w-auto md:items-end">
+                <div className="relative w-full md:w-auto" ref={pantryDropdownRef}>
+                  <button onClick={() => setShowAddPantryMenu(!showAddPantryMenu)} className="w-full md:w-auto px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-between md:justify-center gap-2 border border-black/20">
+                    Add Item ▾
+                  </button>
+                  {showAddPantryMenu && (
+                    <div className="absolute left-0 md:left-auto md:right-0 mt-2 w-full md:w-[240px] max-w-[90vw] bg-[#1A1A1A] rounded-2xl shadow-2xl border border-white/10 overflow-hidden z-[100] flex flex-col text-white">
+                      <button onClick={() => { setShowPantryInput(true); setShowAddPantryMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Type Item Name</button>
+                      <button onClick={() => { fileInputRef.current?.click(); setShowAddPantryMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Scan Receipt</button>
+                      <button onClick={() => { setVoiceContext('pantry'); setShowVoiceInputScreen(true); setShowAddPantryMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition">Voice Input</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {showPantryInput && (
+              <form onSubmit={addItem} className="flex flex-col gap-3 mb-8 animate-in fade-in slide-in-from-top-2 p-6 bg-[#6B705C]/10 border border-black/10 rounded-[28px]">
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-[#6B705C]">Add Manually</h3>
+                  <button type="button" onClick={() => setShowPantryInput(false)} className="text-sm font-bold text-black/40 hover:text-black">✕ Close</button>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
                   <input type="text" placeholder="Item name (e.g. Crisp Lettuce)" value={name} onChange={handleNameChange} className="sm:col-span-5 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black placeholder:text-black/50 shadow-sm" required />
                   <select value={category} onChange={(e) => { setCategory(e.target.value); setIsManualCategory(true); }} className="sm:col-span-3 px-3 py-3 rounded-2xl text-base focus:outline-none cursor-pointer bg-white border border-black/20 text-black shadow-sm">
@@ -1177,7 +1274,7 @@ export default function PantryManager() {
                   <button type="submit" disabled={loading} className="sm:col-span-2 font-medium py-3.5 rounded-2xl transition text-base shadow-md active:scale-95 disabled:opacity-50 bg-black text-white hover:bg-black/80">Add</button>
                 </div>
               </form>
-            </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {Object.keys(groupedItems).length > 0 ? (
