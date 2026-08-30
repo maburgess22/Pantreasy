@@ -1,71 +1,20 @@
 'use client';
 
-/* ==========================================================================
-   1. IMPORTS, TYPES & CONSTANTS
-   ========================================================================== */
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
 
-interface PantryItem {
-  id: string;
-  name: string;
-  category: string;
-  quantity: number;
-  unit: string;
-  track_low_stock?: boolean;
-  low_stock_threshold?: number;
-}
+interface PantryItem { id: string; name: string; category: string; quantity: number; unit: string; track_low_stock?: boolean; low_stock_threshold?: number; user_id?: string; }
+interface Recipe { id: string; title: string; category: string; cook_time: string; ingredients: string[]; instructions?: string[]; image?: string; source_url?: string; portions?: number; user_id?: string; }
+interface ShoppingItem { id: string; name: string; checked: boolean; quantity?: number; unit?: string; user_id?: string; }
+interface MealPlanItem { id: string; date: string; meal_type: string; recipe_id?: string; manual_name?: string; portions: number; recipes?: { title: string; image?: string; cook_time?: string; category?: string }; user_id?: string; }
 
-interface Recipe {
-  id: string;
-  title: string;
-  category: string;
-  cook_time: string;
-  ingredients: string[];
-  instructions?: string[];
-  image?: string;
-  source_url?: string;
-  portions?: number;
-}
-
-interface ShoppingItem {
-  id: string;
-  name: string;
-  checked: boolean;
-  quantity?: number;
-  unit?: string;
-}
-
-interface MealPlanItem {
-  id: string;
-  date: string;
-  meal_type: string;
-  recipe_id?: string;
-  manual_name?: string;
-  portions: number;
-  recipes?: { title: string; image?: string; cook_time?: string; category?: string };
-}
-
-const CATEGORIES = [
-  { name: 'Produce' }, { name: 'Dairy & Eggs' }, { name: 'Meat & Seafood' },
-  { name: 'Pantry Staples' }, { name: 'Bakery' }, { name: 'Frozen' },
-  { name: 'Snacks' }, { name: 'Beverages' }, { name: 'Other' }
-];
-
+const CATEGORIES = [{ name: 'Produce' }, { name: 'Dairy & Eggs' }, { name: 'Meat & Seafood' }, { name: 'Pantry Staples' }, { name: 'Bakery' }, { name: 'Frozen' }, { name: 'Snacks' }, { name: 'Beverages' }, { name: 'Other' }];
 const COMMON_UNITS = ['pcs', 'kg', 'g', 'lbs', 'oz', 'ml', 'l', 'cups', 'tbsp', 'tsp', 'cans', 'packs'];
 
-/* ==========================================================================
-   2. HELPER FUNCTIONS
-   ========================================================================== */
 function scaleAndConvertIngredient(ingredient: string, multiplier: number, targetSystem: 'metric' | 'imperial'): string {
   let result = ingredient;
-  if (multiplier !== 1) {
-    result = result.replace(/^([\d.]+)/, (match) => {
-      return (parseFloat(match) * multiplier).toFixed(2).replace(/\.?0+$/, ''); 
-    });
-  }
-
+  if (multiplier !== 1) result = result.replace(/^([\d.]+)/, (match) => (parseFloat(match) * multiplier).toFixed(2).replace(/\.?0+$/, ''));
   const regex = /\b([\d.]+)\s*(g|kg|ml|l|oz|lbs|fl\s*oz|cup|cups)\b/gi;
   result = result.replace(regex, (match, numStr, unit) => {
     let num = parseFloat(numStr);
@@ -102,19 +51,14 @@ function getAisle(name: string): string {
   return 'Other';
 }
 
-const getNext7Days = () => Array.from({ length: 7 }).map((_, i) => {
-  const d = new Date(); d.setDate(d.getDate() + i); return d.toISOString().split('T')[0];
-});
+const getNext7Days = () => Array.from({ length: 7 }).map((_, i) => { const d = new Date(); d.setDate(d.getDate() + i); return d.toISOString().split('T')[0]; });
 
-/* ==========================================================================
-   3. MAIN COMPONENT & STATE MANAGEMENT
-   ========================================================================== */
 export default function PantryManager() {
   const supabase = createClient();
   const router = useRouter();
 
-  // App & User State
   const [activeTab, setActiveTab] = useState<'dashboard' | 'pantry' | 'recipes' | 'shopping' | 'planner'>('dashboard');
+  const [userId, setUserId] = useState<string>('');
   const [userEmail, setUserEmail] = useState('');
   const [items, setItems] = useState<PantryItem[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -122,12 +66,10 @@ export default function PantryManager() {
   const [mealPlans, setMealPlans] = useState<MealPlanItem[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Account Settings Modal
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
 
-  // Recipe Views & Layout State
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [recipeViewMode, setRecipeViewMode] = useState<'grid' | 'list'>('grid');
   const [recipeDetailTab, setRecipeDetailTab] = useState<'ingredients' | 'instructions'>('ingredients');
@@ -136,7 +78,6 @@ export default function PantryManager() {
   const [recipeSearchQuery, setRecipeSearchQuery] = useState('');
   const [recipeCategoryFilter, setRecipeCategoryFilter] = useState('All');
   
-  // Recipe Editing & Import State
   const [isEditingRecipe, setIsEditingRecipe] = useState(false);
   const [editRecipeForm, setEditRecipeForm] = useState({ title: '', category: '', cook_time: '', portions: 4, image: '', ingredientsText: '', instructionsText: '' });
   const [showManualAddRecipe, setShowManualAddRecipe] = useState(false);
@@ -146,7 +87,6 @@ export default function PantryManager() {
   const [importUrl, setImportUrl] = useState('');
   const [isImporting, setIsImporting] = useState(false);
 
-  // Pantry Add States
   const [showAddPantryMenu, setShowAddPantryMenu] = useState(false);
   const [showPantryInput, setShowPantryInput] = useState(false);
   const [name, useStateName] = useState('');
@@ -155,14 +95,12 @@ export default function PantryManager() {
   const [unit, setUnit] = useState('pcs');
   const [isManualCategory, setIsManualCategory] = useState(false);
 
-  // Shopping List States
   const [showAddShoppingMenu, setShowAddShoppingMenu] = useState(false);
   const [showShoppingInput, setShowShoppingInput] = useState(false);
   const [shoppingInputName, setShoppingInputName] = useState('');
   const [shoppingInputQty, setShoppingInputQty] = useState('1');
   const [shoppingInputUnit, setShoppingInputUnit] = useState('pcs');
   
-  // Advanced Voice Input States
   const [showVoiceInputScreen, setShowVoiceInputScreen] = useState(false);
   const [voiceContext, setVoiceContext] = useState<'shopping' | 'pantry'>('shopping');
   const [voiceTranscript, setVoiceTranscript] = useState('');
@@ -170,7 +108,6 @@ export default function PantryManager() {
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
 
-  // Meal Planner State
   const [collapsedDays, setCollapsedDays] = useState<Record<string, boolean>>({});
   const [showDistributionModal, setShowDistributionModal] = useState(false);
   const [recipePickerTarget, setRecipePickerTarget] = useState<{date: string, mealType: string} | null>(null);
@@ -178,7 +115,6 @@ export default function PantryManager() {
   const [allocationsGrid, setAllocationsGrid] = useState<Record<string, number>>({});
   const [manualInputs, setManualInputs] = useState<Record<string, string>>({});
 
-  // Scanners & Inputs
   const [isScanning, setIsScanning] = useState(false);
   const [scannedItems, setScannedItems] = useState<any[] | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -187,7 +123,6 @@ export default function PantryManager() {
   const shoppingDropdownRef = useRef<HTMLDivElement>(null);
   const pantryDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Modals & Low Stock
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editCategory, setEditCategory] = useState('');
   const [editQuantity, setEditQuantity] = useState('');
@@ -201,29 +136,26 @@ export default function PantryManager() {
   const next7Days = getNext7Days();
   const todayStr = new Date().toISOString().split('T')[0];
 
-  /* ==========================================================================
-     4. DATA FETCHING & EVENT LISTENERS
-     ========================================================================== */
   useEffect(() => {
     const loadData = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        router.push('/login');
-        return;
-      }
+      if (!session) { router.push('/login'); return; }
+      
+      const uid = session.user.id;
+      setUserId(uid);
       setUserEmail(session.user.email || '');
 
-      const { data: pData } = await supabase.from('pantry_items').select('*').order('created_at', { ascending: false });
+      const { data: pData } = await supabase.from('pantry_items').select('*').eq('user_id', uid).order('created_at', { ascending: false });
       if (pData) setItems(pData);
       
-      const { data: rData } = await supabase.from('recipes').select('*').order('created_at', { ascending: false });
+      const { data: rData } = await supabase.from('recipes').select('*').eq('user_id', uid).order('created_at', { ascending: false });
       if (rData) setRecipes(rData);
       
-      const { data: sData } = await supabase.from('shopping_list').select('*').order('created_at', { ascending: false });
+      const { data: sData } = await supabase.from('shopping_list').select('*').eq('user_id', uid).order('created_at', { ascending: false });
       if (sData) setShoppingList(sData);
 
       const today = new Date().toISOString().split('T')[0];
-      const { data: mData } = await supabase.from('meal_plan').select('*, recipes(title, image, cook_time, category)').gte('date', today).order('date', { ascending: true });
+      const { data: mData } = await supabase.from('meal_plan').select('*, recipes(title, image, cook_time, category)').eq('user_id', uid).gte('date', today).order('date', { ascending: true });
       if (mData) setMealPlans(mData as MealPlanItem[]);
     };
     loadData();
@@ -244,13 +176,9 @@ export default function PantryManager() {
     const handlePopState = (e: PopStateEvent) => {
       if (e.state) {
         setActiveTab(e.state.tab || 'dashboard');
-        if (e.state.type === 'tab') {
-          setSelectedRecipe(null); setShowLowStockPage(false); setIsEditingRecipe(false);
-        } else if (e.state.type === 'recipe') {
-          setSelectedRecipe(e.state.recipe); setShowLowStockPage(false); setIsEditingRecipe(false);
-        } else if (e.state.type === 'lowstock') {
-          setShowLowStockPage(true); setSelectedRecipe(null); setIsEditingRecipe(false);
-        }
+        if (e.state.type === 'tab') { setSelectedRecipe(null); setShowLowStockPage(false); setIsEditingRecipe(false); } 
+        else if (e.state.type === 'recipe') { setSelectedRecipe(e.state.recipe); setShowLowStockPage(false); setIsEditingRecipe(false); } 
+        else if (e.state.type === 'lowstock') { setShowLowStockPage(true); setSelectedRecipe(null); setIsEditingRecipe(false); }
       }
     };
     window.addEventListener('popstate', handlePopState);
@@ -259,53 +187,30 @@ export default function PantryManager() {
 
   const handleTabChange = (tab: string) => {
     window.history.pushState({ tab, type: 'tab' }, '', `#${tab}`);
-    setActiveTab(tab as any);
-    setSelectedRecipe(null);
-    setShowLowStockPage(false);
+    setActiveTab(tab as any); setSelectedRecipe(null); setShowLowStockPage(false);
   };
 
   const handleOpenRecipe = (recipe: Recipe) => {
     window.history.pushState({ tab: activeTab, recipe, type: 'recipe' }, '', `#recipe-${recipe.id}`);
-    setSelectedRecipe(recipe);
-    setTargetPortions(recipe.portions || 4);
-    setIsEditingRecipe(false);
-    setRecipeDetailTab('ingredients');
-    window.scrollTo(0, 0);
+    setSelectedRecipe(recipe); setTargetPortions(recipe.portions || 4); setIsEditingRecipe(false); setRecipeDetailTab('ingredients'); window.scrollTo(0, 0);
   };
 
-  const handleOpenLowStock = () => {
-    window.history.pushState({ tab: activeTab, type: 'lowstock' }, '', `#lowstock`);
-    setShowLowStockPage(true);
-  };
-
+  const handleOpenLowStock = () => { window.history.pushState({ tab: activeTab, type: 'lowstock' }, '', `#lowstock`); setShowLowStockPage(true); };
   const handleBackNavigation = () => window.history.back();
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    router.push('/login');
-  };
+  const handleSignOut = async () => { await supabase.auth.signOut(); router.push('/login'); };
 
   const handleUpdateAccount = async () => {
-    setLoading(true);
-    const updates: any = {};
-    if (newEmail) updates.email = newEmail;
-    if (newPassword) updates.password = newPassword;
-    
+    setLoading(true); const updates: any = {};
+    if (newEmail) updates.email = newEmail; if (newPassword) updates.password = newPassword;
     if (Object.keys(updates).length > 0) {
       const { error } = await supabase.auth.updateUser(updates);
       if (error) alert(error.message);
-      else {
-        alert("Account updated! (If you changed your email, verify it via the links sent to both addresses).");
-        setNewEmail(''); setNewPassword(''); setShowAccountModal(false);
-        if (newEmail) setUserEmail(newEmail);
-      }
+      else { alert("Account updated!"); setNewEmail(''); setNewPassword(''); setShowAccountModal(false); if (newEmail) setUserEmail(newEmail); }
     }
     setLoading(false);
   };
 
-  /* ==========================================================================
-     5. ADVANCED VOICE INPUT PARSING
-     ========================================================================== */
   const toggleListening = () => {
     if (isListening) {
       if (recognitionRef.current) recognitionRef.current.stop();
@@ -314,53 +219,49 @@ export default function PantryManager() {
     }
     
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) return alert('Web Speech API not supported.');
-    setVoiceTranscript('');
-    setVoiceParsedItems([]);
+    setVoiceTranscript(''); setVoiceParsedItems([]);
     
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
     recognitionRef.current = recognition;
     recognition.lang = 'en-US';
     recognition.continuous = true;
-    recognition.interimResults = true;
+    recognition.interimResults = false; // Fixes the stuttering duplicates
     
     recognition.onstart = () => setIsListening(true);
     recognition.onresult = (event: any) => {
-      const currentTranscript = Array.from(event.results)
-        .map((res: any) => res[0].transcript)
-        .join('');
-      setVoiceTranscript(currentTranscript);
+      let fullText = '';
+      for (let i = 0; i < event.results.length; i++) fullText += event.results[i][0].transcript + ' ';
+      setVoiceTranscript(fullText.trim());
     };
     recognition.onend = () => setIsListening(false);
     recognition.onerror = () => setIsListening(false);
     recognition.start();
   };
 
-  // Auto-parse when listening stops and transcript exists
   useEffect(() => {
-    if (!isListening && voiceTranscript.trim() && voiceParsedItems.length === 0) {
-      parseVoiceInput();
-    }
-  }, [isListening]);
+    if (!isListening && voiceTranscript.trim() && voiceParsedItems.length === 0) parseVoiceInput(voiceTranscript);
+  }, [isListening, voiceTranscript]);
 
-  const parseVoiceInput = () => {
-    if (!voiceTranscript.trim()) return;
+  const parseVoiceInput = (textToParse: string) => {
+    if (!textToParse.trim()) return;
     const numberMap: Record<string, string> = { 'one': '1', 'two': '2', 'three': '3', 'four': '4', 'five': '5', 'six': '6', 'seven': '7', 'eight': '8', 'nine': '9', 'ten': '10', 'a': '1', 'an': '1' };
-    let cleanText = voiceTranscript.toLowerCase();
-    Object.keys(numberMap).forEach(word => {
-      cleanText = cleanText.replace(new RegExp(`\\b${word}\\b`, 'g'), numberMap[word]);
-    });
+    let cleanText = textToParse.toLowerCase();
+    Object.keys(numberMap).forEach(word => { cleanText = cleanText.replace(new RegExp(`\\b${word}\\b`, 'g'), numberMap[word]); });
     
     const rawItems = cleanText.split(/\s+and\s+|,|\s+plus\s+/i).map(s => s.trim()).filter(Boolean);
     const parsed = rawItems.map((itemStr, idx) => {
       let cleanedItemStr = itemStr.replace(/\b(of|some)\b/g, '').replace(/\s+/g, ' ').trim();
-      const regex = /^([\d.]+)?\s*(?:\b(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs)\b)?\s*(.*)$/i;
+      const regex = /^([\d.]+)?\s*(?:\b(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|grams|kilograms|liters|milliliters)\b)?\s*(.*)$/i;
       const match = cleanedItemStr.match(regex);
       
       let qty = 1; let unit = 'pcs'; let parsedName = cleanedItemStr;
       if (match) {
         if (match[1]) qty = parseFloat(match[1]);
-        if (match[2]) unit = match[2].toLowerCase();
+        if (match[2]) {
+          const rawUnit = match[2].toLowerCase();
+          if (rawUnit === 'grams') unit = 'g'; else if (rawUnit === 'kilograms') unit = 'kg'; else if (rawUnit === 'liters') unit = 'l'; else if (rawUnit === 'milliliters') unit = 'ml'; else unit = rawUnit;
+        }
         if (match[3]) parsedName = match[3];
       }
       if (unit === 'pcs') {
@@ -371,14 +272,7 @@ export default function PantryManager() {
 
       let predictedCategory = 'Produce';
       const aisle = getAisle(parsedName);
-      if (aisle.includes('Dairy')) predictedCategory = 'Dairy & Eggs';
-      else if (aisle.includes('Meat')) predictedCategory = 'Meat & Seafood';
-      else if (aisle.includes('Bakery')) predictedCategory = 'Bakery';
-      else if (aisle.includes('Frozen')) predictedCategory = 'Frozen';
-      else if (aisle.includes('Beverages')) predictedCategory = 'Beverages';
-      else if (aisle.includes('Snacks')) predictedCategory = 'Snacks';
-      else if (aisle.includes('World') || aisle.includes('Pantry')) predictedCategory = 'Pantry Staples';
-      else predictedCategory = 'Other';
+      if (aisle.includes('Dairy')) predictedCategory = 'Dairy & Eggs'; else if (aisle.includes('Meat')) predictedCategory = 'Meat & Seafood'; else if (aisle.includes('Bakery')) predictedCategory = 'Bakery'; else if (aisle.includes('Frozen')) predictedCategory = 'Frozen'; else if (aisle.includes('Beverages')) predictedCategory = 'Beverages'; else if (aisle.includes('Snacks')) predictedCategory = 'Snacks'; else if (aisle.includes('World') || aisle.includes('Pantry')) predictedCategory = 'Pantry Staples'; else predictedCategory = 'Other';
 
       return { id: Date.now() + idx, name: parsedName.trim(), quantity: qty, unit, category: predictedCategory };
     });
@@ -386,9 +280,7 @@ export default function PantryManager() {
   };
 
   const updateVoiceItem = (index: number, field: string, value: string | number) => {
-    setVoiceParsedItems(prev => {
-      const updated = [...prev]; updated[index] = { ...updated[index], [field]: value }; return updated;
-    });
+    setVoiceParsedItems(prev => { const updated = [...prev]; updated[index] = { ...updated[index], [field]: value }; return updated; });
   };
 
   const removeVoiceItem = (index: number) => setVoiceParsedItems(prev => prev.filter((_, i) => i !== index));
@@ -397,108 +289,102 @@ export default function PantryManager() {
     if (voiceParsedItems.length === 0) return;
     setLoading(true);
     if (voiceContext === 'shopping') {
-      const inserts = voiceParsedItems.map(item => ({ name: item.name, quantity: item.quantity, unit: item.unit }));
+      const inserts = voiceParsedItems.map(item => ({ name: item.name, quantity: item.quantity, unit: item.unit, user_id: userId }));
       const { data } = await supabase.from('shopping_list').insert(inserts).select();
       if (data) setShoppingList(prev => [...data, ...prev]);
     } else {
-      const inserts = voiceParsedItems.map(item => ({
-        name: item.name, category: item.category || 'Other', quantity: item.quantity, unit: item.unit, track_low_stock: false, low_stock_threshold: 1
-      }));
+      const inserts = voiceParsedItems.map(item => ({ name: item.name, category: item.category || 'Other', quantity: item.quantity, unit: item.unit, track_low_stock: false, low_stock_threshold: 1, user_id: userId }));
       const { data } = await supabase.from('pantry_items').insert(inserts).select();
       if (data) setItems(prev => [...data, ...prev]);
     }
     setVoiceParsedItems([]); setVoiceTranscript(''); setShowVoiceInputScreen(false); setLoading(false);
   };
 
-  /* ==========================================================================
-     6. CRUD HANDLERS (Pantry, Recipes, Shopping, Meal Planner)
-     ========================================================================== */
+  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value; useStateName(val);
+    if (!isManualCategory && val.length > 2) {
+      const lower = val.toLowerCase();
+      if (lower.includes('milk') || lower.includes('cheese') || lower.includes('egg')) setCategory('Dairy & Eggs');
+      else if (lower.includes('apple') || lower.includes('lettuce') || lower.includes('berry')) setCategory('Produce');
+      else if (lower.includes('steak') || lower.includes('chicken') || lower.includes('fish')) setCategory('Meat & Seafood');
+    }
+  };
+
+  const handleNewTrackNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value; setNewTrackName(val);
+    if (val.length > 2) {
+      const lower = val.toLowerCase();
+      if (lower.includes('milk') || lower.includes('cheese') || lower.includes('egg')) setNewTrackCategory('Dairy & Eggs');
+      else if (lower.includes('apple') || lower.includes('lettuce') || lower.includes('berry')) setNewTrackCategory('Produce');
+      else if (lower.includes('steak') || lower.includes('chicken') || lower.includes('fish')) setNewTrackCategory('Meat & Seafood');
+    }
+  };
+
   const addItem = async (e: React.FormEvent) => {
     e.preventDefault(); if (!name.trim()) return;
     setLoading(true);
-    const { data } = await supabase.from('pantry_items').insert([{ name: name.trim(), category, quantity: parseFloat(quantity) || 1, unit, track_low_stock: false, low_stock_threshold: 1 }]).select().single();
+    const { data } = await supabase.from('pantry_items').insert([{ name: name.trim(), category, quantity: parseFloat(quantity) || 1, unit, track_low_stock: false, low_stock_threshold: 1, user_id: userId }]).select().single();
     if (data) setItems(prev => [data, ...prev]);
     useStateName(''); setQuantity('1'); setIsManualCategory(false); setLoading(false);
   };
 
   const handleScanReceipt = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setIsScanning(true);
-    const formData = new FormData();
-    formData.append('receipt', file);
+    const file = e.target.files?.[0]; if (!file) return; setIsScanning(true);
+    const formData = new FormData(); formData.append('receipt', file);
     try {
-      const res = await fetch('/api/scan-receipt', { method: 'POST', body: formData });
-      const data = await res.json();
-      if (data.items && data.items.length > 0) setScannedItems(data.items);
-      else alert(data.message || 'Could not find any items on this receipt.');
-    } catch {
-      alert('Failed to read receipt. Please try another photo.');
-    }
-    if (fileInputRef.current) fileInputRef.current.value = '';
-    setIsScanning(false);
+      const res = await fetch('/api/scan-receipt', { method: 'POST', body: formData }); const data = await res.json();
+      if (data.items && data.items.length > 0) setScannedItems(data.items); else alert(data.message || 'Could not find items.');
+    } catch { alert('Failed to read receipt.'); }
+    if (fileInputRef.current) fileInputRef.current.value = ''; setIsScanning(false);
   };
 
   const handleRecipeScreenshot = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    alert('Screenshot import feature coming soon! (Backend route needed)');
-    if (recipeFileInputRef.current) recipeFileInputRef.current.value = '';
+    const file = e.target.files?.[0]; if (!file) return; alert('Screenshot import feature coming soon!'); if (recipeFileInputRef.current) recipeFileInputRef.current.value = '';
   };
 
-  const deleteItem = async (id: string) => {
-    setItems(prev => prev.filter(item => item.id !== id)); await supabase.from('pantry_items').delete().eq('id', id);
-  };
+  const deleteItem = async (id: string) => { setItems(prev => prev.filter(item => item.id !== id)); await supabase.from('pantry_items').delete().eq('id', id).eq('user_id', userId); };
   
   const adjustQuantity = async (item: PantryItem, delta: number) => {
     const newQty = Math.max(0, Number((item.quantity + delta).toFixed(2)));
     setItems(prev => prev.map(i => i.id === item.id ? { ...i, quantity: newQty } : i));
-    await supabase.from('pantry_items').update({ quantity: newQty }).eq('id', item.id);
+    await supabase.from('pantry_items').update({ quantity: newQty }).eq('id', item.id).eq('user_id', userId);
   };
 
-  const startEditing = (item: PantryItem) => {
-    setEditingId(item.id); setEditCategory(item.category); setEditQuantity(item.quantity.toString()); setEditUnit(item.unit);
-  };
+  const startEditing = (item: PantryItem) => { setEditingId(item.id); setEditCategory(item.category); setEditQuantity(item.quantity.toString()); setEditUnit(item.unit); };
 
   const saveEdit = async (id: string) => {
     const updatedItem = { category: editCategory, quantity: parseFloat(editQuantity) || 0, unit: editUnit };
     setItems(prev => prev.map(item => item.id === id ? { ...item, ...updatedItem } : item));
-    setEditingId(null); await supabase.from('pantry_items').update(updatedItem).eq('id', id);
+    setEditingId(null); await supabase.from('pantry_items').update(updatedItem).eq('id', id).eq('user_id', userId);
   };
 
   const enableTrackingForId = async (id: string) => {
-    if (!id) return;
-    setItems(prev => prev.map(i => i.id === id ? { ...i, track_low_stock: true, low_stock_threshold: 1 } : i));
-    await supabase.from('pantry_items').update({ track_low_stock: true, low_stock_threshold: 1 }).eq('id', id); setItemToTrackId('');
+    if (!id) return; setItems(prev => prev.map(i => i.id === id ? { ...i, track_low_stock: true, low_stock_threshold: 1 } : i));
+    await supabase.from('pantry_items').update({ track_low_stock: true, low_stock_threshold: 1 }).eq('id', id).eq('user_id', userId); setItemToTrackId('');
   };
 
   const disableTrackingForId = async (id: string) => {
-    setItems(prev => prev.map(i => i.id === id ? { ...i, track_low_stock: false } : i));
-    await supabase.from('pantry_items').update({ track_low_stock: false }).eq('id', id);
+    setItems(prev => prev.map(i => i.id === id ? { ...i, track_low_stock: false } : i)); await supabase.from('pantry_items').update({ track_low_stock: false }).eq('id', id).eq('user_id', userId);
   };
 
   const updateLowStockThreshold = async (id: string, threshold: number) => {
-    const val = Math.max(0, threshold);
-    setItems(prev => prev.map(i => i.id === id ? { ...i, low_stock_threshold: val } : i));
-    await supabase.from('pantry_items').update({ low_stock_threshold: val }).eq('id', id);
+    const val = Math.max(0, threshold); setItems(prev => prev.map(i => i.id === id ? { ...i, low_stock_threshold: val } : i));
+    await supabase.from('pantry_items').update({ low_stock_threshold: val }).eq('id', id).eq('user_id', userId);
   };
 
   const addNewTrackedItem = async (e: React.FormEvent) => {
-    e.preventDefault(); if (!newTrackName.trim()) return;
-    setLoading(true);
-    const { data } = await supabase.from('pantry_items').insert([{ name: newTrackName.trim(), category: newTrackCategory, quantity: 0, unit: newTrackUnit, track_low_stock: true, low_stock_threshold: 1 }]).select().single();
-    if (data) setItems(prev => [data, ...prev]);
-    setNewTrackName(''); setLoading(false);
+    e.preventDefault(); if (!newTrackName.trim()) return; setLoading(true);
+    const { data } = await supabase.from('pantry_items').insert([{ name: newTrackName.trim(), category: newTrackCategory, quantity: 0, unit: newTrackUnit, track_low_stock: true, low_stock_threshold: 1, user_id: userId }]).select().single();
+    if (data) setItems(prev => [data, ...prev]); setNewTrackName(''); setLoading(false);
   };
 
   const handleImportRecipe = async (e: React.FormEvent) => {
-    e.preventDefault(); if (!importUrl) return;
-    setIsImporting(true);
+    e.preventDefault(); if (!importUrl) return; setIsImporting(true);
     try {
       const res = await fetch('/api/scrape-recipe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: importUrl }) });
       const data = await res.json();
       if (res.ok && data.title) {
-        const { data: insertedData } = await supabase.from('recipes').insert([{ ...data, portions: 4 }]).select().single();
+        const { data: insertedData } = await supabase.from('recipes').insert([{ ...data, portions: 4, user_id: userId }]).select().single();
         if (insertedData) { setRecipes(prev => [insertedData, ...prev]); alert('Recipe imported!'); setShowImportInput(false); }
       } else alert(data.error || 'Could not extract a recipe.');
     } catch { alert('Failed to import recipe.'); }
@@ -507,20 +393,16 @@ export default function PantryManager() {
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setFormState: Function) => {
     const file = e.target.files?.[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onloadend = () => setFormState((prev: any) => ({ ...prev, image: reader.result as string }));
-    reader.readAsDataURL(file);
+    const reader = new FileReader(); reader.onloadend = () => { setFormState((prev: any) => ({ ...prev, image: reader.result as string })); }; reader.readAsDataURL(file);
   };
 
   const saveManualRecipe = async () => {
-    if (!manualRecipe.title.trim()) return alert("Add a recipe title.");
-    setLoading(true);
+    if (!manualRecipe.title.trim()) return alert("Add a recipe title."); setLoading(true);
     const cleanedIngredients = manualRecipe.ingredientsText.split('\n').map(i => i.trim()).filter(i => i !== '');
     const cleanedInstructions = manualRecipe.instructionsText.split('\n').map(i => i.trim()).filter(i => i !== '');
-    const newRecipe = { title: manualRecipe.title.trim(), category: manualRecipe.category, cook_time: manualRecipe.cook_time, portions: manualRecipe.portions, image: manualRecipe.image, ingredients: cleanedIngredients, instructions: cleanedInstructions };
+    const newRecipe = { title: manualRecipe.title.trim(), category: manualRecipe.category, cook_time: manualRecipe.cook_time, portions: manualRecipe.portions, image: manualRecipe.image, ingredients: cleanedIngredients, instructions: cleanedInstructions, user_id: userId };
     const { data, error } = await supabase.from('recipes').insert([newRecipe]).select().single();
-    if (!error && data) {
-      setRecipes(prev => [data, ...prev]); setShowManualAddRecipe(false); setManualRecipe({ title: '', category: 'Main Dish', cook_time: '30 mins', portions: 4, ingredientsText: '', instructionsText: '', image: '' }); } 
+    if (!error && data) { setRecipes(prev => [data, ...prev]); setShowManualAddRecipe(false); setManualRecipe({ title: '', category: 'Main Dish', cook_time: '30 mins', portions: 4, ingredientsText: '', instructionsText: '', image: '' }); } 
     setLoading(false);
   };
 
@@ -531,17 +413,16 @@ export default function PantryManager() {
   };
 
   const saveEditedRecipe = async () => {
-    if (!selectedRecipe || !editRecipeForm.title.trim()) return alert("Recipe title cannot be empty.");
-    setLoading(true);
+    if (!selectedRecipe || !editRecipeForm.title.trim()) return alert("Recipe title cannot be empty."); setLoading(true);
     const cleanedIngredients = editRecipeForm.ingredientsText.split('\n').map(i => i.trim()).filter(i => i !== '');
     const cleanedInstructions = editRecipeForm.instructionsText.split('\n').map(i => i.trim()).filter(i => i !== '');
     const updatedData = { title: editRecipeForm.title.trim(), category: editRecipeForm.category, cook_time: editRecipeForm.cook_time, portions: editRecipeForm.portions, image: editRecipeForm.image, ingredients: cleanedIngredients, instructions: cleanedInstructions };
-    const { data, error } = await supabase.from('recipes').update(updatedData).eq('id', selectedRecipe.id).select().single();
+    const { data, error } = await supabase.from('recipes').update(updatedData).eq('id', selectedRecipe.id).eq('user_id', userId).select().single();
     if (!error && data) { setRecipes(prev => prev.map(r => r.id === data.id ? data : r)); setSelectedRecipe(data); setIsEditingRecipe(false); }
     setLoading(false);
   };
 
-  const deleteRecipe = async (id: string, e: React.MouseEvent) => { e.stopPropagation(); setRecipes(prev => prev.filter(r => r.id !== id)); await supabase.from('recipes').delete().eq('id', id); };
+  const deleteRecipe = async (id: string, e: React.MouseEvent) => { e.stopPropagation(); setRecipes(prev => prev.filter(r => r.id !== id)); await supabase.from('recipes').delete().eq('id', id).eq('user_id', userId); };
 
   const startDistribution = () => { setPlanTargetPortions(targetPortions); setAllocationsGrid({}); setShowDistributionModal(true); };
 
@@ -553,9 +434,8 @@ export default function PantryManager() {
 
   const saveMealPlan = async () => {
     if (!selectedRecipe) return;
-    if (remainingPortions !== 0) return alert(`Allocate exactly ${planTargetPortions} portions.`);
-    setLoading(true);
-    const inserts = Object.entries(allocationsGrid).filter(([_, qty]) => qty > 0).map(([key, qty]) => { const [date, meal_type] = key.split('|'); return { date, meal_type, recipe_id: selectedRecipe.id, portions: qty }; });
+    if (remainingPortions !== 0) return alert(`Allocate exactly ${planTargetPortions} portions.`); setLoading(true);
+    const inserts = Object.entries(allocationsGrid).filter(([_, qty]) => qty > 0).map(([key, qty]) => { const [date, meal_type] = key.split('|'); return { date, meal_type, recipe_id: selectedRecipe.id, portions: qty, user_id: userId }; });
     const { data } = await supabase.from('meal_plan').insert(inserts).select('*, recipes(title)');
     if (data) { setMealPlans(prev => [...prev, ...(data as MealPlanItem[])]); alert('Meals added to planner!'); setShowDistributionModal(false); }
     setLoading(false);
@@ -564,21 +444,21 @@ export default function PantryManager() {
   const saveManualMeal = async (date: string, mealType: string) => {
     const key = `${date}-${mealType}`; const value = manualInputs[key];
     if (!value || !value.trim()) return;
-    const { data } = await supabase.from('meal_plan').insert([{ date, meal_type: mealType, manual_name: value.trim(), portions: 1 }]).select('*, recipes(title)').single();
+    const { data } = await supabase.from('meal_plan').insert([{ date, meal_type: mealType, manual_name: value.trim(), portions: 1, user_id: userId }]).select('*, recipes(title)').single();
     if (data) { setMealPlans(prev => [...prev, data as MealPlanItem]); setManualInputs(prev => ({ ...prev, [key]: '' })); }
   };
   
   const saveRecipeToMealPlan = async (date: string, mealType: string, recipeId: string) => {
     if (!recipeId) return;
-    const { data } = await supabase.from('meal_plan').insert([{ date, meal_type: mealType, recipe_id: recipeId, portions: 1 }]).select('*, recipes(title, image, cook_time, category)').single();
+    const { data } = await supabase.from('meal_plan').insert([{ date, meal_type: mealType, recipe_id: recipeId, portions: 1, user_id: userId }]).select('*, recipes(title, image, cook_time, category)').single();
     if (data) { setMealPlans(prev => [...prev, data as MealPlanItem]); }
   };
 
-  const deleteMealPlan = async (id: string) => { setMealPlans(prev => prev.filter(m => m.id !== id)); await supabase.from('meal_plan').delete().eq('id', id); };
+  const deleteMealPlan = async (id: string) => { setMealPlans(prev => prev.filter(m => m.id !== id)); await supabase.from('meal_plan').delete().eq('id', id).eq('user_id', userId); };
 
   const handleAddShoppingItem = async (e: React.FormEvent) => {
     e.preventDefault(); if (!shoppingInputName.trim()) return;
-    const { data } = await supabase.from('shopping_list').insert([{ name: shoppingInputName.trim(), quantity: parseFloat(shoppingInputQty) || 1, unit: shoppingInputUnit }]).select().single();
+    const { data } = await supabase.from('shopping_list').insert([{ name: shoppingInputName.trim(), quantity: parseFloat(shoppingInputQty) || 1, unit: shoppingInputUnit, user_id: userId }]).select().single();
     if (data) setShoppingList(prev => [data, ...prev]); 
     setShoppingInputName(''); setShoppingInputQty('1'); setShoppingInputUnit('pcs');
   };
@@ -586,10 +466,10 @@ export default function PantryManager() {
   const toggleShoppingItem = async (id: string) => {
     const item = shoppingList.find(i => i.id === id); if (!item) return;
     setShoppingList(prev => prev.map(i => i.id === id ? { ...i, checked: !i.checked } : i));
-    await supabase.from('shopping_list').update({ checked: !item.checked }).eq('id', id);
+    await supabase.from('shopping_list').update({ checked: !item.checked }).eq('id', id).eq('user_id', userId);
   };
 
-  const deleteShoppingItem = async (id: string) => { setShoppingList(prev => prev.filter(item => item.id !== id)); await supabase.from('shopping_list').delete().eq('id', id); };
+  const deleteShoppingItem = async (id: string) => { setShoppingList(prev => prev.filter(item => item.id !== id)); await supabase.from('shopping_list').delete().eq('id', id).eq('user_id', userId); };
 
   /* ==========================================================================
      7. COMPUTED DATA FOR RENDERING
@@ -622,7 +502,7 @@ export default function PantryManager() {
   };
 
   const addLowStockToShopping = async () => {
-    const newItems = lowStockItems.map(item => ({ name: `${item.name} (Restock)` }));
+    const newItems = lowStockItems.map(item => ({ name: `${item.name} (Restock)`, user_id: userId }));
     if (newItems.length === 0) return;
     const { data } = await supabase.from('shopping_list').insert(newItems).select();
     if (data) { setShoppingList(prev => [...data, ...prev]); alert('Added to shopping list!'); }
@@ -631,7 +511,7 @@ export default function PantryManager() {
   const addMissingRecipeIngredients = async (recipe: Recipe, currentMultiplier: number) => {
     const missing = recipe.ingredients.map(ing => scaleAndConvertIngredient(ing, currentMultiplier, measurementSystem)).filter(scaledIng => getIngredientStatus(scaledIng, items).status !== 'in_stock');
     if (missing.length === 0) return alert('You already have all ingredients!');
-    const { data } = await supabase.from('shopping_list').insert(missing.map(name => ({ name }))).select();
+    const { data } = await supabase.from('shopping_list').insert(missing.map(name => ({ name, user_id: userId }))).select();
     if (data) { setShoppingList(prev => [...data, ...prev]); alert('Missing ingredients added!'); }
   };
 
@@ -644,7 +524,7 @@ export default function PantryManager() {
      ========================================================================== */
   if (showAccountModal) {
     return (
-      <main className="min-h-screen bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 md:p-8 font-montserrat flex items-center justify-center">
+      <main className="min-h-screen bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 md:p-8 font-montserrat flex items-center justify-center z-50 relative">
         <div className="bg-white rounded-[32px] p-8 md:p-10 shadow-2xl w-full max-w-md border border-black/10 animate-in fade-in zoom-in-95">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-2xl font-bold">Account Settings</h2>
@@ -687,7 +567,7 @@ export default function PantryManager() {
      ========================================================================== */
   if (showVoiceInputScreen) {
     return (
-      <main className="min-h-screen bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 md:p-8 font-montserrat flex flex-col items-center justify-center">
+      <main className="min-h-screen bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 md:p-8 font-montserrat flex flex-col items-center justify-center z-40 relative">
         <div className="bg-[#6B705C] p-6 md:p-8 rounded-[32px] shadow-2xl w-full max-w-2xl flex flex-col gap-6 text-white border border-black/10 animate-in fade-in zoom-in-95">
           <div className="text-center">
             <h2 className="text-3xl font-bold mb-2">Voice Entry</h2>
@@ -704,7 +584,6 @@ export default function PantryManager() {
             </button>
           </div>
 
-          {/* Editable Parsed List on Single Row */}
           {voiceParsedItems.length > 0 && (
             <div className="flex flex-col gap-3 mt-4">
               <h3 className="text-sm font-semibold uppercase tracking-wider text-white/80 border-b border-white/20 pb-2 mb-2">Review Items</h3>
@@ -1028,7 +907,6 @@ export default function PantryManager() {
               </div>
             </div>
             
-            {/* Account Settings Button (Mobile) */}
             <button onClick={() => setShowAccountModal(true)} className="md:hidden text-black hover:opacity-70 transition p-2">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
             </button>
@@ -1042,7 +920,6 @@ export default function PantryManager() {
             ))}
             <div className="w-px h-6 bg-black/20 mx-1"></div>
             
-            {/* Account Settings Button (Desktop) */}
             <button onClick={() => setShowAccountModal(true)} className="px-3 py-2 text-black hover:opacity-70 transition flex items-center gap-2">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
             </button>
@@ -1314,7 +1191,6 @@ export default function PantryManager() {
           <div className="space-y-6">
              <div className="rounded-[28px] p-6 bg-[#6B705C] text-white border border-black/10 shadow-sm flex flex-col gap-4">
               
-              {/* Layout for Search and Toggles */}
               <div className="flex flex-col sm:flex-row gap-3">
                 <div className="w-full sm:flex-1 min-w-0">
                   <input 
@@ -1334,7 +1210,6 @@ export default function PantryManager() {
                     {uniqueRecipeCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                   </select>
                   
-                  {/* Grid/List View Toggle Icons */}
                   <div className="flex bg-white rounded-2xl p-1 shadow-sm border border-black/20 shrink-0">
                     <button onClick={() => setRecipeViewMode('grid')} className={`px-3 flex items-center justify-center rounded-xl transition ${recipeViewMode === 'grid' ? 'bg-[#6B705C] text-white' : 'text-black/40 hover:text-black'}`}>
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
