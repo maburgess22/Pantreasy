@@ -9,20 +9,24 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
   
   const router = useRouter();
 
   const handleSignIn = async () => {
+    // 1. Block empty submissions
+    if (!email.trim() || !password.trim()) {
+      setError('Please enter your email and password.');
+      return;
+    }
+
     setLoading(true);
     setError(null);
-    setMessage(null);
 
     try {
       const supabase = createClient();
       const { error: authError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+        email: email.trim(),
+        password: password.trim(),
       });
 
       if (authError) {
@@ -39,25 +43,35 @@ export default function LoginPage() {
   };
 
   const handleSignUp = async () => {
+    // 1. Block empty submissions (This fixes the "Anonymous" error)
+    if (!email.trim() || !password.trim()) {
+      setError('Please enter an email and password to sign up.');
+      return;
+    }
+    
+    // 2. Supabase requires passwords to be at least 6 characters
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters long.');
+      return;
+    }
+
     if (loading) return;
     setLoading(true);
     setError(null);
-    setMessage(null);
 
     try {
       const supabase = createClient();
       const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
-        },
+        email: email.trim(),
+        password: password.trim(),
       });
 
       if (error) {
         setError(error.message);
       } else {
-        setMessage('Check your email for the confirmation link!');
+        // 3. Since email confirmation is OFF, instantly let them into the app!
+        router.push('/');
+        router.refresh();
       }
     } catch (err: any) {
       setError('An unexpected error occurred.');
@@ -86,7 +100,7 @@ export default function LoginPage() {
       </div>
 
       <div className="w-full max-w-md bg-[#6B705C] rounded-[32px] p-8 shadow-xl text-white border border-black/10 relative z-20">
-        <h2 className="text-2xl font-bold text-center mb-6">Welcome Back</h2>
+        <h2 className="text-2xl font-bold text-center mb-6">Welcome</h2>
         
         <div className="space-y-4">
           <div className="space-y-1.5">
@@ -114,11 +128,6 @@ export default function LoginPage() {
           {error && (
             <div className="p-3 bg-red-100 text-red-800 text-sm rounded-xl text-center font-medium">
               {error}
-            </div>
-          )}
-          {message && (
-            <div className="p-3 bg-emerald-100 text-emerald-800 text-sm rounded-xl text-center font-medium">
-              {message}
             </div>
           )}
 
