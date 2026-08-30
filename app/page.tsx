@@ -48,29 +48,21 @@ interface MealPlanItem {
 }
 
 const CATEGORIES = [
-  { name: 'Produce' },
-  { name: 'Dairy & Eggs' },
-  { name: 'Meat & Seafood' },
-  { name: 'Pantry Staples' },
-  { name: 'Bakery' },
-  { name: 'Frozen' },
-  { name: 'Snacks' },
-  { name: 'Beverages' },
-  { name: 'Other' }
+  { name: 'Produce' }, { name: 'Dairy & Eggs' }, { name: 'Meat & Seafood' },
+  { name: 'Pantry Staples' }, { name: 'Bakery' }, { name: 'Frozen' },
+  { name: 'Snacks' }, { name: 'Beverages' }, { name: 'Other' }
 ];
 
 const COMMON_UNITS = ['pcs', 'kg', 'g', 'lbs', 'oz', 'ml', 'l', 'cups', 'tbsp', 'tsp', 'cans', 'packs'];
 
 /* ==========================================================================
-   2. HELPER FUNCTIONS (Scaling, Unit Conversions, Aisles)
+   2. HELPER FUNCTIONS
    ========================================================================== */
 function scaleAndConvertIngredient(ingredient: string, multiplier: number, targetSystem: 'metric' | 'imperial'): string {
   let result = ingredient;
-  
   if (multiplier !== 1) {
     result = result.replace(/^([\d.]+)/, (match) => {
-      const num = parseFloat(match);
-      return (num * multiplier).toFixed(2).replace(/\.?0+$/, ''); 
+      return (parseFloat(match) * multiplier).toFixed(2).replace(/\.?0+$/, ''); 
     });
   }
 
@@ -78,7 +70,6 @@ function scaleAndConvertIngredient(ingredient: string, multiplier: number, targe
   result = result.replace(regex, (match, numStr, unit) => {
     let num = parseFloat(numStr);
     let lowerUnit = unit.toLowerCase();
-    
     if (targetSystem === 'imperial') {
       if (lowerUnit === 'g') { num *= 0.035274; lowerUnit = 'oz'; }
       else if (lowerUnit === 'kg') { num *= 2.20462; lowerUnit = 'lbs'; }
@@ -89,15 +80,11 @@ function scaleAndConvertIngredient(ingredient: string, multiplier: number, targe
       else if (lowerUnit === 'lbs') { num *= 0.453592; lowerUnit = 'kg'; }
       else if (lowerUnit === 'fl oz') { num *= 29.5735; lowerUnit = 'ml'; }
       else if (lowerUnit === 'cup' || lowerUnit === 'cups') { num *= 236.588; lowerUnit = 'ml'; }
-      
       if (lowerUnit === 'ml' && num >= 1000) { num /= 1000; lowerUnit = 'l'; }
       if (lowerUnit === 'g' && num >= 1000) { num /= 1000; lowerUnit = 'kg'; }
     }
-    
-    const formattedNum = num % 1 === 0 ? num.toString() : num.toFixed(1).replace(/\.0$/, '');
-    return `${formattedNum} ${lowerUnit}`;
+    return `${num % 1 === 0 ? num.toString() : num.toFixed(1).replace(/\.0$/, '')} ${lowerUnit}`;
   });
-
   return result;
 }
 
@@ -115,13 +102,9 @@ function getAisle(name: string): string {
   return 'Other';
 }
 
-const getNext7Days = () => {
-  return Array.from({ length: 7 }).map((_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() + i);
-    return d.toISOString().split('T')[0];
-  });
-};
+const getNext7Days = () => Array.from({ length: 7 }).map((_, i) => {
+  const d = new Date(); d.setDate(d.getDate() + i); return d.toISOString().split('T')[0];
+});
 
 /* ==========================================================================
    3. MAIN COMPONENT & STATE MANAGEMENT
@@ -130,13 +113,19 @@ export default function PantryManager() {
   const supabase = createClient();
   const router = useRouter();
 
-  // Core App State
+  // App & User State
   const [activeTab, setActiveTab] = useState<'dashboard' | 'pantry' | 'recipes' | 'shopping' | 'planner'>('dashboard');
+  const [userEmail, setUserEmail] = useState('');
   const [items, setItems] = useState<PantryItem[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [shoppingList, setShoppingList] = useState<ShoppingItem[]>([]);
   const [mealPlans, setMealPlans] = useState<MealPlanItem[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Account Settings Modal
+  const [showAccountModal, setShowAccountModal] = useState(false);
+  const [newEmail, setNewEmail] = useState('');
+  const [newPassword, setNewPassword] = useState('');
 
   // Recipe Views & Layout State
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
@@ -179,6 +168,7 @@ export default function PantryManager() {
   const [voiceTranscript, setVoiceTranscript] = useState('');
   const [voiceParsedItems, setVoiceParsedItems] = useState<{id: number, name: string, quantity: number, unit: string, category?: string}[]>([]);
   const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null); // Controls start/stop
 
   // Meal Planner State
   const [collapsedDays, setCollapsedDays] = useState<Record<string, boolean>>({});
@@ -220,6 +210,7 @@ export default function PantryManager() {
         router.push('/login');
         return;
       }
+      setUserEmail(session.user.email || '');
 
       const { data: pData } = await supabase.from('pantry_items').select('*').order('created_at', { ascending: false });
       if (pData) setItems(pData);
@@ -231,53 +222,33 @@ export default function PantryManager() {
       if (sData) setShoppingList(sData);
 
       const today = new Date().toISOString().split('T')[0];
-      const { data: mData } = await supabase
-        .from('meal_plan')
-        .select('*, recipes(title, image, cook_time, category)')
-        .gte('date', today)
-        .order('date', { ascending: true });
+      const { data: mData } = await supabase.from('meal_plan').select('*, recipes(title, image, cook_time, category)').gte('date', today).order('date', { ascending: true });
       if (mData) setMealPlans(mData as MealPlanItem[]);
     };
     loadData();
   }, [router, supabase.auth]);
 
-  // Click Outside Listener for Dropdowns
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (recipeDropdownRef.current && !recipeDropdownRef.current.contains(event.target as Node)) {
-        setShowAddRecipeMenu(false);
-      }
-      if (shoppingDropdownRef.current && !shoppingDropdownRef.current.contains(event.target as Node)) {
-        setShowAddShoppingMenu(false);
-      }
-      if (pantryDropdownRef.current && !pantryDropdownRef.current.contains(event.target as Node)) {
-        setShowAddPantryMenu(false);
-      }
+      if (recipeDropdownRef.current && !recipeDropdownRef.current.contains(event.target as Node)) setShowAddRecipeMenu(false);
+      if (shoppingDropdownRef.current && !shoppingDropdownRef.current.contains(event.target as Node)) setShowAddShoppingMenu(false);
+      if (pantryDropdownRef.current && !pantryDropdownRef.current.contains(event.target as Node)) setShowAddPantryMenu(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // History API Navigation (Enables Phone 'Back' Button)
   useEffect(() => {
     window.history.replaceState({ tab: 'dashboard', type: 'tab' }, '', window.location.pathname);
-    
     const handlePopState = (e: PopStateEvent) => {
       if (e.state) {
         setActiveTab(e.state.tab || 'dashboard');
-        
         if (e.state.type === 'tab') {
-          setSelectedRecipe(null);
-          setShowLowStockPage(false);
-          setIsEditingRecipe(false);
+          setSelectedRecipe(null); setShowLowStockPage(false); setIsEditingRecipe(false);
         } else if (e.state.type === 'recipe') {
-          setSelectedRecipe(e.state.recipe);
-          setShowLowStockPage(false);
-          setIsEditingRecipe(false);
+          setSelectedRecipe(e.state.recipe); setShowLowStockPage(false); setIsEditingRecipe(false);
         } else if (e.state.type === 'lowstock') {
-          setShowLowStockPage(true);
-          setSelectedRecipe(null);
-          setIsEditingRecipe(false);
+          setShowLowStockPage(true); setSelectedRecipe(null); setIsEditingRecipe(false);
         }
       }
     };
@@ -306,32 +277,59 @@ export default function PantryManager() {
     setShowLowStockPage(true);
   };
 
-  const handleBackNavigation = () => {
-    window.history.back();
-  };
+  const handleBackNavigation = () => window.history.back();
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     router.push('/login');
   };
 
+  const handleUpdateAccount = async () => {
+    setLoading(true);
+    const updates: any = {};
+    if (newEmail) updates.email = newEmail;
+    if (newPassword) updates.password = newPassword;
+    
+    if (Object.keys(updates).length > 0) {
+      const { error } = await supabase.auth.updateUser(updates);
+      if (error) alert(error.message);
+      else {
+        alert("Account updated! (If you changed your email, verify it via the links sent to both addresses).");
+        setNewEmail(''); setNewPassword(''); setShowAccountModal(false);
+        if (newEmail) setUserEmail(newEmail);
+      }
+    }
+    setLoading(false);
+  };
+
   /* ==========================================================================
      5. ADVANCED VOICE INPUT PARSING
      ========================================================================== */
-  const startListening = () => {
+  const toggleListening = () => {
+    if (isListening) {
+      if (recognitionRef.current) recognitionRef.current.stop();
+      setIsListening(false);
+      return;
+    }
+    
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) return alert('Web Speech API not supported.');
     setVoiceTranscript('');
     setVoiceParsedItems([]);
     
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
+    recognitionRef.current = recognition;
     recognition.lang = 'en-US';
-    recognition.continuous = false;
+    recognition.continuous = true; // Allows the user to pause naturally without it cutting off early
+    recognition.interimResults = true;
     
     recognition.onstart = () => setIsListening(true);
     recognition.onresult = (event: any) => {
-      const text = event.results[0][0].transcript;
-      setVoiceTranscript(text);
+      let fullText = '';
+      for (let i = 0; i < event.results.length; i++) {
+        fullText += event.results[i][0].transcript;
+      }
+      setVoiceTranscript(fullText);
     };
     recognition.onend = () => setIsListening(false);
     recognition.onerror = () => setIsListening(false);
@@ -340,44 +338,30 @@ export default function PantryManager() {
 
   const parseVoiceInput = () => {
     if (!voiceTranscript.trim()) return;
-    
-    const numberMap: Record<string, string> = {
-      'one': '1', 'two': '2', 'three': '3', 'four': '4', 'five': '5',
-      'six': '6', 'seven': '7', 'eight': '8', 'nine': '9', 'ten': '10',
-      'a': '1', 'an': '1'
-    };
-    
+    const numberMap: Record<string, string> = { 'one': '1', 'two': '2', 'three': '3', 'four': '4', 'five': '5', 'six': '6', 'seven': '7', 'eight': '8', 'nine': '9', 'ten': '10', 'a': '1', 'an': '1' };
     let cleanText = voiceTranscript.toLowerCase();
     Object.keys(numberMap).forEach(word => {
-      const regex = new RegExp(`\\b${word}\\b`, 'g');
-      cleanText = cleanText.replace(regex, numberMap[word]);
+      cleanText = cleanText.replace(new RegExp(`\\b${word}\\b`, 'g'), numberMap[word]);
     });
     
     const rawItems = cleanText.split(/\s+and\s+|,|\s+plus\s+/i).map(s => s.trim()).filter(Boolean);
-    
     const parsed = rawItems.map((itemStr, idx) => {
       let cleanedItemStr = itemStr.replace(/\b(of|some)\b/g, '').replace(/\s+/g, ' ').trim();
       const regex = /^([\d.]+)?\s*(?:\b(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs)\b)?\s*(.*)$/i;
       const match = cleanedItemStr.match(regex);
       
-      let qty = 1;
-      let unit = 'pcs';
-      let parsedName = cleanedItemStr;
-
+      let qty = 1; let unit = 'pcs'; let parsedName = cleanedItemStr;
       if (match) {
         if (match[1]) qty = parseFloat(match[1]);
         if (match[2]) unit = match[2].toLowerCase();
         if (match[3]) parsedName = match[3];
       }
-
       if (unit === 'pcs') {
         if (parsedName.includes('milk') || parsedName.includes('water')) unit = 'ml';
         if (parsedName.includes('flour') || parsedName.includes('sugar') || parsedName.includes('rice')) unit = 'g';
       }
-
       parsedName = parsedName.charAt(0).toUpperCase() + parsedName.slice(1);
 
-      // Auto-assign category for pantry
       let predictedCategory = 'Produce';
       const aisle = getAisle(parsedName);
       if (aisle.includes('Dairy')) predictedCategory = 'Dairy & Eggs';
@@ -391,26 +375,20 @@ export default function PantryManager() {
 
       return { id: Date.now() + idx, name: parsedName.trim(), quantity: qty, unit, category: predictedCategory };
     });
-
     setVoiceParsedItems(parsed);
   };
 
   const updateVoiceItem = (index: number, field: string, value: string | number) => {
     setVoiceParsedItems(prev => {
-      const updated = [...prev];
-      updated[index] = { ...updated[index], [field]: value };
-      return updated;
+      const updated = [...prev]; updated[index] = { ...updated[index], [field]: value }; return updated;
     });
   };
 
-  const removeVoiceItem = (index: number) => {
-    setVoiceParsedItems(prev => prev.filter((_, i) => i !== index));
-  };
+  const removeVoiceItem = (index: number) => setVoiceParsedItems(prev => prev.filter((_, i) => i !== index));
 
   const commitVoiceItems = async () => {
     if (voiceParsedItems.length === 0) return;
     setLoading(true);
-
     if (voiceContext === 'shopping') {
       const inserts = voiceParsedItems.map(item => ({ name: item.name, quantity: item.quantity, unit: item.unit }));
       const { data } = await supabase.from('shopping_list').insert(inserts).select();
@@ -422,54 +400,22 @@ export default function PantryManager() {
       const { data } = await supabase.from('pantry_items').insert(inserts).select();
       if (data) setItems(prev => [...data, ...prev]);
     }
-    
-    setVoiceParsedItems([]);
-    setVoiceTranscript('');
-    setShowVoiceInputScreen(false);
-    setLoading(false);
+    setVoiceParsedItems([]); setVoiceTranscript(''); setShowVoiceInputScreen(false); setLoading(false);
   };
-
 
   /* ==========================================================================
      6. CRUD HANDLERS (Pantry, Recipes, Shopping, Meal Planner)
      ========================================================================== */
   const addItem = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) return;
+    e.preventDefault(); if (!name.trim()) return;
     setLoading(true);
     const { data } = await supabase.from('pantry_items').insert([{ name: name.trim(), category, quantity: parseFloat(quantity) || 1, unit, track_low_stock: false, low_stock_threshold: 1 }]).select().single();
     if (data) setItems(prev => [data, ...prev]);
     useStateName(''); setQuantity('1'); setIsManualCategory(false); setLoading(false);
   };
 
-  const handleScanReceipt = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setIsScanning(true);
-    const formData = new FormData();
-    formData.append('receipt', file);
-    try {
-      const res = await fetch('/api/scan-receipt', { method: 'POST', body: formData });
-      const data = await res.json();
-      if (data.items && data.items.length > 0) setScannedItems(data.items);
-      else alert(data.message || 'Could not find any items on this receipt.');
-    } catch {
-      alert('Failed to read receipt. Please try another photo.');
-    }
-    if (fileInputRef.current) fileInputRef.current.value = '';
-    setIsScanning(false);
-  };
-
-  const handleRecipeScreenshot = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    alert('Screenshot import feature coming soon! (Backend route needed)');
-    if (recipeFileInputRef.current) recipeFileInputRef.current.value = '';
-  };
-
   const deleteItem = async (id: string) => {
-    setItems(prev => prev.filter(item => item.id !== id));
-    await supabase.from('pantry_items').delete().eq('id', id);
+    setItems(prev => prev.filter(item => item.id !== id)); await supabase.from('pantry_items').delete().eq('id', id);
   };
   
   const adjustQuantity = async (item: PantryItem, delta: number) => {
@@ -479,22 +425,19 @@ export default function PantryManager() {
   };
 
   const startEditing = (item: PantryItem) => {
-    setEditingId(item.id); setEditCategory(item.category); setEditQuantity(item.quantity.toString());
-    setEditUnit(item.unit);
+    setEditingId(item.id); setEditCategory(item.category); setEditQuantity(item.quantity.toString()); setEditUnit(item.unit);
   };
 
   const saveEdit = async (id: string) => {
     const updatedItem = { category: editCategory, quantity: parseFloat(editQuantity) || 0, unit: editUnit };
     setItems(prev => prev.map(item => item.id === id ? { ...item, ...updatedItem } : item));
-    setEditingId(null);
-    await supabase.from('pantry_items').update(updatedItem).eq('id', id);
+    setEditingId(null); await supabase.from('pantry_items').update(updatedItem).eq('id', id);
   };
 
   const enableTrackingForId = async (id: string) => {
     if (!id) return;
     setItems(prev => prev.map(i => i.id === id ? { ...i, track_low_stock: true, low_stock_threshold: 1 } : i));
-    await supabase.from('pantry_items').update({ track_low_stock: true, low_stock_threshold: 1 }).eq('id', id);
-    setItemToTrackId('');
+    await supabase.from('pantry_items').update({ track_low_stock: true, low_stock_threshold: 1 }).eq('id', id); setItemToTrackId('');
   };
 
   const disableTrackingForId = async (id: string) => {
@@ -509,69 +452,48 @@ export default function PantryManager() {
   };
 
   const addNewTrackedItem = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTrackName.trim()) return;
+    e.preventDefault(); if (!newTrackName.trim()) return;
     setLoading(true);
-    const { data } = await supabase.from('pantry_items').insert([{
-      name: newTrackName.trim(), category: newTrackCategory, quantity: 0, unit: newTrackUnit, track_low_stock: true, low_stock_threshold: 1
-    }]).select().single();
+    const { data } = await supabase.from('pantry_items').insert([{ name: newTrackName.trim(), category: newTrackCategory, quantity: 0, unit: newTrackUnit, track_low_stock: true, low_stock_threshold: 1 }]).select().single();
     if (data) setItems(prev => [data, ...prev]);
     setNewTrackName(''); setLoading(false);
   };
 
   const handleImportRecipe = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!importUrl) return;
+    e.preventDefault(); if (!importUrl) return;
     setIsImporting(true);
     try {
       const res = await fetch('/api/scrape-recipe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: importUrl }) });
       const data = await res.json();
       if (res.ok && data.title) {
-        const newRecipe = { ...data, portions: 4 };
-        const { data: insertedData, error } = await supabase.from('recipes').insert([newRecipe]).select().single();
-        if (error) throw error;
-        if (insertedData) { setRecipes(prev => [insertedData, ...prev]); alert('Recipe imported successfully!'); setShowImportInput(false); }
-      } else alert(data.error || 'Could not extract a recipe from that URL.');
-    } catch (error) {
-      alert('Failed to import recipe. Make sure it is a valid food blog URL.');
-    }
+        const { data: insertedData } = await supabase.from('recipes').insert([{ ...data, portions: 4 }]).select().single();
+        if (insertedData) { setRecipes(prev => [insertedData, ...prev]); alert('Recipe imported!'); setShowImportInput(false); }
+      } else alert(data.error || 'Could not extract a recipe.');
+    } catch { alert('Failed to import recipe.'); }
     setImportUrl(''); setIsImporting(false);
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setFormState: Function) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const file = e.target.files?.[0]; if (!file) return;
     const reader = new FileReader();
-    reader.onloadend = () => { setFormState((prev: any) => ({ ...prev, image: reader.result as string })); };
+    reader.onloadend = () => setFormState((prev: any) => ({ ...prev, image: reader.result as string }));
     reader.readAsDataURL(file);
   };
 
   const saveManualRecipe = async () => {
-    if (!manualRecipe.title.trim()) return alert("Please add a recipe title.");
+    if (!manualRecipe.title.trim()) return alert("Add a recipe title.");
     setLoading(true);
     const cleanedIngredients = manualRecipe.ingredientsText.split('\n').map(i => i.trim()).filter(i => i !== '');
     const cleanedInstructions = manualRecipe.instructionsText.split('\n').map(i => i.trim()).filter(i => i !== '');
-    
-    const newRecipe = {
-      title: manualRecipe.title.trim(), category: manualRecipe.category, cook_time: manualRecipe.cook_time,
-      portions: manualRecipe.portions, image: manualRecipe.image,
-      ingredients: cleanedIngredients, instructions: cleanedInstructions,
-    };
+    const newRecipe = { title: manualRecipe.title.trim(), category: manualRecipe.category, cook_time: manualRecipe.cook_time, portions: manualRecipe.portions, image: manualRecipe.image, ingredients: cleanedIngredients, instructions: cleanedInstructions };
     const { data, error } = await supabase.from('recipes').insert([newRecipe]).select().single();
-    if (!error && data) {
-      setRecipes(prev => [data, ...prev]); setShowManualAddRecipe(false);
-      setManualRecipe({ title: '', category: 'Main Dish', cook_time: '30 mins', portions: 4, ingredientsText: '', instructionsText: '', image: '' });
-    } else alert("Failed to save recipe.");
+    if (!error && data) { setRecipes(prev => [data, ...prev]); setShowManualAddRecipe(false); setManualRecipe({ title: '', category: 'Main Dish', cook_time: '30 mins', portions: 4, ingredientsText: '', instructionsText: '', image: '' }); } 
     setLoading(false);
   };
 
   const startEditingRecipe = () => {
     if (!selectedRecipe) return;
-    setEditRecipeForm({
-      title: selectedRecipe.title, category: selectedRecipe.category || 'Other', cook_time: selectedRecipe.cook_time || '',
-      portions: selectedRecipe.portions || 4, image: selectedRecipe.image || '',
-      ingredientsText: selectedRecipe.ingredients.join('\n'), instructionsText: selectedRecipe.instructions?.join('\n') || ''
-    });
+    setEditRecipeForm({ title: selectedRecipe.title, category: selectedRecipe.category || 'Other', cook_time: selectedRecipe.cook_time || '', portions: selectedRecipe.portions || 4, image: selectedRecipe.image || '', ingredientsText: selectedRecipe.ingredients.join('\n'), instructionsText: selectedRecipe.instructions?.join('\n') || '' });
     setIsEditingRecipe(true);
   };
 
@@ -580,46 +502,29 @@ export default function PantryManager() {
     setLoading(true);
     const cleanedIngredients = editRecipeForm.ingredientsText.split('\n').map(i => i.trim()).filter(i => i !== '');
     const cleanedInstructions = editRecipeForm.instructionsText.split('\n').map(i => i.trim()).filter(i => i !== '');
-    
-    const updatedData = {
-      title: editRecipeForm.title.trim(), category: editRecipeForm.category, cook_time: editRecipeForm.cook_time,
-      portions: editRecipeForm.portions, image: editRecipeForm.image,
-      ingredients: cleanedIngredients, instructions: cleanedInstructions,
-    };
-
+    const updatedData = { title: editRecipeForm.title.trim(), category: editRecipeForm.category, cook_time: editRecipeForm.cook_time, portions: editRecipeForm.portions, image: editRecipeForm.image, ingredients: cleanedIngredients, instructions: cleanedInstructions };
     const { data, error } = await supabase.from('recipes').update(updatedData).eq('id', selectedRecipe.id).select().single();
-    if (!error && data) {
-      setRecipes(prev => prev.map(r => r.id === data.id ? data : r));
-      setSelectedRecipe(data);
-      setIsEditingRecipe(false);
-    } else alert("Failed to save updates.");
+    if (!error && data) { setRecipes(prev => prev.map(r => r.id === data.id ? data : r)); setSelectedRecipe(data); setIsEditingRecipe(false); }
     setLoading(false);
   };
 
-  const deleteRecipe = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setRecipes(prev => prev.filter(r => r.id !== id));
-    await supabase.from('recipes').delete().eq('id', id);
-  };
+  const deleteRecipe = async (id: string, e: React.MouseEvent) => { e.stopPropagation(); setRecipes(prev => prev.filter(r => r.id !== id)); await supabase.from('recipes').delete().eq('id', id); };
 
   const startDistribution = () => { setPlanTargetPortions(targetPortions); setAllocationsGrid({}); setShowDistributionModal(true); };
 
   const handleAllocate = (dateStr: string, mealType: string, delta: number) => {
     const key = `${dateStr}|${mealType}`; const current = allocationsGrid[key] || 0;
-    if (delta > 0 && remainingPortions <= 0) return; 
-    if (delta < 0 && current <= 0) return;
+    if (delta > 0 && remainingPortions <= 0) return; if (delta < 0 && current <= 0) return;
     setAllocationsGrid(prev => ({ ...prev, [key]: current + delta }));
   };
 
   const saveMealPlan = async () => {
     if (!selectedRecipe) return;
-    if (remainingPortions !== 0) return alert(`Please allocate exactly ${planTargetPortions} portions.`);
+    if (remainingPortions !== 0) return alert(`Allocate exactly ${planTargetPortions} portions.`);
     setLoading(true);
-    const inserts = Object.entries(allocationsGrid).filter(([_, qty]) => qty > 0).map(([key, qty]) => {
-      const [date, meal_type] = key.split('|'); return { date, meal_type, recipe_id: selectedRecipe.id, portions: qty };
-    });
-    const { data, error } = await supabase.from('meal_plan').insert(inserts).select('*, recipes(title)');
-    if (!error && data) { setMealPlans(prev => [...prev, ...(data as MealPlanItem[])]); alert('Meals added to planner!'); setShowDistributionModal(false); }
+    const inserts = Object.entries(allocationsGrid).filter(([_, qty]) => qty > 0).map(([key, qty]) => { const [date, meal_type] = key.split('|'); return { date, meal_type, recipe_id: selectedRecipe.id, portions: qty }; });
+    const { data } = await supabase.from('meal_plan').insert(inserts).select('*, recipes(title)');
+    if (data) { setMealPlans(prev => [...prev, ...(data as MealPlanItem[])]); alert('Meals added to planner!'); setShowDistributionModal(false); }
     setLoading(false);
   };
 
@@ -636,17 +541,11 @@ export default function PantryManager() {
     if (data) { setMealPlans(prev => [...prev, data as MealPlanItem]); }
   };
 
-  const deleteMealPlan = async (id: string) => {
-    setMealPlans(prev => prev.filter(m => m.id !== id)); await supabase.from('meal_plan').delete().eq('id', id);
-  };
+  const deleteMealPlan = async (id: string) => { setMealPlans(prev => prev.filter(m => m.id !== id)); await supabase.from('meal_plan').delete().eq('id', id); };
 
   const handleAddShoppingItem = async (e: React.FormEvent) => {
     e.preventDefault(); if (!shoppingInputName.trim()) return;
-    const { data } = await supabase.from('shopping_list').insert([{ 
-      name: shoppingInputName.trim(),
-      quantity: parseFloat(shoppingInputQty) || 1,
-      unit: shoppingInputUnit
-    }]).select().single();
+    const { data } = await supabase.from('shopping_list').insert([{ name: shoppingInputName.trim(), quantity: parseFloat(shoppingInputQty) || 1, unit: shoppingInputUnit }]).select().single();
     if (data) setShoppingList(prev => [data, ...prev]); 
     setShoppingInputName(''); setShoppingInputQty('1'); setShoppingInputUnit('pcs');
   };
@@ -657,9 +556,7 @@ export default function PantryManager() {
     await supabase.from('shopping_list').update({ checked: !item.checked }).eq('id', id);
   };
 
-  const deleteShoppingItem = async (id: string) => {
-    setShoppingList(prev => prev.filter(item => item.id !== id)); await supabase.from('shopping_list').delete().eq('id', id);
-  };
+  const deleteShoppingItem = async (id: string) => { setShoppingList(prev => prev.filter(item => item.id !== id)); await supabase.from('shopping_list').delete().eq('id', id); };
 
   /* ==========================================================================
      7. COMPUTED DATA FOR RENDERING
@@ -676,21 +573,16 @@ export default function PantryManager() {
   );
   
   const groupedItems = items.reduce((acc, item) => {
-    acc[item.category] = acc[item.category] || [];
-    acc[item.category].push(item);
-    return acc;
+    acc[item.category] = acc[item.category] || []; acc[item.category].push(item); return acc;
   }, {} as Record<string, PantryItem[]>);
 
   const groupedShoppingList = shoppingList.reduce((acc, item) => {
     const aisle = getAisle(item.name);
-    acc[aisle] = acc[aisle] || [];
-    acc[aisle].push(item);
-    return acc;
+    acc[aisle] = acc[aisle] || []; acc[aisle].push(item); return acc;
   }, {} as Record<string, ShoppingItem[]>);
 
   const getIngredientStatus = (ingredient: string, pantry: PantryItem[]) => {
-    const lowerIng = ingredient.toLowerCase();
-    const match = pantry.find(p => lowerIng.includes(p.name.toLowerCase()));
+    const lowerIng = ingredient.toLowerCase(); const match = pantry.find(p => lowerIng.includes(p.name.toLowerCase()));
     if (!match) return { status: 'missing', requiredText: '1', availableText: '0' };
     if (match.quantity <= 0) return { status: 'insufficient', requiredText: '1', availableText: '0' };
     return { status: 'in_stock', requiredText: '1', availableText: `${match.quantity} ${match.unit}` };
@@ -704,8 +596,7 @@ export default function PantryManager() {
   };
 
   const addMissingRecipeIngredients = async (recipe: Recipe, currentMultiplier: number) => {
-    const missing = recipe.ingredients.map(ing => scaleAndConvertIngredient(ing, currentMultiplier, measurementSystem))
-      .filter(scaledIng => getIngredientStatus(scaledIng, items).status !== 'in_stock');
+    const missing = recipe.ingredients.map(ing => scaleAndConvertIngredient(ing, currentMultiplier, measurementSystem)).filter(scaledIng => getIngredientStatus(scaledIng, items).status !== 'in_stock');
     if (missing.length === 0) return alert('You already have all ingredients!');
     const { data } = await supabase.from('shopping_list').insert(missing.map(name => ({ name }))).select();
     if (data) { setShoppingList(prev => [...data, ...prev]); alert('Missing ingredients added!'); }
@@ -715,9 +606,51 @@ export default function PantryManager() {
   const totalAllocated = Object.values(allocationsGrid).reduce((a, b) => a + b, 0);
   const remainingPortions = planTargetPortions - totalAllocated;
 
+  /* ==========================================================================
+     8. ACCOUNT SETTINGS MODAL
+     ========================================================================== */
+  if (showAccountModal) {
+    return (
+      <main className="min-h-screen bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 md:p-8 font-montserrat flex items-center justify-center">
+        <div className="bg-white rounded-[32px] p-8 md:p-10 shadow-2xl w-full max-w-md border border-black/10 animate-in fade-in zoom-in-95">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-bold">Account Settings</h2>
+            <button onClick={() => setShowAccountModal(false)} className="text-black/40 hover:text-black font-bold">✕</button>
+          </div>
+          
+          <div className="space-y-6">
+            <div>
+              <label className="text-xs font-bold uppercase tracking-wider text-black/50 block mb-1">Current Account</label>
+              <div className="px-4 py-3 bg-black/5 rounded-2xl font-medium text-black">{userEmail}</div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-semibold uppercase tracking-wider text-black/80">Change Email</label>
+              <input type="email" placeholder="New email address..." value={newEmail} onChange={e => setNewEmail(e.target.value)} className="w-full px-4 py-3 rounded-2xl bg-white border border-black/20 focus:outline-none focus:border-[#6B705C] shadow-sm" />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-semibold uppercase tracking-wider text-black/80">Change Password</label>
+              <input type="password" placeholder="New password..." value={newPassword} onChange={e => setNewPassword(e.target.value)} className="w-full px-4 py-3 rounded-2xl bg-white border border-black/20 focus:outline-none focus:border-[#6B705C] shadow-sm" />
+            </div>
+
+            <button onClick={handleUpdateAccount} disabled={loading || (!newEmail && !newPassword)} className="w-full py-3.5 bg-[#6B705C] text-white rounded-2xl font-bold shadow-sm hover:bg-[#5a5f4d] disabled:opacity-50 transition">
+              {loading ? 'Saving...' : 'Save Changes'}
+            </button>
+
+            <div className="border-t border-black/10 pt-6 mt-4">
+              <button onClick={handleSignOut} className="w-full py-3.5 bg-red-50 text-red-800 border border-red-200 rounded-2xl font-bold hover:bg-red-100 transition">
+                Sign Out
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   /* ==========================================================================
-     8. RENDER VIEW: DEDICATED VOICE INPUT SCREEN
+     9. RENDER VIEW: DEDICATED VOICE INPUT SCREEN
      ========================================================================== */
   if (showVoiceInputScreen) {
     return (
@@ -730,11 +663,11 @@ export default function PantryManager() {
           
           <div className="flex justify-center mt-2">
             <button 
-              onClick={isListening ? () => {} : startListening}
+              onClick={toggleListening}
               className={`px-8 py-4 rounded-2xl flex items-center justify-center gap-3 font-bold transition-all shadow-sm ${isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-black text-white hover:bg-black/80'}`}
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
-              {isListening ? 'Listening...' : 'Tap to Speak'}
+              {isListening ? 'Tap to Stop...' : 'Tap to Speak'}
             </button>
           </div>
 
@@ -752,25 +685,23 @@ export default function PantryManager() {
             </div>
           )}
 
-          {/* Editable Parsed List */}
+          {/* Editable Parsed List on Single Row */}
           {voiceParsedItems.length > 0 && (
             <div className="flex flex-col gap-3 mt-4">
               <h3 className="text-sm font-semibold uppercase tracking-wider text-white/80 border-b border-white/20 pb-2 mb-2">Review Items</h3>
               {voiceParsedItems.map((item, index) => (
-                <div key={item.id} className="flex flex-col sm:flex-row gap-2 bg-white/10 p-3 rounded-2xl">
-                  <input value={item.name} onChange={e => updateVoiceItem(index, 'name', e.target.value)} className="bg-white text-black px-3 py-2 rounded-xl flex-1 focus:outline-none placeholder:text-black/50" placeholder="Item Name" />
-                  <div className="flex gap-2">
-                    <input type="number" step="any" value={item.quantity} onChange={e => updateVoiceItem(index, 'quantity', e.target.value)} className="bg-white text-black px-3 py-2 rounded-xl w-16 text-center focus:outline-none" />
-                    <select value={item.unit} onChange={e => updateVoiceItem(index, 'unit', e.target.value)} className="bg-white text-black px-2 py-2 rounded-xl w-20 focus:outline-none capitalize">
-                      {COMMON_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-                    </select>
-                  </div>
+                <div key={item.id} className="flex flex-row items-center gap-2 bg-white/10 p-2 rounded-2xl w-full">
+                  <input value={item.name} onChange={e => updateVoiceItem(index, 'name', e.target.value)} className="flex-1 min-w-[80px] bg-white text-black px-2 py-2 rounded-xl text-sm focus:outline-none placeholder:text-black/50" placeholder="Item Name" />
+                  <input type="number" step="any" value={item.quantity} onChange={e => updateVoiceItem(index, 'quantity', e.target.value)} className="w-12 bg-white text-black px-1 py-2 rounded-xl text-sm text-center focus:outline-none" />
+                  <select value={item.unit} onChange={e => updateVoiceItem(index, 'unit', e.target.value)} className="w-[70px] bg-white text-black px-1 py-2 rounded-xl text-sm focus:outline-none capitalize">
+                    {COMMON_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                  </select>
                   {voiceContext === 'pantry' && (
-                    <select value={item.category} onChange={e => updateVoiceItem(index, 'category', e.target.value)} className="bg-white text-black px-2 py-2 rounded-xl w-full sm:w-28 focus:outline-none">
+                    <select value={item.category} onChange={e => updateVoiceItem(index, 'category', e.target.value)} className="w-24 hidden sm:block bg-white text-black px-2 py-2 rounded-xl text-sm focus:outline-none">
                       {CATEGORIES.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
                     </select>
                   )}
-                  <button onClick={() => removeVoiceItem(index)} className="px-3 py-2 bg-red-500/80 text-white rounded-xl font-bold hover:bg-red-500 transition">✕</button>
+                  <button onClick={() => removeVoiceItem(index)} className="w-8 h-8 shrink-0 flex items-center justify-center bg-red-500/80 text-white rounded-xl font-bold hover:bg-red-500 transition">✕</button>
                 </div>
               ))}
               <button onClick={commitVoiceItems} disabled={loading} className="w-full py-4 mt-4 bg-black text-white rounded-2xl font-bold hover:bg-black/80 shadow-sm transition">
@@ -790,7 +721,7 @@ export default function PantryManager() {
   }
 
   /* ==========================================================================
-     9. RENDER VIEW: LOW STOCK MANAGEMENT SCREEN
+     10. RENDER VIEW: LOW STOCK MANAGEMENT SCREEN
      ========================================================================== */
   if (showLowStockPage && !selectedRecipe) {
     return (
@@ -892,7 +823,7 @@ export default function PantryManager() {
   }
 
   /* ==========================================================================
-     10. RENDER VIEW: RECIPE DETAIL OR EDITOR
+     11. RENDER VIEW: RECIPE DETAIL OR EDITOR
      ========================================================================== */
   if (selectedRecipe && !showDistributionModal) {
     if (isEditingRecipe) {
@@ -1058,7 +989,7 @@ export default function PantryManager() {
   }
 
   /* ==========================================================================
-     11. RENDER VIEW: MAIN APPLICATION DASHBOARD & TABS
+     12. RENDER VIEW: MAIN APPLICATION DASHBOARD & TABS
      ========================================================================== */
   return (
     <main className="min-h-screen w-full overflow-x-hidden bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 pb-28 md:p-8 md:pb-8 font-montserrat">
@@ -1077,7 +1008,11 @@ export default function PantryManager() {
                 <p className="text-sm md:text-base text-black/70 mt-1 font-normal hidden md:block">Keep track of your ingredients & dinner plans</p>
               </div>
             </div>
-            <button onClick={handleSignOut} className="md:hidden text-sm font-bold text-black hover:opacity-70 transition px-2 py-1">Sign Out</button>
+            
+            {/* Account Settings Button (Mobile) */}
+            <button onClick={() => setShowAccountModal(true)} className="md:hidden text-black hover:opacity-70 transition p-2 bg-white/50 rounded-full shadow-sm border border-black/10">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+            </button>
           </div>
           
           <nav className="hidden md:flex flex-wrap items-center gap-1 p-1.5">
@@ -1087,7 +1022,11 @@ export default function PantryManager() {
               </button>
             ))}
             <div className="w-px h-6 bg-black/20 mx-1"></div>
-            <button onClick={handleSignOut} className="px-4 py-2 rounded-xl text-sm font-medium text-red-800 hover:bg-red-800/10 transition">Sign Out</button>
+            
+            {/* Account Settings Button (Desktop) */}
+            <button onClick={() => setShowAccountModal(true)} className="px-3 py-2 rounded-xl text-black hover:bg-black/5 transition flex items-center gap-2">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+            </button>
           </nav>
         </header>
 
@@ -1191,7 +1130,11 @@ export default function PantryManager() {
             </div>
 
             {showShoppingInput && (
-              <form onSubmit={handleAddShoppingItem} className="flex flex-col gap-3 mb-8 animate-in fade-in slide-in-from-top-2">
+              <form onSubmit={handleAddShoppingItem} className="flex flex-col gap-3 mb-8 animate-in fade-in slide-in-from-top-2 p-6 bg-[#6B705C]/10 border border-black/10 rounded-[28px]">
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-[#6B705C]">Add Manually</h3>
+                  <button type="button" onClick={() => setShowShoppingInput(false)} className="text-sm font-bold text-black/40 hover:text-black">✕ Close</button>
+                </div>
                 <div className="flex gap-2 w-full">
                   <input type="text" value={shoppingInputName} onChange={(e) => setShoppingInputName(e.target.value)} placeholder="Type product name..." className="flex-1 min-w-0 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black placeholder:text-black/50 shadow-sm" autoFocus required />
                   <input type="number" step="any" min="0.01" value={shoppingInputQty} onChange={(e) => setShoppingInputQty(e.target.value)} className="w-16 md:w-20 px-2 py-3 rounded-2xl text-center text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm" />
@@ -1199,7 +1142,7 @@ export default function PantryManager() {
                     {COMMON_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
                   </select>
                 </div>
-                <button type="submit" className="w-full px-6 py-3 font-medium rounded-2xl bg-black text-white hover:bg-black/80 shadow-sm">Add Item</button>
+                <button type="submit" className="w-full px-6 py-3 font-medium rounded-2xl bg-black text-white hover:bg-black/80 shadow-sm mt-2">Add Item</button>
               </form>
             )}
 
@@ -1253,6 +1196,10 @@ export default function PantryManager() {
                 </div>
               </div>
             </div>
+
+            {/* Hidden Scanner Input */}
+            <input type="file" accept="image/*" capture="environment" ref={fileInputRef} className="hidden" onChange={handleScanReceipt} />
+            {isScanning && <div className="text-center font-bold animate-pulse text-[#6B705C]">Reading Receipt...</div>}
 
             {showPantryInput && (
               <form onSubmit={addItem} className="flex flex-col gap-3 mb-8 animate-in fade-in slide-in-from-top-2 p-6 bg-[#6B705C]/10 border border-black/10 rounded-[28px]">
@@ -1339,6 +1286,7 @@ export default function PantryManager() {
           <div className="space-y-6">
              <div className="rounded-[28px] p-6 bg-[#6B705C] text-white border border-black/10 shadow-sm flex flex-col gap-4">
               
+              {/* Layout for Search and Toggles */}
               <div className="flex flex-col sm:flex-row gap-3">
                 <div className="w-full sm:flex-1 min-w-0">
                   <input 
@@ -1358,6 +1306,7 @@ export default function PantryManager() {
                     {uniqueRecipeCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                   </select>
                   
+                  {/* Grid/List View Toggle Icons */}
                   <div className="flex bg-white rounded-2xl p-1 shadow-sm border border-black/20 shrink-0">
                     <button onClick={() => setRecipeViewMode('grid')} className={`px-3 flex items-center justify-center rounded-xl transition ${recipeViewMode === 'grid' ? 'bg-[#6B705C] text-white' : 'text-black/40 hover:text-black'}`}>
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
@@ -1394,9 +1343,11 @@ export default function PantryManager() {
               )}
             </div>
             
+            {/* CONDITIONAL RENDER: GRID vs LIST VIEW */}
             <div className={recipeViewMode === 'grid' ? "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6" : "flex flex-col gap-4"}>
               {filteredRecipes.map((recipe) => (
                 recipeViewMode === 'grid' ? (
+                  // Grid View Card
                   <div key={recipe.id} onClick={() => handleOpenRecipe(recipe)} className="rounded-[24px] overflow-hidden cursor-pointer transition border border-black/10 hover:border-black/40 flex flex-col justify-between bg-white shadow-sm hover:shadow-md">
                     {recipe.image && <img src={recipe.image} alt={recipe.title} className="w-full h-40 object-cover" />}
                     <div className="p-5 space-y-3 flex-1 flex flex-col justify-between">
@@ -1410,6 +1361,7 @@ export default function PantryManager() {
                     </div>
                   </div>
                 ) : (
+                  // List View Card (Thumbnail left, text right)
                   <div key={recipe.id} onClick={() => handleOpenRecipe(recipe)} className="flex items-center gap-4 p-3 rounded-[24px] bg-white border border-black/10 shadow-sm cursor-pointer hover:shadow-md transition">
                     {recipe.image ? (
                       <img src={recipe.image} alt={recipe.title} className="w-20 h-20 rounded-[16px] object-cover shrink-0" />
@@ -1444,6 +1396,7 @@ export default function PantryManager() {
                 return (
                   <div key={dateStr} className={`rounded-[28px] p-6 border transition-all ${isToday ? 'bg-[#6B705C] border-black/20' : 'bg-[#6B705C]/90 border-black/10 shadow-sm'}`}>
                     
+                    {/* Collapsible Header */}
                     <div 
                       onClick={() => setCollapsedDays(prev => ({ ...prev, [dateStr]: !prev[dateStr] }))}
                       className="flex justify-between items-center cursor-pointer select-none group"
@@ -1457,6 +1410,7 @@ export default function PantryManager() {
                       </span>
                     </div>
 
+                    {/* Collapsible Content */}
                     {!isCollapsed && (
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5 animate-in fade-in slide-in-from-top-2">
                         {['Breakfast', 'Lunch', 'Dinner'].map((mealType) => {
