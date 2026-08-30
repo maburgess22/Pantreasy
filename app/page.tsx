@@ -2,7 +2,7 @@
 
 /* ==========================================================================
    1. IMPORTS, TYPES & CONSTANTS
-   ================================================================---------- */
+   ========================================================================== */
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
@@ -46,22 +46,16 @@ interface MealPlanItem {
 }
 
 const CATEGORIES = [
-  { name: 'Produce' },
-  { name: 'Dairy & Eggs' },
-  { name: 'Meat & Seafood' },
-  { name: 'Pantry Staples' },
-  { name: 'Bakery' },
-  { name: 'Frozen' },
-  { name: 'Snacks' },
-  { name: 'Beverages' },
-  { name: 'Other' }
+  { name: 'Produce' }, { name: 'Dairy & Eggs' }, { name: 'Meat & Seafood' },
+  { name: 'Pantry Staples' }, { name: 'Bakery' }, { name: 'Frozen' },
+  { name: 'Snacks' }, { name: 'Beverages' }, { name: 'Other' }
 ];
 
 const COMMON_UNITS = ['pcs', 'kg', 'g', 'lbs', 'oz', 'ml', 'l', 'cups', 'tbsp', 'tsp', 'cans', 'packs'];
 
 /* ==========================================================================
    2. HELPER FUNCTIONS (Scaling, Unit Conversions, Aisles)
-   ================================================================---------- */
+   ========================================================================== */
 function scaleAndConvertIngredient(ingredient: string, multiplier: number, targetSystem: 'metric' | 'imperial'): string {
   let result = ingredient;
   
@@ -123,11 +117,12 @@ const getNext7Days = () => {
 
 /* ==========================================================================
    3. MAIN COMPONENT & STATE MANAGEMENT
-   ================================================================---------- */
+   ========================================================================== */
 export default function PantryManager() {
   const supabase = createClient();
   const router = useRouter();
 
+  // Core App State
   const [activeTab, setActiveTab] = useState<'dashboard' | 'pantry' | 'recipes' | 'shopping' | 'planner'>('dashboard');
   const [items, setItems] = useState<PantryItem[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -135,62 +130,52 @@ export default function PantryManager() {
   const [mealPlans, setMealPlans] = useState<MealPlanItem[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Recipe Views & Editing State
+  // Recipe Views & Layout State
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
+  const [recipeViewMode, setRecipeViewMode] = useState<'grid' | 'list'>('grid'); // Grid vs List Toggle
+  const [recipeDetailTab, setRecipeDetailTab] = useState<'ingredients' | 'instructions'>('ingredients'); // Details Tab
   const [targetPortions, setTargetPortions] = useState(4);
   const [measurementSystem, setMeasurementSystem] = useState<'metric' | 'imperial'>('metric');
   const [recipeSearchQuery, setRecipeSearchQuery] = useState('');
   const [recipeCategoryFilter, setRecipeCategoryFilter] = useState('All');
   
-  // Full Recipe Editing State
+  // Recipe Editing & Import State
   const [isEditingRecipe, setIsEditingRecipe] = useState(false);
-  const [editRecipeForm, setEditRecipeForm] = useState({
-    title: '', category: '', cook_time: '', portions: 4, image: '', ingredientsText: '', instructionsText: ''
-  });
-
-  // Manual Recipe & URL Import State
+  const [editRecipeForm, setEditRecipeForm] = useState({ title: '', category: '', cook_time: '', portions: 4, image: '', ingredientsText: '', instructionsText: '' });
   const [showManualAddRecipe, setShowManualAddRecipe] = useState(false);
   const [showImportInput, setShowImportInput] = useState(false);
   const [showAddRecipeMenu, setShowAddRecipeMenu] = useState(false);
-  const [manualRecipe, setManualRecipe] = useState({
-    title: '', category: 'Main Dish', cook_time: '30 mins', portions: 4, 
-    ingredientsText: '', instructionsText: '', image: ''
-  });
+  const [manualRecipe, setManualRecipe] = useState({ title: '', category: 'Main Dish', cook_time: '30 mins', portions: 4, ingredientsText: '', instructionsText: '', image: '' });
   const [importUrl, setImportUrl] = useState('');
   const [isImporting, setIsImporting] = useState(false);
 
-  // Meal Plan Distribution State
+  // Meal Planner State
+  const [collapsedDays, setCollapsedDays] = useState<Record<string, boolean>>({}); // Collapsible planner days
   const [showDistributionModal, setShowDistributionModal] = useState(false);
   const [planTargetPortions, setPlanTargetPortions] = useState(4);
   const [allocationsGrid, setAllocationsGrid] = useState<Record<string, number>>({});
   const [manualInputs, setManualInputs] = useState<Record<string, string>>({});
 
-  // AI Scanner & Review State
+  // Scanners & Inputs
   const [isScanning, setIsScanning] = useState(false);
   const [scannedItems, setScannedItems] = useState<any[] | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recipeFileInputRef = useRef<HTMLInputElement>(null);
-
-  // Form State
   const [name, useStateName] = useState('');
   const [category, setCategory] = useState('Produce');
   const [quantity, setQuantity] = useState('1');
   const [unit, setUnit] = useState('pcs');
   const [isManualCategory, setIsManualCategory] = useState(false);
-  
-  // Shopping List State
   const [shoppingInput, setShoppingInput] = useState('');
   const [isListening, setIsListening] = useState(false);
 
-  // Modals, Editing & Low Stock Page
+  // Modals & Low Stock
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editCategory, setEditCategory] = useState('');
   const [editQuantity, setEditQuantity] = useState('');
   const [editUnit, setEditUnit] = useState('');
   const [showLowStockPage, setShowLowStockPage] = useState(false);
   const [itemToTrackId, setItemToTrackId] = useState('');
-  
-  // New Item Tracking State
   const [newTrackName, setNewTrackName] = useState('');
   const [newTrackCategory, setNewTrackCategory] = useState('Produce');
   const [newTrackUnit, setNewTrackUnit] = useState('pcs');
@@ -200,34 +185,88 @@ export default function PantryManager() {
 
   /* ==========================================================================
      4. DATA FETCHING (SUPABASE INITIALIZATION)
-     ================================================================---------- */
+     ========================================================================== */
   useEffect(() => {
     const loadData = async () => {
       const { data: pData } = await supabase.from('pantry_items').select('*').order('created_at', { ascending: false });
       if (pData) setItems(pData);
-
       const { data: rData } = await supabase.from('recipes').select('*').order('created_at', { ascending: false });
       if (rData) setRecipes(rData);
-
       const { data: sData } = await supabase.from('shopping_list').select('*').order('created_at', { ascending: false });
       if (sData) setShoppingList(sData);
 
       const today = new Date().toISOString().split('T')[0];
-      const { data: mData } = await supabase
-        .from('meal_plan')
-        .select('*, recipes(title)')
-        .gte('date', today)
-        .order('date', { ascending: true });
+      const { data: mData } = await supabase.from('meal_plan').select('*, recipes(title)').gte('date', today).order('date', { ascending: true });
       if (mData) setMealPlans(mData as MealPlanItem[]);
     };
     loadData();
   }, []);
+
+  /* ==========================================================================
+     5. HISTORY API NAVIGATION (Enables Phone 'Back' Button)
+     ========================================================================== */
+  useEffect(() => {
+    // Initialize base history state on load
+    window.history.replaceState({ tab: 'dashboard', type: 'tab' }, '', window.location.pathname);
+    
+    // Listen for browser back/forward buttons
+    const handlePopState = (e: PopStateEvent) => {
+      if (e.state) {
+        setActiveTab(e.state.tab || 'dashboard');
+        
+        if (e.state.type === 'tab') {
+          setSelectedRecipe(null);
+          setShowLowStockPage(false);
+          setIsEditingRecipe(false);
+        } else if (e.state.type === 'recipe') {
+          setSelectedRecipe(e.state.recipe);
+          setShowLowStockPage(false);
+          setIsEditingRecipe(false);
+        } else if (e.state.type === 'lowstock') {
+          setShowLowStockPage(true);
+          setSelectedRecipe(null);
+          setIsEditingRecipe(false);
+        }
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Navigation Handlers mapped to History API
+  const handleTabChange = (tab: string) => {
+    window.history.pushState({ tab, type: 'tab' }, '', `#${tab}`);
+    setActiveTab(tab as any);
+    setSelectedRecipe(null);
+    setShowLowStockPage(false);
+  };
+
+  const handleOpenRecipe = (recipe: Recipe) => {
+    window.history.pushState({ tab: activeTab, recipe, type: 'recipe' }, '', `#recipe-${recipe.id}`);
+    setSelectedRecipe(recipe);
+    setTargetPortions(recipe.portions || 4);
+    setIsEditingRecipe(false);
+    setRecipeDetailTab('ingredients'); // Reset tab view inside recipe
+    window.scrollTo(0, 0);
+  };
+
+  const handleOpenLowStock = () => {
+    window.history.pushState({ tab: activeTab, type: 'lowstock' }, '', `#lowstock`);
+    setShowLowStockPage(true);
+  };
+
+  const handleBackNavigation = () => {
+    window.history.back();
+  };
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     router.push('/login');
   };
 
+  /* ==========================================================================
+     6. CRUD HANDLERS (Pantry, Recipes, Shopping, Meal Planner)
+     ========================================================================== */
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     useStateName(val);
@@ -250,9 +289,6 @@ export default function PantryManager() {
     }
   };
 
-  /* ==========================================================================
-     5. CRUD HANDLERS (Pantry, Recipes, Shopping, Meal Planner)
-     ================================================================---------- */
   const addItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
@@ -339,13 +375,6 @@ export default function PantryManager() {
     setNewTrackName(''); setLoading(false);
   };
 
-  const openRecipe = (recipe: Recipe) => {
-    setSelectedRecipe(recipe);
-    setTargetPortions(recipe.portions || 4);
-    setIsEditingRecipe(false);
-    window.scrollTo(0, 0); 
-  };
-
   const handleImportRecipe = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!importUrl) return;
@@ -369,9 +398,7 @@ export default function PantryManager() {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onloadend = () => {
-      setFormState((prev: any) => ({ ...prev, image: reader.result as string }));
-    };
+    reader.onloadend = () => { setFormState((prev: any) => ({ ...prev, image: reader.result as string })); };
     reader.readAsDataURL(file);
   };
 
@@ -382,13 +409,9 @@ export default function PantryManager() {
     const cleanedInstructions = manualRecipe.instructionsText.split('\n').map(i => i.trim()).filter(i => i !== '');
     
     const newRecipe = {
-      title: manualRecipe.title.trim(), 
-      category: manualRecipe.category, 
-      cook_time: manualRecipe.cook_time,
-      portions: manualRecipe.portions, 
-      image: manualRecipe.image,
-      ingredients: cleanedIngredients, 
-      instructions: cleanedInstructions,
+      title: manualRecipe.title.trim(), category: manualRecipe.category, cook_time: manualRecipe.cook_time,
+      portions: manualRecipe.portions, image: manualRecipe.image,
+      ingredients: cleanedIngredients, instructions: cleanedInstructions,
     };
     const { data, error } = await supabase.from('recipes').insert([newRecipe]).select().single();
     if (!error && data) {
@@ -401,13 +424,9 @@ export default function PantryManager() {
   const startEditingRecipe = () => {
     if (!selectedRecipe) return;
     setEditRecipeForm({
-      title: selectedRecipe.title,
-      category: selectedRecipe.category || 'Other',
-      cook_time: selectedRecipe.cook_time || '',
-      portions: selectedRecipe.portions || 4,
-      image: selectedRecipe.image || '',
-      ingredientsText: selectedRecipe.ingredients.join('\n'),
-      instructionsText: selectedRecipe.instructions?.join('\n') || ''
+      title: selectedRecipe.title, category: selectedRecipe.category || 'Other', cook_time: selectedRecipe.cook_time || '',
+      portions: selectedRecipe.portions || 4, image: selectedRecipe.image || '',
+      ingredientsText: selectedRecipe.ingredients.join('\n'), instructionsText: selectedRecipe.instructions?.join('\n') || ''
     });
     setIsEditingRecipe(true);
   };
@@ -419,13 +438,9 @@ export default function PantryManager() {
     const cleanedInstructions = editRecipeForm.instructionsText.split('\n').map(i => i.trim()).filter(i => i !== '');
     
     const updatedData = {
-      title: editRecipeForm.title.trim(),
-      category: editRecipeForm.category,
-      cook_time: editRecipeForm.cook_time,
-      portions: editRecipeForm.portions,
-      image: editRecipeForm.image,
-      ingredients: cleanedIngredients,
-      instructions: cleanedInstructions,
+      title: editRecipeForm.title.trim(), category: editRecipeForm.category, cook_time: editRecipeForm.cook_time,
+      portions: editRecipeForm.portions, image: editRecipeForm.image,
+      ingredients: cleanedIngredients, instructions: cleanedInstructions,
     };
 
     const { data, error } = await supabase.from('recipes').update(updatedData).eq('id', selectedRecipe.id).select().single();
@@ -460,7 +475,7 @@ export default function PantryManager() {
       const [date, meal_type] = key.split('|'); return { date, meal_type, recipe_id: selectedRecipe.id, portions: qty };
     });
     const { data, error } = await supabase.from('meal_plan').insert(inserts).select('*, recipes(title)');
-    if (!error && data) { setMealPlans(prev => [...prev, ...(data as MealPlanItem[])]); alert('Meals added to planner!'); setShowDistributionModal(false); setSelectedRecipe(null); }
+    if (!error && data) { setMealPlans(prev => [...prev, ...(data as MealPlanItem[])]); alert('Meals added to planner!'); setShowDistributionModal(false); }
     setLoading(false);
   };
 
@@ -509,7 +524,9 @@ export default function PantryManager() {
     recognition.start();
   };
 
-  // Computed Data
+  /* ==========================================================================
+     7. COMPUTED DATA FOR RENDERING
+     ========================================================================== */
   const trackedItemsList = items.filter(i => i.track_low_stock);
   const untrackedItemsList = items.filter(i => !i.track_low_stock);
   const lowStockItems = trackedItemsList.filter(i => i.quantity <= (i.low_stock_threshold || 1));
@@ -554,7 +571,7 @@ export default function PantryManager() {
       .filter(scaledIng => getIngredientStatus(scaledIng, items).status !== 'in_stock');
     if (missing.length === 0) return alert('You already have all ingredients!');
     const { data } = await supabase.from('shopping_list').insert(missing.map(name => ({ name }))).select();
-    if (data) { setShoppingList(prev => [...prev, ...data]); alert('Missing ingredients added!'); }
+    if (data) { setShoppingList(prev => [...data, ...prev]); alert('Missing ingredients added!'); }
   };
 
   const multiplier = selectedRecipe ? (targetPortions / (selectedRecipe.portions || 4)) : 1;
@@ -562,13 +579,13 @@ export default function PantryManager() {
   const remainingPortions = planTargetPortions - totalAllocated;
 
   /* ==========================================================================
-     6. RENDER VIEW: LOW STOCK MANAGEMENT SCREEN
-     ================================================================---------- */
+     8. RENDER VIEW: LOW STOCK MANAGEMENT SCREEN
+     ========================================================================== */
   if (showLowStockPage && !selectedRecipe) {
     return (
       <main className="min-h-screen w-full overflow-x-hidden bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 md:p-8 font-montserrat">
         <div className="max-w-6xl mx-auto space-y-6">
-          <button onClick={() => setShowLowStockPage(false)} className="flex items-center gap-2 text-black/70 hover:text-black font-semibold transition">
+          <button onClick={handleBackNavigation} className="flex items-center gap-2 text-black/70 hover:text-black font-semibold transition">
             &larr; Back to Dashboard
           </button>
           
@@ -664,8 +681,8 @@ export default function PantryManager() {
   }
 
   /* ==========================================================================
-     7. RENDER VIEW: DETAILED RECIPE VIEW & RECIPE EDITOR
-     ================================================================---------- */
+     9. RENDER VIEW: RECIPE DETAIL OR EDITOR
+     ========================================================================== */
   if (selectedRecipe && !showDistributionModal) {
     if (isEditingRecipe) {
       return (
@@ -735,9 +752,11 @@ export default function PantryManager() {
     return (
       <main className="min-h-screen w-full overflow-x-hidden bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 md:p-8 font-montserrat">
         <div className="max-w-6xl mx-auto space-y-6">
-          <button onClick={() => setSelectedRecipe(null)} className="flex items-center gap-2 text-black/70 hover:text-black font-semibold transition">&larr; Back to Recipes</button>
+          <button onClick={handleBackNavigation} className="flex items-center gap-2 text-black/70 hover:text-black font-semibold transition">&larr; Back to Recipes</button>
+          
           <div className="bg-white rounded-[32px] overflow-hidden shadow-sm border border-black/10">
             {selectedRecipe.image && <img src={selectedRecipe.image} alt={selectedRecipe.title} className="w-full h-64 md:h-96 object-cover" />}
+            
             <div className="bg-[#6B705C] text-white p-6 md:p-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
               <div className="flex-1">
                 <h2 className="text-4xl md:text-5xl font-bold leading-snug">{selectedRecipe.title}</h2>
@@ -768,44 +787,61 @@ export default function PantryManager() {
               </div>
             </div>
             
-            <div className="p-6 md:p-10 grid grid-cols-1 md:grid-cols-12 gap-10">
-              <div className="md:col-span-5 space-y-4">
-                <h3 className="text-sm font-semibold uppercase tracking-wider text-black/80">Ingredients {multiplier !== 1 && <span className="text-emerald-700 normal-case font-medium ml-2">(Scaled {multiplier}x)</span>}</h3>
-                <div className="space-y-2">
-                  {selectedRecipe.ingredients.map((ing, i) => {
-                    const scaledIng = scaleAndConvertIngredient(ing, multiplier, measurementSystem);
-                    const statusObj = getIngredientStatus(scaledIng, items);
-                    return (
-                      <div key={i} className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 text-sm p-3 rounded-xl bg-white border border-black/10 text-black font-medium shadow-sm">
-                        <span>{scaledIng}</span>
-                        <div className="shrink-0">
-                          {statusObj.status === 'in_stock' && <span className="text-[10px] px-2.5 py-1 bg-[#6B705C] text-white rounded-full font-bold uppercase tracking-wider shadow-sm">In Pantry ({statusObj.availableText})</span>}
-                          {statusObj.status === 'insufficient' && <span className="text-[10px] px-2.5 py-1 border border-[#6B705C]/50 text-[#6B705C] rounded-full font-bold uppercase tracking-wider">Low Stock</span>}
-                          {statusObj.status === 'missing' && <span className="text-[10px] px-2.5 py-1 bg-black text-white rounded-full font-bold uppercase tracking-wider shadow-sm">Missing</span>}
-                        </div>
-                      </div>
-                    );
-                  })}
+            <div className="p-6 md:p-10">
+              <div className="flex justify-between items-center mb-6">
+                {/* NEW TABS FOR MOBILE/DESKTOP VIEWING */}
+                <div className="flex bg-black/5 p-1 rounded-2xl w-full md:w-auto">
+                  <button onClick={() => setRecipeDetailTab('ingredients')} className={`flex-1 md:px-8 py-3 text-sm font-bold rounded-xl transition ${recipeDetailTab === 'ingredients' ? 'bg-white shadow-sm text-black' : 'text-black/60 hover:text-black'}`}>Ingredients</button>
+                  <button onClick={() => setRecipeDetailTab('instructions')} className={`flex-1 md:px-8 py-3 text-sm font-bold rounded-xl transition ${recipeDetailTab === 'instructions' ? 'bg-white shadow-sm text-black' : 'text-black/60 hover:text-black'}`}>Method</button>
                 </div>
+                
+                <button onClick={startEditingRecipe} className="hidden md:block text-sm font-medium text-black/60 hover:text-black transition underline">Edit Recipe</button>
               </div>
 
-              <div className="md:col-span-7 space-y-5">
-                <div className="flex justify-between items-center">
-                  <h3 className="text-sm font-semibold uppercase tracking-wider text-black/80">Method & Instructions</h3>
-                  <button onClick={startEditingRecipe} className="text-sm font-medium text-black/60 hover:text-black transition underline">Edit Recipe</button>
+              {/* TAB CONTENT: INGREDIENTS */}
+              {recipeDetailTab === 'ingredients' && (
+                <div className="space-y-4 animate-in fade-in">
+                  <h3 className="text-sm font-semibold uppercase tracking-wider text-black/80">Ingredients {multiplier !== 1 && <span className="text-emerald-700 normal-case font-medium ml-2">(Scaled {multiplier}x)</span>}</h3>
+                  <div className="space-y-2">
+                    {selectedRecipe.ingredients.map((ing, i) => {
+                      const scaledIng = scaleAndConvertIngredient(ing, multiplier, measurementSystem);
+                      const statusObj = getIngredientStatus(scaledIng, items);
+                      return (
+                        <div key={i} className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 text-sm p-3 rounded-xl bg-white border border-black/10 text-black font-medium shadow-sm">
+                          <span>{scaledIng}</span>
+                          <div className="shrink-0">
+                            {statusObj.status === 'in_stock' && <span className="text-[10px] px-2.5 py-1 bg-[#6B705C] text-white rounded-full font-bold uppercase tracking-wider shadow-sm">In Pantry ({statusObj.availableText})</span>}
+                            {statusObj.status === 'insufficient' && <span className="text-[10px] px-2.5 py-1 border border-[#6B705C]/50 text-[#6B705C] rounded-full font-bold uppercase tracking-wider">Low Stock</span>}
+                            {statusObj.status === 'missing' && <span className="text-[10px] px-2.5 py-1 bg-black text-white rounded-full font-bold uppercase tracking-wider shadow-sm">Missing</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-                
-                {selectedRecipe.instructions?.length ? selectedRecipe.instructions.map((step, idx) => {
-                  if (step.includes('For full cooking instructions, visit')) return null;
-                  return (
-                    <div key={idx} className="p-4 rounded-2xl space-y-1.5 bg-white border border-black/10 shadow-sm">
-                      <span className="font-medium text-sm uppercase text-black/70">Step {idx + 1}</span>
-                      <p className="leading-relaxed text-black">{step}</p>
-                    </div>
-                  );
-                }) : <p className="text-black/50 text-sm italic">No instructions saved. Click "Edit Recipe" to add them manually.</p>}
-                
-                {selectedRecipe.source_url && <a href={selectedRecipe.source_url} target="_blank" rel="noopener noreferrer" className="mt-4 px-6 py-4 bg-white border border-black/20 rounded-2xl text-black font-semibold text-center hover:bg-black/5 transition shadow-sm block">View Full Original Recipe</a>}
+              )}
+
+              {/* TAB CONTENT: INSTRUCTIONS */}
+              {recipeDetailTab === 'instructions' && (
+                <div className="space-y-5 animate-in fade-in">
+                  <h3 className="text-sm font-semibold uppercase tracking-wider text-black/80">Method & Instructions</h3>
+                  {selectedRecipe.instructions?.length ? selectedRecipe.instructions.map((step, idx) => {
+                    if (step.includes('For full cooking instructions, visit')) return null;
+                    return (
+                      <div key={idx} className="p-4 rounded-2xl space-y-1.5 bg-white border border-black/10 shadow-sm">
+                        <span className="font-medium text-sm uppercase text-black/70">Step {idx + 1}</span>
+                        <p className="leading-relaxed text-black">{step}</p>
+                      </div>
+                    );
+                  }) : <p className="text-black/50 text-sm italic">No instructions saved. Click "Edit Recipe" to add them manually.</p>}
+                  
+                  {selectedRecipe.source_url && <a href={selectedRecipe.source_url} target="_blank" rel="noopener noreferrer" className="mt-4 px-6 py-4 bg-white border border-black/20 rounded-2xl text-black font-semibold text-center hover:bg-black/5 transition shadow-sm block">View Full Original Recipe</a>}
+                </div>
+              )}
+
+              {/* Mobile Edit Fallback */}
+              <div className="mt-8 md:hidden text-center">
+                 <button onClick={startEditingRecipe} className="text-sm font-medium text-black/60 hover:text-black transition underline">Edit Recipe Details</button>
               </div>
             </div>
           </div>
@@ -815,8 +851,8 @@ export default function PantryManager() {
   }
 
   /* ==========================================================================
-     8. RENDER VIEW: MAIN APPLICATION DASHBOARD & TABS
-     ================================================================---------- */
+     10. RENDER VIEW: MAIN APPLICATION DASHBOARD & TABS
+     ========================================================================== */
   return (
     <main className="min-h-screen w-full overflow-x-hidden bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 pb-28 md:p-8 md:pb-8 font-montserrat">
       <datalist id="common-units">{COMMON_UNITS.map(u => <option key={u} value={u} />)}</datalist>
@@ -824,7 +860,7 @@ export default function PantryManager() {
 
       <div className="max-w-6xl mx-auto space-y-8">
         
-        {/* --- HEADER & NAVIGATION --- */}
+        {/* --- DESKTOP HEADER & NAVIGATION --- */}
         <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-6 border-b border-black/10">
           <div className="flex items-center justify-between w-full sm:w-auto">
             <div className="flex items-center gap-3 md:gap-4">
@@ -834,14 +870,13 @@ export default function PantryManager() {
                 <p className="text-sm md:text-base text-black/70 mt-1 font-normal hidden md:block">Keep track of your ingredients & dinner plans</p>
               </div>
             </div>
-            {/* Mobile Sign Out (Plain Black Text) */}
-            <button onClick={handleSignOut} className="md:hidden text-sm font-semibold text-black hover:opacity-70 transition px-2 py-1">Sign Out</button>
+            {/* Plain Text Sign Out for Mobile */}
+            <button onClick={handleSignOut} className="md:hidden text-sm font-bold text-black hover:opacity-70 transition px-2 py-1">Sign Out</button>
           </div>
           
-          {/* Desktop Navigation */}
           <nav className="hidden md:flex flex-wrap items-center gap-1 p-1.5">
             {[{ id: 'dashboard', label: 'Dashboard' }, { id: 'pantry', label: 'Pantry' }, { id: 'recipes', label: 'Recipes' }, { id: 'shopping', label: 'Shopping List' }, { id: 'planner', label: 'Planner' }].map((tab) => (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`px-4 py-2 rounded-xl text-sm transition ${activeTab === tab.id ? 'bg-black text-white font-medium' : 'text-black/80 hover:text-black font-normal'}`}>
+              <button key={tab.id} onClick={() => handleTabChange(tab.id)} className={`px-4 py-2 rounded-xl text-sm transition ${activeTab === tab.id ? 'bg-black text-white font-medium' : 'text-black/80 hover:text-black font-normal'}`}>
                 {tab.label}
               </button>
             ))}
@@ -856,7 +891,7 @@ export default function PantryManager() {
             <div className="lg:col-span-2 bg-white rounded-[32px] p-6 md:p-8 border border-black/10 shadow-sm flex flex-col">
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-2xl font-bold text-black">Today's Meal Plan</h2>
-                <button onClick={() => setActiveTab('planner')} className="text-sm font-semibold text-black/60 hover:text-black transition">View Week &rarr;</button>
+                <button onClick={() => handleTabChange('planner')} className="text-sm font-semibold text-black/60 hover:text-black transition">View Week &rarr;</button>
               </div>
               <div className="space-y-4 flex-1">
                 {['Breakfast', 'Lunch', 'Dinner'].map(mealType => {
@@ -883,7 +918,7 @@ export default function PantryManager() {
             </div>
 
             <div className="space-y-6 flex flex-col">
-              <div onClick={() => setActiveTab('pantry')} className="bg-[#6B705C] text-white rounded-[32px] p-6 md:p-8 border border-black/10 shadow-sm cursor-pointer hover:bg-[#5a5f4d] transition flex flex-col justify-center min-h-[160px]">
+              <div onClick={() => handleTabChange('pantry')} className="bg-[#6B705C] text-white rounded-[32px] p-6 md:p-8 border border-black/10 shadow-sm cursor-pointer hover:bg-[#5a5f4d] transition flex flex-col justify-center min-h-[160px]">
                 <div className="flex justify-between items-center mb-3">
                   <span className="text-sm font-semibold uppercase tracking-wider text-white/80">Pantry Inventory</span>
                   <span className="text-xl">&rarr;</span>
@@ -891,7 +926,7 @@ export default function PantryManager() {
                 <h3 className="text-6xl font-bold">{items.length} <span className="text-xl font-medium text-white/80">items</span></h3>
               </div>
 
-              <div onClick={() => setShowLowStockPage(true)} className="bg-white rounded-[32px] p-6 md:p-8 border border-black/10 shadow-sm cursor-pointer hover:border-black/30 transition flex flex-col flex-1 max-h-[400px]">
+              <div onClick={handleOpenLowStock} className="bg-white rounded-[32px] p-6 md:p-8 border border-black/10 shadow-sm cursor-pointer hover:border-black/30 transition flex flex-col flex-1 max-h-[400px]">
                 <div className="flex justify-between items-center mb-5">
                   <h3 className="text-sm font-semibold uppercase tracking-wider text-red-800">Low Stock Alerts</h3>
                   <span className="text-sm font-bold text-red-800 bg-red-100 px-2.5 py-1 rounded-lg">{lowStockItems.length}</span>
@@ -1049,8 +1084,9 @@ export default function PantryManager() {
         {activeTab === 'recipes' && (
           <div className="space-y-6">
              <div className="rounded-[28px] p-6 bg-[#6B705C] text-white border border-black/10 shadow-sm flex flex-col gap-4">
-              <div className="flex flex-col sm:flex-row gap-3">
-                <div className="relative flex-1">
+              
+              <div className="flex flex-col md:flex-row gap-3">
+                <div className="flex-1">
                   <input 
                     type="text" 
                     placeholder="Search recipes..." 
@@ -1059,13 +1095,20 @@ export default function PantryManager() {
                     className="w-full px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black placeholder:text-black/50 shadow-sm"
                   />
                 </div>
-                <select 
-                  value={recipeCategoryFilter}
-                  onChange={(e) => setRecipeCategoryFilter(e.target.value)}
-                  className="px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm md:max-w-[200px]"
-                >
-                  {uniqueRecipeCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                </select>
+                <div className="flex gap-2">
+                  <select 
+                    value={recipeCategoryFilter}
+                    onChange={(e) => setRecipeCategoryFilter(e.target.value)}
+                    className="flex-1 md:flex-none px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm md:w-[200px]"
+                  >
+                    {uniqueRecipeCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                  </select>
+                  {/* Grid/List View Toggle */}
+                  <div className="flex bg-white rounded-2xl p-1 shadow-sm border border-black/20 shrink-0">
+                    <button onClick={() => setRecipeViewMode('grid')} className={`px-3 rounded-xl font-bold transition text-sm ${recipeViewMode === 'grid' ? 'bg-[#6B705C] text-white' : 'text-black/40 hover:text-black'}`}>Grid</button>
+                    <button onClick={() => setRecipeViewMode('list')} className={`px-3 rounded-xl font-bold transition text-sm ${recipeViewMode === 'list' ? 'bg-[#6B705C] text-white' : 'text-black/40 hover:text-black'}`}>List</button>
+                  </div>
+                </div>
               </div>
 
               <div className="w-full h-px bg-white/20 my-2"></div>
@@ -1073,15 +1116,16 @@ export default function PantryManager() {
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 relative">
                 <h2 className="text-sm font-semibold uppercase tracking-wider text-white">Add a Recipe</h2>
                 
+                {/* NEW DROPDOWN STYLING */}
                 <div className="relative">
-                  <button onClick={() => setShowAddRecipeMenu(!showAddRecipeMenu)} className="px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center gap-2">
-                    Add Recipe &#9662;
+                  <button onClick={() => setShowAddRecipeMenu(!showAddRecipeMenu)} className="px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center gap-2 border border-black/20">
+                    Add Recipe ▾
                   </button>
                   {showAddRecipeMenu && (
-                    <div className="absolute right-0 mt-2 w-56 bg-white rounded-2xl shadow-xl border border-black/10 overflow-hidden z-20 flex flex-col text-black">
-                      <button onClick={() => { setShowManualAddRecipe(true); setShowAddRecipeMenu(false); setShowImportInput(false); }} className="px-5 py-3.5 text-left text-sm font-semibold hover:bg-black/5 transition border-b border-black/5">Create New Recipe</button>
-                      <button onClick={() => { setShowImportInput(true); setShowAddRecipeMenu(false); }} className="px-5 py-3.5 text-left text-sm font-semibold hover:bg-black/5 transition border-b border-black/5">Add using Recipe URL</button>
-                      <button onClick={() => { recipeFileInputRef.current?.click(); setShowAddRecipeMenu(false); setShowImportInput(false); }} className="px-5 py-3.5 text-left text-sm font-semibold hover:bg-black/5 transition">Add using Screenshot</button>
+                    <div className="absolute left-0 md:left-auto md:right-0 mt-2 w-[240px] max-w-[90vw] bg-[#1A1A1A] rounded-2xl shadow-2xl border border-white/10 overflow-hidden z-[100] flex flex-col text-white">
+                      <button onClick={() => { setShowManualAddRecipe(true); setShowAddRecipeMenu(false); setShowImportInput(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Create New Recipe</button>
+                      <button onClick={() => { setShowImportInput(true); setShowAddRecipeMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Add using Recipe URL</button>
+                      <button onClick={() => { recipeFileInputRef.current?.click(); setShowAddRecipeMenu(false); setShowImportInput(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition">Add using Screenshot</button>
                     </div>
                   )}
                 </div>
@@ -1095,26 +1139,44 @@ export default function PantryManager() {
               )}
             </div>
             
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+            {/* CONDITIONAL RENDER: GRID vs LIST VIEW */}
+            <div className={recipeViewMode === 'grid' ? "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6" : "flex flex-col gap-4"}>
               {filteredRecipes.map((recipe) => (
-                <div key={recipe.id} onClick={() => openRecipe(recipe)} className="rounded-[24px] overflow-hidden cursor-pointer transition border border-black/10 hover:border-black/40 flex flex-col justify-between bg-white shadow-sm hover:shadow-md">
-                  {recipe.image && <img src={recipe.image} alt={recipe.title} className="w-full h-40 object-cover" />}
-                  <div className="p-5 space-y-3 flex-1 flex flex-col justify-between">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h3 className="font-bold text-xl text-black">{recipe.title}</h3>
-                        <p className="text-sm mt-1 text-black/70">{recipe.cook_time} &bull; {recipe.portions || 4} portions</p>
+                recipeViewMode === 'grid' ? (
+                  // Grid View Card
+                  <div key={recipe.id} onClick={() => handleOpenRecipe(recipe)} className="rounded-[24px] overflow-hidden cursor-pointer transition border border-black/10 hover:border-black/40 flex flex-col justify-between bg-white shadow-sm hover:shadow-md">
+                    {recipe.image && <img src={recipe.image} alt={recipe.title} className="w-full h-40 object-cover" />}
+                    <div className="p-5 space-y-3 flex-1 flex flex-col justify-between">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h3 className="font-bold text-xl text-black">{recipe.title}</h3>
+                          <p className="text-sm mt-1 text-black/70">{recipe.cook_time} &bull; {recipe.portions || 4} portions</p>
+                        </div>
+                        <button onClick={(e) => deleteRecipe(recipe.id, e)} className="text-sm p-1 text-black/50 hover:text-red-600 font-bold">✕</button>
                       </div>
-                      <button onClick={(e) => deleteRecipe(recipe.id, e)} className="text-sm p-1 text-black/50 hover:text-red-600 font-bold">✕</button>
                     </div>
                   </div>
-                </div>
+                ) : (
+                  // List View Card (Thumbnail left, text right)
+                  <div key={recipe.id} onClick={() => handleOpenRecipe(recipe)} className="flex items-center gap-4 p-3 rounded-[24px] bg-white border border-black/10 shadow-sm cursor-pointer hover:shadow-md transition">
+                    {recipe.image ? (
+                      <img src={recipe.image} alt={recipe.title} className="w-20 h-20 rounded-[16px] object-cover shrink-0" />
+                    ) : (
+                      <div className="w-20 h-20 rounded-[16px] bg-[#6B705C]/10 flex items-center justify-center shrink-0 border border-black/5"><span className="text-xs font-semibold text-black/40">No Image</span></div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                       <h3 className="font-bold text-lg text-black truncate">{recipe.title}</h3>
+                       <p className="text-sm text-black/60 truncate">{recipe.cook_time} &bull; {recipe.category}</p>
+                    </div>
+                    <button onClick={(e) => deleteRecipe(recipe.id, e)} className="text-sm p-4 text-black/30 hover:text-red-600 font-bold shrink-0">✕</button>
+                  </div>
+                )
               ))}
             </div>
           </div>
         )}
 
-        {/* --- TAB: MEAL PLANNER (7-DAY CALENDAR) --- */}
+        {/* --- TAB: MEAL PLANNER (COLLAPSIBLE 7-DAY CALENDAR) --- */}
         {activeTab === 'planner' && (
           <div className="space-y-8">
             <div className="flex justify-between items-center">
@@ -1125,46 +1187,63 @@ export default function PantryManager() {
                 const dateObj = new Date(dateStr);
                 const isToday = dateStr === todayStr;
                 const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+                const isCollapsed = collapsedDays[dateStr];
+
                 return (
-                  <div key={dateStr} className={`rounded-[28px] p-6 border ${isToday ? 'bg-[#6B705C] border-black/20' : 'bg-[#6B705C]/90 border-black/10 shadow-sm'}`}>
-                    <h3 className="text-xl font-bold mb-4 text-white flex items-center gap-2">
-                      {isToday && <span className="text-xs bg-black/20 text-white px-2 py-1 rounded-full uppercase tracking-wider">Today</span>} {dayName}
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {['Breakfast', 'Lunch', 'Dinner'].map((mealType) => {
-                        const slotKey = `${dateStr}-${mealType}`;
-                        const mealsInSlot = mealPlans.filter(m => m.date === dateStr && m.meal_type === mealType);
-                        return (
-                          <div key={mealType} className="bg-white rounded-2xl p-4 border border-black/10 flex flex-col shadow-sm">
-                            <h4 className="font-semibold text-sm uppercase tracking-wider text-black/70 mb-3">{mealType}</h4>
-                            <div className="flex-1 space-y-2 mb-3">
-                              {mealsInSlot.length === 0 ? <p className="text-sm text-black/40 italic">Nothing planned</p> : mealsInSlot.map(meal => (
-                                <div key={meal.id} className="flex justify-between items-start p-2.5 rounded-xl bg-black/5 border border-transparent group">
-                                  <div>
-                                    <p className="font-semibold text-sm text-black leading-snug">{meal.recipe_id ? meal.recipes?.title : meal.manual_name}</p>
-                                    <p className="text-xs text-black/60 mt-0.5">{meal.portions} portion{meal.portions > 1 ? 's' : ''}</p>
+                  <div key={dateStr} className={`rounded-[28px] p-6 border transition-all ${isToday ? 'bg-[#6B705C] border-black/20' : 'bg-[#6B705C]/90 border-black/10 shadow-sm'}`}>
+                    
+                    {/* Collapsible Header */}
+                    <div 
+                      onClick={() => setCollapsedDays(prev => ({ ...prev, [dateStr]: !prev[dateStr] }))}
+                      className="flex justify-between items-center cursor-pointer select-none group"
+                    >
+                      <h3 className="text-xl font-bold text-white flex items-center gap-3">
+                        {isToday && <span className="text-xs bg-black/20 text-white px-2 py-1 rounded-full uppercase tracking-wider">Today</span>} 
+                        {dayName}
+                      </h3>
+                      <span className="text-white/50 font-bold group-hover:text-white transition">
+                        {isCollapsed ? '▼ Show' : '▲ Hide'}
+                      </span>
+                    </div>
+
+                    {/* Collapsible Content */}
+                    {!isCollapsed && (
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5 animate-in fade-in slide-in-from-top-2">
+                        {['Breakfast', 'Lunch', 'Dinner'].map((mealType) => {
+                          const slotKey = `${dateStr}-${mealType}`;
+                          const mealsInSlot = mealPlans.filter(m => m.date === dateStr && m.meal_type === mealType);
+                          return (
+                            <div key={mealType} className="bg-white rounded-2xl p-4 border border-black/10 flex flex-col shadow-sm">
+                              <h4 className="font-semibold text-sm uppercase tracking-wider text-black/70 mb-3">{mealType}</h4>
+                              <div className="flex-1 space-y-2 mb-3">
+                                {mealsInSlot.length === 0 ? <p className="text-sm text-black/40 italic">Nothing planned</p> : mealsInSlot.map(meal => (
+                                  <div key={meal.id} className="flex justify-between items-start p-2.5 rounded-xl bg-black/5 border border-transparent group">
+                                    <div>
+                                      <p className="font-semibold text-sm text-black leading-snug">{meal.recipe_id ? meal.recipes?.title : meal.manual_name}</p>
+                                      <p className="text-xs text-black/60 mt-0.5">{meal.portions} portion{meal.portions > 1 ? 's' : ''}</p>
+                                    </div>
+                                    <button onClick={() => deleteMealPlan(meal.id)} className="text-black/30 hover:text-red-600 font-bold px-1 text-xs opacity-0 group-hover:opacity-100 transition">✕</button>
                                   </div>
-                                  <button onClick={() => deleteMealPlan(meal.id)} className="text-black/30 hover:text-red-600 font-bold px-1 text-xs opacity-0 group-hover:opacity-100 transition">✕</button>
+                                ))}
+                              </div>
+                              <div className="flex flex-col gap-2 mt-auto">
+                                <select 
+                                  onChange={(e) => { if(e.target.value) saveRecipeToMealPlan(dateStr, mealType, e.target.value); e.target.value=''; }} 
+                                  className="w-full px-3 py-2 rounded-xl text-sm bg-black/5 border border-transparent focus:outline-none focus:border-[#6B705C] transition text-black"
+                                >
+                                  <option value="">+ Add saved recipe...</option>
+                                  {recipes.map(r => <option key={r.id} value={r.id}>{r.title}</option>)}
+                                </select>
+                                <div className="flex gap-2">
+                                  <input type="text" placeholder="Quick add manual..." value={manualInputs[slotKey] || ''} onChange={(e) => setManualInputs(prev => ({ ...prev, [slotKey]: e.target.value }))} onKeyDown={(e) => { if (e.key === 'Enter') saveManualMeal(dateStr, mealType); }} className="flex-1 px-3 py-2 rounded-xl text-sm bg-black/5 border border-transparent focus:outline-none focus:border-[#6B705C] transition text-black" />
+                                  <button onClick={() => saveManualMeal(dateStr, mealType)} className="px-3 py-2 bg-[#6B705C] text-white rounded-xl text-sm font-bold hover:bg-[#6B705C]/80 shadow-sm">+</button>
                                 </div>
-                              ))}
-                            </div>
-                            <div className="flex flex-col gap-2 mt-auto">
-                              <select 
-                                onChange={(e) => { if(e.target.value) saveRecipeToMealPlan(dateStr, mealType, e.target.value); e.target.value=''; }} 
-                                className="w-full px-3 py-2 rounded-xl text-sm bg-black/5 border border-transparent focus:outline-none focus:border-[#6B705C] transition text-black"
-                              >
-                                <option value="">+ Add saved recipe...</option>
-                                {recipes.map(r => <option key={r.id} value={r.id}>{r.title}</option>)}
-                              </select>
-                              <div className="flex gap-2">
-                                <input type="text" placeholder="Quick add manual..." value={manualInputs[slotKey] || ''} onChange={(e) => setManualInputs(prev => ({ ...prev, [slotKey]: e.target.value }))} onKeyDown={(e) => { if (e.key === 'Enter') saveManualMeal(dateStr, mealType); }} className="flex-1 px-3 py-2 rounded-xl text-sm bg-black/5 border border-transparent focus:outline-none focus:border-[#6B705C] transition text-black" />
-                                <button onClick={() => saveManualMeal(dateStr, mealType)} className="px-3 py-2 bg-[#6B705C] text-white rounded-xl text-sm font-bold hover:bg-[#6B705C]/80 shadow-sm">+</button>
                               </div>
                             </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1314,8 +1393,8 @@ export default function PantryManager() {
       </div>
 
       {/* ==========================================================================
-         9. MOBILE BOTTOM NAVIGATION BAR
-         ================================================================---------- */}
+         11. MOBILE BOTTOM NAVIGATION BAR (Anchored)
+         ========================================================================== */}
       <div className="md:hidden fixed bottom-0 inset-x-0 bg-white/90 backdrop-blur-md border-t border-black/10 px-6 pt-3 pb-6 flex justify-between items-center z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
         {[
           { id: 'dashboard', label: 'Home', svg: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /> },
@@ -1326,7 +1405,7 @@ export default function PantryManager() {
         ].map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
+            onClick={() => handleTabChange(tab.id)}
             className={`flex flex-col items-center gap-1 transition ${activeTab === tab.id ? 'text-[#6B705C] scale-110' : 'text-black/40 hover:text-black/70'}`}
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">{tab.svg}</svg>
