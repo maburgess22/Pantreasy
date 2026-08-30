@@ -320,7 +320,7 @@ export default function PantryManager() {
     const recognition = new SpeechRecognition();
     recognitionRef.current = recognition;
     recognition.lang = 'en-US';
-    recognition.continuous = true; // Allows the user to pause naturally without it cutting off early
+    recognition.continuous = true;
     recognition.interimResults = true;
     
     recognition.onstart = () => setIsListening(true);
@@ -412,6 +412,32 @@ export default function PantryManager() {
     const { data } = await supabase.from('pantry_items').insert([{ name: name.trim(), category, quantity: parseFloat(quantity) || 1, unit, track_low_stock: false, low_stock_threshold: 1 }]).select().single();
     if (data) setItems(prev => [data, ...prev]);
     useStateName(''); setQuantity('1'); setIsManualCategory(false); setLoading(false);
+  };
+
+  const handleScanReceipt = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsScanning(true);
+    const formData = new FormData();
+    formData.append('receipt', file);
+    try {
+      const res = await fetch('/api/scan-receipt', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.items && data.items.length > 0) setScannedItems(data.items);
+      else alert(data.message || 'Could not find any items on this receipt.');
+    } catch {
+      alert('Failed to read receipt. Please try another photo.');
+    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    setIsScanning(false);
+  };
+
+  // RESTORED RECIPE SCREENSHOT FUNCTION FOR VERCEL BUILD
+  const handleRecipeScreenshot = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    alert('Screenshot import feature coming soon! (Backend route needed)');
+    if (recipeFileInputRef.current) recipeFileInputRef.current.value = '';
   };
 
   const deleteItem = async (id: string) => {
@@ -671,7 +697,6 @@ export default function PantryManager() {
             </button>
           </div>
 
-          {/* Show raw transcript temporarily until parsed */}
           {voiceTranscript && voiceParsedItems.length === 0 && (
             <div className="w-full mt-4 flex flex-col gap-4">
               <div className="p-4 bg-black/10 rounded-2xl border border-black/10 text-center">
@@ -685,7 +710,6 @@ export default function PantryManager() {
             </div>
           )}
 
-          {/* Editable Parsed List on Single Row */}
           {voiceParsedItems.length > 0 && (
             <div className="flex flex-col gap-3 mt-4">
               <h3 className="text-sm font-semibold uppercase tracking-wider text-white/80 border-b border-white/20 pb-2 mb-2">Review Items</h3>
@@ -1197,8 +1221,6 @@ export default function PantryManager() {
               </div>
             </div>
 
-            {/* Hidden Scanner Input */}
-            <input type="file" accept="image/*" capture="environment" ref={fileInputRef} className="hidden" onChange={handleScanReceipt} />
             {isScanning && <div className="text-center font-bold animate-pulse text-[#6B705C]">Reading Receipt...</div>}
 
             {showPantryInput && (
@@ -1286,7 +1308,6 @@ export default function PantryManager() {
           <div className="space-y-6">
              <div className="rounded-[28px] p-6 bg-[#6B705C] text-white border border-black/10 shadow-sm flex flex-col gap-4">
               
-              {/* Layout for Search and Toggles */}
               <div className="flex flex-col sm:flex-row gap-3">
                 <div className="w-full sm:flex-1 min-w-0">
                   <input 
@@ -1306,7 +1327,6 @@ export default function PantryManager() {
                     {uniqueRecipeCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                   </select>
                   
-                  {/* Grid/List View Toggle Icons */}
                   <div className="flex bg-white rounded-2xl p-1 shadow-sm border border-black/20 shrink-0">
                     <button onClick={() => setRecipeViewMode('grid')} className={`px-3 flex items-center justify-center rounded-xl transition ${recipeViewMode === 'grid' ? 'bg-[#6B705C] text-white' : 'text-black/40 hover:text-black'}`}>
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
@@ -1343,11 +1363,9 @@ export default function PantryManager() {
               )}
             </div>
             
-            {/* CONDITIONAL RENDER: GRID vs LIST VIEW */}
             <div className={recipeViewMode === 'grid' ? "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6" : "flex flex-col gap-4"}>
               {filteredRecipes.map((recipe) => (
                 recipeViewMode === 'grid' ? (
-                  // Grid View Card
                   <div key={recipe.id} onClick={() => handleOpenRecipe(recipe)} className="rounded-[24px] overflow-hidden cursor-pointer transition border border-black/10 hover:border-black/40 flex flex-col justify-between bg-white shadow-sm hover:shadow-md">
                     {recipe.image && <img src={recipe.image} alt={recipe.title} className="w-full h-40 object-cover" />}
                     <div className="p-5 space-y-3 flex-1 flex flex-col justify-between">
@@ -1361,7 +1379,6 @@ export default function PantryManager() {
                     </div>
                   </div>
                 ) : (
-                  // List View Card (Thumbnail left, text right)
                   <div key={recipe.id} onClick={() => handleOpenRecipe(recipe)} className="flex items-center gap-4 p-3 rounded-[24px] bg-white border border-black/10 shadow-sm cursor-pointer hover:shadow-md transition">
                     {recipe.image ? (
                       <img src={recipe.image} alt={recipe.title} className="w-20 h-20 rounded-[16px] object-cover shrink-0" />
@@ -1396,7 +1413,6 @@ export default function PantryManager() {
                 return (
                   <div key={dateStr} className={`rounded-[28px] p-6 border transition-all ${isToday ? 'bg-[#6B705C] border-black/20' : 'bg-[#6B705C]/90 border-black/10 shadow-sm'}`}>
                     
-                    {/* Collapsible Header */}
                     <div 
                       onClick={() => setCollapsedDays(prev => ({ ...prev, [dateStr]: !prev[dateStr] }))}
                       className="flex justify-between items-center cursor-pointer select-none group"
@@ -1410,7 +1426,6 @@ export default function PantryManager() {
                       </span>
                     </div>
 
-                    {/* Collapsible Content */}
                     {!isCollapsed && (
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5 animate-in fade-in slide-in-from-top-2">
                         {['Breakfast', 'Lunch', 'Dinner'].map((mealType) => {
@@ -1597,7 +1612,7 @@ export default function PantryManager() {
       </div>
 
       {/* ==========================================================================
-         12. MOBILE BOTTOM NAVIGATION BAR (Anchored)
+         13. MOBILE BOTTOM NAVIGATION BAR (Anchored)
          ========================================================================== */}
       <div className="md:hidden fixed bottom-0 inset-x-0 bg-white/90 backdrop-blur-md border-t border-black/10 px-6 pt-3 pb-6 flex justify-between items-center z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
         {[
