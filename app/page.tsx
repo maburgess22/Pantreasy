@@ -60,8 +60,44 @@ const CATEGORIES = [
 const COMMON_UNITS = ['pcs', 'kg', 'g', 'lbs', 'oz', 'ml', 'l', 'cups', 'tbsp', 'tsp', 'cans', 'packs', 'dash', 'pinch', 'cloves'];
 
 /* ==========================================================================
-   2. HELPER FUNCTIONS
+   2. HELPER FUNCTIONS & ALGORITHMS
    ========================================================================== */
+
+// Compresses huge mobile camera photos to prevent Vercel 4MB Payload crashes
+const compressImage = (file: File, maxWidth = 1080): Promise<File> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const scale = Math.min(maxWidth / img.width, 1);
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
+          if (blob) resolve(new File([blob], file.name, { type: 'image/jpeg' }));
+          else reject(new Error('Canvas is empty'));
+        }, 'image/jpeg', 0.8);
+      };
+    };
+    reader.onerror = error => reject(error);
+  });
+};
+
+// Strips 's', 'es', 'ies' so "Bananas" merges with "Banana"
+const normalizeName = (name: string) => {
+  let w = name.toLowerCase().trim();
+  if (w.endsWith('ies')) return w.slice(0, -3) + 'y';
+  if (w.endsWith('oes')) return w.slice(0, -2);
+  if (w.endsWith('es') && /(sh|ch|ss|x|z)$/.test(w.slice(0,-2))) return w.slice(0, -2);
+  if (w.endsWith('s') && !w.endsWith('ss')) return w.slice(0, -1);
+  return w;
+};
+
 function scaleAndConvertIngredient(ingredient: string, multiplier: number, targetSystem: 'metric' | 'imperial'): string {
   let result = ingredient;
   if (multiplier !== 1) {
@@ -172,7 +208,8 @@ export default function PantryManager() {
   const supabase = createClient();
   const router = useRouter();
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'pantry' | 'recipes' | 'shopping' | 'planner'>('dashboard');
+  // App & User State
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'pantry' | 'recipes' | 'shopping' | 'planner' | 'lowstock'>('dashboard');
   const [userId, setUserId] = useState<string>('');
   const [userEmail, setUserEmail] = useState('');
   const [items, setItems] = useState<PantryItem[]>([]);
@@ -182,6 +219,7 @@ export default function PantryManager() {
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
+  // Account Settings Modal
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -251,11 +289,13 @@ export default function PantryManager() {
   const [editQuantity, setEditQuantity] = useState('');
   const [editUnit, setEditUnit] = useState('');
   
-  const [showLowStockPage, setShowLowStockPage] = useState(false);
   const [itemToTrackId, setItemToTrackId] = useState('');
   const [newTrackName, setNewTrackName] = useState('');
   const [newTrackCategory, setNewTrackCategory] = useState('Produce');
   const [newTrackUnit, setNewTrackUnit] = useState('pcs');
+  const [showAddTrackMenu, setShowAddTrackMenu] = useState(false);
+  const [showTrackPantryInput, setShowTrackPantryInput] = useState(false);
+  const [showTrackNewInput, setShowTrackNewInput] = useState(false);
 
   const next7Days = getNext7Days();
   const todayStr = new Date().toISOString().split('T')[0];
@@ -304,10 +344,9 @@ export default function PantryManager() {
     window.history.replaceState({ tab: 'dashboard', type: 'tab' }, '', window.location.pathname);
     const handlePopState = (e: PopStateEvent) => {
       if (e.state) {
-        setActiveTab(e.state.tab || 'dashboard');
-        if (e.state.type === 'tab') { setSelectedRecipe(null); setShowLowStockPage(false); setIsEditingRecipe(false); } 
-        else if (e.state.type === 'recipe') { setSelectedRecipe(e.state.recipe); setShowLowStockPage(false); setIsEditingRecipe(false); } 
-        else if (e.state.type === 'lowstock') { setShowLowStockPage(true); setSelectedRecipe(null); setIsEditingRecipe(false); }
+        if (e.state.tab) setActiveTab(e.state.tab);
+        if (e.state.type === 'tab') { setSelectedRecipe(null); setIsEditingRecipe(false); } 
+        else if (e.state.type === 'recipe') { setSelectedRecipe(e.state.recipe); setIsEditingRecipe(false); } 
       }
     };
     window.addEventListener('popstate', handlePopState);
@@ -316,7 +355,7 @@ export default function PantryManager() {
 
   const handleTabChange = (tab: string) => {
     window.history.pushState({ tab, type: 'tab' }, '', `#${tab}`);
-    setActiveTab(tab as any); setSelectedRecipe(null); setShowLowStockPage(false);
+    setActiveTab(tab as any); setSelectedRecipe(null);
   };
 
   const handleOpenRecipe = (recipe: Recipe) => {
@@ -324,7 +363,6 @@ export default function PantryManager() {
     setSelectedRecipe(recipe); setTargetPortions(recipe.portions || 4); setIsEditingRecipe(false); setRecipeDetailTab('ingredients'); window.scrollTo(0, 0);
   };
 
-  const handleOpenLowStock = () => { window.history.pushState({ tab: activeTab, type: 'lowstock' }, '', `#lowstock`); setShowLowStockPage(true); };
   const handleBackNavigation = () => window.history.back();
   const handleSignOut = async () => { await supabase.auth.signOut(); router.push('/login'); };
 
@@ -343,7 +381,7 @@ export default function PantryManager() {
      MERGING / ACCUMULATION ENGINES
      ========================================================================== */
   const addOrMergePantryItem = async (newItem: { name: string, category: string, quantity: number, unit: string, track_low_stock: boolean, low_stock_threshold: number }) => {
-    const existing = items.find(i => i.name.toLowerCase() === newItem.name.toLowerCase() && i.unit === newItem.unit);
+    const existing = items.find(i => normalizeName(i.name) === normalizeName(newItem.name) && i.unit === newItem.unit);
     if (existing) {
       const newQty = existing.quantity + newItem.quantity;
       await supabase.from('pantry_items').update({ quantity: newQty, track_low_stock: newItem.track_low_stock || existing.track_low_stock }).eq('id', existing.id).eq('user_id', userId);
@@ -355,7 +393,7 @@ export default function PantryManager() {
   };
 
   const addOrMergeShoppingItem = async (newItem: { name: string, quantity: number, unit: string }) => {
-    const existing = shoppingList.find(i => i.name.toLowerCase() === newItem.name.toLowerCase() && i.unit === newItem.unit && !i.checked);
+    const existing = shoppingList.find(i => normalizeName(i.name) === normalizeName(newItem.name) && i.unit === newItem.unit && !i.checked);
     if (existing) {
       const newQty = (existing.quantity || 1) + newItem.quantity;
       await supabase.from('shopping_list').update({ quantity: newQty }).eq('id', existing.id).eq('user_id', userId);
@@ -486,13 +524,18 @@ export default function PantryManager() {
   };
 
   const handleScanReceipt = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file) return; setIsScanning(true);
-    const formData = new FormData(); formData.append('receipt', file);
+    const file = e.target.files?.[0]; if (!file) return; 
+    setIsScanning(true);
     try {
-      const res = await fetch('/api/scan-receipt', { method: 'POST', body: formData }); const data = await res.json();
-      if (data.items && data.items.length > 0) setScannedItems(data.items); else showToast(data.message || 'Could not find items.');
-    } catch { showToast('Failed to read receipt.'); }
-    if (fileInputRef.current) fileInputRef.current.value = ''; setIsScanning(false);
+      const compressedFile = await compressImage(file);
+      const formData = new FormData(); formData.append('receipt', compressedFile);
+      const res = await fetch('/api/scan-receipt', { method: 'POST', body: formData }); 
+      const data = await res.json();
+      if (data.items && data.items.length > 0) setScannedItems(data.items); 
+      else showToast(data.message || 'Could not find items.');
+    } catch { showToast('Failed to read receipt. Image may be too large.'); }
+    if (fileInputRef.current) fileInputRef.current.value = ''; 
+    setIsScanning(false);
   };
 
   const updateScannedItem = (index: number, field: string, value: string | number) => {
@@ -509,11 +552,39 @@ export default function PantryManager() {
     showToast(`Added ${scannedItems.length} items to pantry!`); setScannedItems(null); setLoading(false);
   };
 
+  // ADVANCED: Add Recipe via Screenshot
   const handleRecipeScreenshot = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file) return; showToast('Screenshot import feature coming soon!'); if (recipeFileInputRef.current) recipeFileInputRef.current.value = '';
+    const file = e.target.files?.[0]; if (!file) return; 
+    setShowAddRecipeMenu(false);
+    showToast('Analyzing recipe screenshot...');
+    try {
+      const compressedFile = await compressImage(file);
+      const formData = new FormData(); formData.append('image', compressedFile);
+      const res = await fetch('/api/parse-recipe-image', { method: 'POST', body: formData });
+      const data = await res.json();
+      
+      if (res.ok && data.title) {
+        setManualRecipe({
+          title: data.title || '',
+          category: data.category || 'Main Dish',
+          cook_time: data.cook_time || '30 mins',
+          portions: data.portions || 4,
+          ingredientsText: data.ingredients ? data.ingredients.join('\n') : '',
+          instructionsText: data.instructions ? data.instructions.join('\n') : '',
+          image: ''
+        });
+        setShowManualAddRecipe(true);
+        showToast('Recipe extracted! Please review.');
+      } else {
+        showToast(data.error || 'Could not read recipe from image.');
+      }
+    } catch {
+      showToast('Failed to process image. Endpoint may not be setup.');
+    }
+    if (recipeFileInputRef.current) recipeFileInputRef.current.value = '';
   };
 
-  const deleteItem = async (id: string) => { setItems(prev => prev.filter(item => item.id !== id)); await supabase.from('pantry_items').delete().eq('id', id).eq('user_id', userId); };
+  const deleteItem = async (id: string) => { setItems(prev => prev.filter(item => item.id !== id)); await supabase.from('pantry_items').delete().eq('id', id).eq('user_id', userId); showToast('Item deleted.'); };
   
   const adjustQuantity = async (item: PantryItem, delta: number) => {
     const newQty = Math.max(0, Number((item.quantity + delta).toFixed(2)));
@@ -689,6 +760,7 @@ export default function PantryManager() {
     (recipeCategoryFilter === 'All' || r.category === recipeCategoryFilter)
   );
   
+  // HIDING 0 QUANTITY ITEMS FROM MAIN PANTRY GRID
   const visiblePantryItems = items.filter(i => i.quantity > 0);
   const groupedItems = visiblePantryItems.reduce((acc, item) => {
     acc[item.category] = acc[item.category] || []; acc[item.category].push(item); return acc;
@@ -1613,44 +1685,17 @@ export default function PantryManager() {
                               <span className="text-sm font-semibold tracking-wider uppercase text-black">{groupCategory}</span>
                             </div>
                             <div className="space-y-2">
-                              {groupList.map((item) => {
-                                const isEditing = editingId === item.id;
-                                return (
-                                  <div key={item.id} className="rounded-[20px] p-3 transition bg-white border border-black/10 shadow-sm">
-                                    {!isEditing ? (
-                                      <div className="flex items-center justify-between">
-                                        <div>
-                                          <h3 className="font-semibold text-base capitalize text-black">{item.name}</h3>
-                                          <p className="text-sm text-black/70 font-normal">{item.quantity} {item.unit}</p>
-                                        </div>
-                                        <button onClick={() => setPantryActionMenu({isOpen: true, item})} className="w-8 h-8 rounded-full hover:bg-black/5 flex items-center justify-center text-black/40 hover:text-black transition">
-                                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
-                                        </button>
-                                      </div>
-                                    ) : (
-                                      <div className="space-y-3">
-                                        <div className="flex items-center justify-between">
-                                          <span className="text-sm font-semibold capitalize text-black">Edit Item</span>
-                                          <button onClick={() => setEditingId(null)} className="text-sm text-black/70 hover:text-black">Cancel</button>
-                                        </div>
-                                        <div className="flex flex-col gap-2">
-                                          <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full px-3 py-2 rounded-xl text-sm focus:outline-none bg-white border border-black/20 text-black" placeholder="Item name" />
-                                          <div className="flex gap-2">
-                                            <select value={editCategory} onChange={(e) => setEditCategory(e.target.value)} className="w-28 px-2 py-2 rounded-xl text-sm focus:outline-none bg-white border border-black/20 text-black">
-                                              {CATEGORIES.map((cat) => <option key={cat.name} value={cat.name} className="text-black">{cat.name}</option>)}
-                                            </select>
-                                            <input type="number" step="any" min="0" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} className="w-16 px-2 py-2 rounded-xl text-center text-sm focus:outline-none bg-white border border-black/20 text-black" />
-                                            <select value={editUnit} onChange={(e) => setEditUnit(e.target.value)} className="flex-1 px-2 py-2 rounded-xl text-sm focus:outline-none capitalize bg-white border border-black/20 text-black">
-                                              {COMMON_UNITS.map((u) => <option key={u} value={u} className="text-black">{u}</option>)}
-                                            </select>
-                                          </div>
-                                          <button onClick={() => saveEdit(item.id)} className="w-full py-2.5 rounded-xl text-sm font-bold bg-black text-white mt-1 shadow-sm hover:bg-black/80 transition">Save Changes</button>
-                                        </div>
-                                      </div>
-                                    )}
+                              {groupList.map((item) => (
+                                <div key={item.id} className="flex items-center justify-between p-3 rounded-[20px] transition bg-white border border-black/10 shadow-sm">
+                                  <div>
+                                    <h3 className="font-semibold text-base capitalize text-black">{item.name}</h3>
+                                    <p className="text-sm text-black/70 font-normal">{item.quantity} {item.unit}</p>
                                   </div>
-                                );
-                              })}
+                                  <button onClick={() => setPantryActionMenu({isOpen: true, item})} className="p-2 hover:bg-black/5 rounded-full text-black/40 hover:text-black transition shrink-0">
+                                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
+                                  </button>
+                                </div>
+                              ))}
                             </div>
                           </div>
                         );
@@ -1808,7 +1853,7 @@ export default function PantryManager() {
                                               if (matchedRecipe) handleOpenRecipe(matchedRecipe);
                                             }
                                           }}
-                                          className={`flex justify-between items-start p-2.5 rounded-xl bg-black/5 border border-transparent group transition ${meal.recipe_id ? 'cursor-pointer hover:bg-black/10' : ''}`}
+                                          className={`flex justify-between items-start p-2.5 rounded-xl bg-black/5 border border-transparent transition group relative ${meal.recipe_id ? 'cursor-pointer hover:bg-black/10' : ''}`}
                                         >
                                           <div className="flex items-center gap-3 flex-1 min-w-0">
                                             {meal.recipe_id && meal.recipes?.image ? (
@@ -1825,7 +1870,7 @@ export default function PantryManager() {
                                           </div>
                                           <button 
                                             onClick={(e) => { e.stopPropagation(); deleteMealPlan(meal.id); }} 
-                                            className="text-black/30 hover:text-red-600 font-bold p-2 text-xs opacity-0 group-hover:opacity-100 transition z-10 rounded-full hover:bg-white shadow-sm"
+                                            className="w-8 h-8 shrink-0 flex items-center justify-center text-black/30 hover:text-red-600 bg-white/50 hover:bg-red-50 font-bold rounded-lg transition ml-2 shadow-sm border border-black/5"
                                           >
                                             ✕
                                           </button>
