@@ -163,7 +163,6 @@ function getAisle(name: string): string {
   return 'Other';
 }
 
-// Compresses huge mobile camera photos to prevent Vercel payload crashes
 const compressImage = (file: File, maxWidth = 1080): Promise<File> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -188,7 +187,6 @@ const compressImage = (file: File, maxWidth = 1080): Promise<File> => {
   });
 };
 
-// Strips 's', 'es', 'ies' so "Bananas" merges with "Banana"
 const normalizeName = (name: string) => {
   let w = name.toLowerCase().trim();
   if (w.endsWith('ies')) return w.slice(0, -3) + 'y';
@@ -275,7 +273,6 @@ export default function PantryManager() {
   const [isScanning, setIsScanning] = useState(false);
   const [scannedItems, setScannedItems] = useState<any[] | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const recipeFileInputRef = useRef<HTMLInputElement>(null);
   const recipeDropdownRef = useRef<HTMLDivElement>(null);
   const shoppingDropdownRef = useRef<HTMLDivElement>(null);
   const pantryDropdownRef = useRef<HTMLDivElement>(null);
@@ -385,15 +382,21 @@ export default function PantryManager() {
      MERGING / ACCUMULATION ENGINES
      ========================================================================== */
   const addOrMergePantryItem = async (newItem: { name: string, category: string, quantity: number, unit: string, track_low_stock: boolean, low_stock_threshold: number }) => {
-    const existing = items.find(i => normalizeName(i.name) === normalizeName(newItem.name) && i.unit === newItem.unit);
+    const existing = items.find(i => normalizeName(i.name) === normalizeName(newItem.name));
+    
     if (existing) {
-      const newQty = existing.quantity + newItem.quantity;
-      await supabase.from('pantry_items').update({ quantity: newQty, track_low_stock: newItem.track_low_stock || existing.track_low_stock }).eq('id', existing.id).eq('user_id', userId);
-      setItems(prev => prev.map(i => i.id === existing.id ? { ...i, quantity: newQty, track_low_stock: newItem.track_low_stock || i.track_low_stock } : i));
-    } else {
-      const { data } = await supabase.from('pantry_items').insert([{ ...newItem, user_id: userId }]).select().single();
-      if (data) setItems(prev => [data, ...prev]);
+      // If units match or the existing item has 0 stock (meaning we can overwrite its unit)
+      if (existing.unit === newItem.unit || existing.quantity === 0) {
+        const newQty = existing.quantity === 0 ? newItem.quantity : existing.quantity + newItem.quantity;
+        const newUnit = existing.quantity === 0 ? newItem.unit : existing.unit;
+        await supabase.from('pantry_items').update({ quantity: newQty, unit: newUnit, track_low_stock: newItem.track_low_stock || existing.track_low_stock }).eq('id', existing.id).eq('user_id', userId);
+        setItems(prev => prev.map(i => i.id === existing.id ? { ...i, quantity: newQty, unit: newUnit, track_low_stock: newItem.track_low_stock || i.track_low_stock } : i));
+        return;
+      }
     }
+    
+    const { data } = await supabase.from('pantry_items').insert([{ ...newItem, user_id: userId }]).select().single();
+    if (data) setItems(prev => [data, ...prev]);
   };
 
   const addOrMergeShoppingItem = async (newItem: { name: string, quantity: number, unit: string }) => {
@@ -535,10 +538,9 @@ export default function PantryManager() {
       const res = await fetch('/api/scan-receipt', { method: 'POST', body: formData }); 
       const data = await res.json();
       if (data.items && data.items.length > 0) setScannedItems(data.items); 
-      else showToast(data.message || 'Could not find items.');
-    } catch { showToast('Failed to read receipt. Image may be too large.'); }
-    if (fileInputRef.current) fileInputRef.current.value = ''; 
-    setIsScanning(false);
+      else showToast(data.message || 'Scanner API didn\'t find any items. Check your backend configuration or try a clearer photo!');
+    } catch { showToast('Failed to read receipt. Check API logs.'); }
+    if (fileInputRef.current) fileInputRef.current.value = ''; setIsScanning(false);
   };
 
   const updateScannedItem = (index: number, field: string, value: string | number) => {
@@ -553,37 +555,6 @@ export default function PantryManager() {
       await addOrMergePantryItem({ name: item.name, category: item.category || 'Other', quantity: parseFloat(item.quantity) || 1, unit: item.unit || 'pcs', track_low_stock: false, low_stock_threshold: 1 });
     }
     showToast(`Added ${scannedItems.length} items to pantry!`); setScannedItems(null); setLoading(false);
-  };
-
-  const handleRecipeScreenshot = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file) return; 
-    setShowAddRecipeMenu(false);
-    showToast('Analyzing recipe screenshot...');
-    try {
-      const compressedFile = await compressImage(file);
-      const formData = new FormData(); formData.append('image', compressedFile);
-      const res = await fetch('/api/parse-recipe-image', { method: 'POST', body: formData });
-      const data = await res.json();
-      
-      if (res.ok && data.title) {
-        setManualRecipe({
-          title: data.title || '',
-          category: data.category || 'Main Dish',
-          cook_time: data.cook_time || '30 mins',
-          portions: data.portions || 4,
-          ingredientsText: data.ingredients ? data.ingredients.join('\n') : '',
-          instructionsText: data.instructions ? data.instructions.join('\n') : '',
-          image: ''
-        });
-        setShowManualAddRecipe(true);
-        showToast('Recipe extracted! Please review.');
-      } else {
-        showToast(data.error || 'Could not read recipe from image.');
-      }
-    } catch {
-      showToast('Failed to process image. Endpoint may not be setup.');
-    }
-    if (recipeFileInputRef.current) recipeFileInputRef.current.value = '';
   };
 
   const deleteItem = async (id: string) => { setItems(prev => prev.filter(item => item.id !== id)); await supabase.from('pantry_items').delete().eq('id', id).eq('user_id', userId); showToast('Item deleted.'); };
@@ -625,7 +596,15 @@ export default function PantryManager() {
 
   const addNewTrackedItem = async (e: React.FormEvent) => {
     e.preventDefault(); if (!newTrackName.trim()) return; setLoading(true);
-    await addOrMergePantryItem({ name: newTrackName.trim(), category: newTrackCategory, quantity: 0, unit: newTrackUnit, track_low_stock: true, low_stock_threshold: 1 });
+    
+    // Check if item already exists to prevent duplicate 0-stock entries
+    const existing = items.find(i => normalizeName(i.name) === normalizeName(newTrackName));
+    if (existing) {
+       await enableTrackingForId(existing.id);
+    } else {
+       await addOrMergePantryItem({ name: newTrackName.trim(), category: newTrackCategory, quantity: 0, unit: newTrackUnit, track_low_stock: true, low_stock_threshold: 1 });
+    }
+    
     setNewTrackName(''); setLoading(false); showToast('Tracking added!');
   };
 
@@ -826,7 +805,6 @@ export default function PantryManager() {
       
       {/* Hidden Global Elements */}
       <datalist id="common-units">{COMMON_UNITS.map(u => <option key={u} value={u} />)}</datalist>
-      <input type="file" accept="image/*" ref={recipeFileInputRef} className="hidden" onChange={handleRecipeScreenshot} />
       <input type="file" accept="image/*" capture="environment" ref={fileInputRef} className="hidden" onChange={handleScanReceipt} />
 
       {/* --- GLOBAL TOAST NOTIFICATION --- */}
@@ -1690,44 +1668,17 @@ export default function PantryManager() {
                               <span className="text-sm font-semibold tracking-wider uppercase text-black">{groupCategory}</span>
                             </div>
                             <div className="space-y-2">
-                              {groupList.map((item) => {
-                                const isEditing = editingId === item.id;
-                                return (
-                                  <div key={item.id} className="rounded-[20px] p-3 transition bg-white border border-black/10 shadow-sm">
-                                    {!isEditing ? (
-                                      <div className="flex items-center justify-between">
-                                        <div>
-                                          <h3 className="font-semibold text-base capitalize text-black">{item.name}</h3>
-                                          <p className="text-sm text-black/70 font-normal">{item.quantity} {item.unit}</p>
-                                        </div>
-                                        <button onClick={() => setPantryActionMenu({isOpen: true, item})} className="p-2 hover:bg-black/5 rounded-full text-black/40 hover:text-black transition shrink-0">
-                                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
-                                        </button>
-                                      </div>
-                                    ) : (
-                                      <div className="space-y-3">
-                                        <div className="flex items-center justify-between">
-                                          <span className="text-sm font-semibold capitalize text-black">Edit Item</span>
-                                          <button onClick={() => setEditingId(null)} className="text-sm text-black/70 hover:text-black">Cancel</button>
-                                        </div>
-                                        <div className="flex flex-col gap-2">
-                                          <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full px-3 py-2 rounded-xl text-sm focus:outline-none bg-white border border-black/20 text-black" placeholder="Item name" />
-                                          <div className="flex gap-2">
-                                            <select value={editCategory} onChange={(e) => setEditCategory(e.target.value)} className="w-28 px-2 py-2 rounded-xl text-sm focus:outline-none bg-white border border-black/20 text-black">
-                                              {CATEGORIES.map((cat) => <option key={cat.name} value={cat.name} className="text-black">{cat.name}</option>)}
-                                            </select>
-                                            <input type="number" step="any" min="0" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} className="w-16 px-2 py-2 rounded-xl text-center text-sm focus:outline-none bg-white border border-black/20 text-black" />
-                                            <select value={editUnit} onChange={(e) => setEditUnit(e.target.value)} className="flex-1 px-2 py-2 rounded-xl text-sm focus:outline-none capitalize bg-white border border-black/20 text-black">
-                                              {COMMON_UNITS.map((u) => <option key={u} value={u} className="text-black">{u}</option>)}
-                                            </select>
-                                          </div>
-                                          <button onClick={() => saveEdit(item.id)} className="w-full py-2.5 rounded-xl text-sm font-bold bg-black text-white mt-1 shadow-sm hover:bg-black/80 transition">Save Changes</button>
-                                        </div>
-                                      </div>
-                                    )}
+                              {groupList.map((item) => (
+                                <div key={item.id} className="flex items-center justify-between p-3 rounded-[20px] transition bg-white border border-black/10 shadow-sm">
+                                  <div>
+                                    <h3 className="font-semibold text-base capitalize text-black leading-tight mb-1">{item.name}</h3>
+                                    <p className="text-sm text-black/70 font-normal">{item.quantity} {item.unit}</p>
                                   </div>
-                                );
-                              })}
+                                  <button onClick={() => setPantryActionMenu({isOpen: true, item})} className="p-2 hover:bg-black/5 rounded-full text-black/40 hover:text-black transition shrink-0">
+                                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
+                                  </button>
+                                </div>
+                              ))}
                             </div>
                           </div>
                         );
@@ -1765,7 +1716,7 @@ export default function PantryManager() {
                         
                         <div className="flex bg-white rounded-2xl p-1 shadow-sm border border-black/20 shrink-0">
                           <button onClick={() => setRecipeViewMode('grid')} className={`px-3 flex items-center justify-center rounded-xl transition ${recipeViewMode === 'grid' ? 'bg-[#6B705C] text-white' : 'text-black/40 hover:text-black'}`}>
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
                           </button>
                           <button onClick={() => setRecipeViewMode('list')} className={`px-3 flex items-center justify-center rounded-xl transition ${recipeViewMode === 'list' ? 'bg-[#6B705C] text-white' : 'text-black/40 hover:text-black'}`}>
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
@@ -1784,8 +1735,7 @@ export default function PantryManager() {
                         {showAddRecipeMenu && (
                           <div className="absolute left-0 md:left-auto md:right-0 mt-2 w-full md:w-[240px] max-w-[90vw] bg-[#1A1A1A] rounded-2xl shadow-2xl border border-white/10 overflow-hidden z-[100] flex flex-col text-white">
                             <button onClick={() => { setShowManualAddRecipe(true); setShowAddRecipeMenu(false); setShowImportInput(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Create New Recipe</button>
-                            <button onClick={() => { setShowImportInput(true); setShowAddRecipeMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Add using Recipe URL</button>
-                            <button onClick={() => { recipeFileInputRef.current?.click(); setShowAddRecipeMenu(false); setShowImportInput(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition">Add using Screenshot</button>
+                            <button onClick={() => { setShowImportInput(true); setShowAddRecipeMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition">Add using Recipe URL</button>
                           </div>
                         )}
                       </div>
@@ -1902,7 +1852,7 @@ export default function PantryManager() {
                                           </div>
                                           <button 
                                             onClick={(e) => { e.stopPropagation(); deleteMealPlan(meal.id); }} 
-                                            className="w-8 h-8 shrink-0 flex items-center justify-center text-black/30 hover:text-red-600 bg-white/50 hover:bg-red-50 font-bold rounded-lg transition ml-2 shadow-sm border border-black/5"
+                                            className="text-black/30 hover:text-red-600 font-bold p-2 text-xs opacity-0 group-hover:opacity-100 transition z-10 rounded-full hover:bg-white shadow-sm"
                                           >
                                             ✕
                                           </button>
