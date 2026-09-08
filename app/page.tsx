@@ -60,44 +60,8 @@ const CATEGORIES = [
 const COMMON_UNITS = ['pcs', 'kg', 'g', 'lbs', 'oz', 'ml', 'l', 'cups', 'tbsp', 'tsp', 'cans', 'packs', 'dash', 'pinch', 'cloves'];
 
 /* ==========================================================================
-   2. HELPER FUNCTIONS & ALGORITHMS
+   2. HELPER FUNCTIONS
    ========================================================================== */
-
-// Compresses huge mobile camera photos to prevent Vercel 4MB Payload crashes
-const compressImage = (file: File, maxWidth = 1080): Promise<File> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = (event) => {
-      const img = new Image();
-      img.src = event.target?.result as string;
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const scale = Math.min(maxWidth / img.width, 1);
-        canvas.width = img.width * scale;
-        canvas.height = img.height * scale;
-        const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob((blob) => {
-          if (blob) resolve(new File([blob], file.name, { type: 'image/jpeg' }));
-          else reject(new Error('Canvas is empty'));
-        }, 'image/jpeg', 0.8);
-      };
-    };
-    reader.onerror = error => reject(error);
-  });
-};
-
-// Strips 's', 'es', 'ies' so "Bananas" merges with "Banana"
-const normalizeName = (name: string) => {
-  let w = name.toLowerCase().trim();
-  if (w.endsWith('ies')) return w.slice(0, -3) + 'y';
-  if (w.endsWith('oes')) return w.slice(0, -2);
-  if (w.endsWith('es') && /(sh|ch|ss|x|z)$/.test(w.slice(0,-2))) return w.slice(0, -2);
-  if (w.endsWith('s') && !w.endsWith('ss')) return w.slice(0, -1);
-  return w;
-};
-
 function scaleAndConvertIngredient(ingredient: string, multiplier: number, targetSystem: 'metric' | 'imperial'): string {
   let result = ingredient;
   if (multiplier !== 1) {
@@ -199,6 +163,41 @@ function getAisle(name: string): string {
   return 'Other';
 }
 
+// Compresses huge mobile camera photos to prevent Vercel payload crashes
+const compressImage = (file: File, maxWidth = 1080): Promise<File> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const scale = Math.min(maxWidth / img.width, 1);
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
+          if (blob) resolve(new File([blob], file.name, { type: 'image/jpeg' }));
+          else reject(new Error('Canvas is empty'));
+        }, 'image/jpeg', 0.8);
+      };
+    };
+    reader.onerror = error => reject(error);
+  });
+};
+
+// Strips 's', 'es', 'ies' so "Bananas" merges with "Banana"
+const normalizeName = (name: string) => {
+  let w = name.toLowerCase().trim();
+  if (w.endsWith('ies')) return w.slice(0, -3) + 'y';
+  if (w.endsWith('oes')) return w.slice(0, -2);
+  if (w.endsWith('es') && /(sh|ch|ss|x|z)$/.test(w.slice(0,-2))) return w.slice(0, -2);
+  if (w.endsWith('s') && !w.endsWith('ss')) return w.slice(0, -1);
+  return w;
+};
+
 const getNext7Days = () => Array.from({ length: 7 }).map((_, i) => { const d = new Date(); d.setDate(d.getDate() + i); return d.toISOString().split('T')[0]; });
 
 /* ==========================================================================
@@ -219,7 +218,6 @@ export default function PantryManager() {
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  // Account Settings Modal
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -361,6 +359,12 @@ export default function PantryManager() {
   const handleOpenRecipe = (recipe: Recipe) => {
     window.history.pushState({ tab: activeTab, recipe, type: 'recipe' }, '', `#recipe-${recipe.id}`);
     setSelectedRecipe(recipe); setTargetPortions(recipe.portions || 4); setIsEditingRecipe(false); setRecipeDetailTab('ingredients'); window.scrollTo(0, 0);
+  };
+
+  const handleOpenLowStock = () => { 
+    window.history.pushState({ tab: 'lowstock', type: 'tab' }, '', `#lowstock`); 
+    setActiveTab('lowstock'); 
+    setSelectedRecipe(null);
   };
 
   const handleBackNavigation = () => window.history.back();
@@ -524,8 +528,7 @@ export default function PantryManager() {
   };
 
   const handleScanReceipt = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file) return; 
-    setIsScanning(true);
+    const file = e.target.files?.[0]; if (!file) return; setIsScanning(true);
     try {
       const compressedFile = await compressImage(file);
       const formData = new FormData(); formData.append('receipt', compressedFile);
@@ -552,7 +555,6 @@ export default function PantryManager() {
     showToast(`Added ${scannedItems.length} items to pantry!`); setScannedItems(null); setLoading(false);
   };
 
-  // ADVANCED: Add Recipe via Screenshot
   const handleRecipeScreenshot = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return; 
     setShowAddRecipeMenu(false);
@@ -853,7 +855,7 @@ export default function PantryManager() {
       {recipeActionMenu.isOpen && recipeActionMenu.recipe && (
         <div className="fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 transition-opacity" onClick={() => setRecipeActionMenu({isOpen: false, recipe: null})}>
            <div className="bg-white w-full sm:max-w-sm rounded-t-[32px] sm:rounded-[32px] p-6 pb-10 sm:pb-6 shadow-2xl animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-0 sm:zoom-in-95" onClick={e => e.stopPropagation()}>
-              <h3 className="font-bold text-xl mb-4 text-center truncate px-4">{recipeActionMenu.recipe.title}</h3>
+              <h3 className="font-bold text-xl mb-4 text-center px-4">{recipeActionMenu.recipe.title}</h3>
               <div className="flex flex-col gap-2">
                  <button onClick={() => { handleOpenRecipe(recipeActionMenu.recipe!); setRecipeActionMenu({isOpen: false, recipe: null}); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition">View Recipe</button>
                  <button onClick={() => { handleTabChange('planner'); setRecipeActionMenu({isOpen: false, recipe: null}); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition">Add to Planner</button>
@@ -1186,7 +1188,7 @@ export default function PantryManager() {
           </header>
 
           {/* DYNAMIC CONTENT ROUTING */}
-          {showLowStockPage && !selectedRecipe ? (
+          {activeTab === 'lowstock' && !selectedRecipe ? (
             
             /* --- LOW STOCK SCREEN --- */
             <div className="space-y-6">
@@ -1420,12 +1422,15 @@ export default function PantryManager() {
                       <div className="space-y-0">
                         {selectedRecipe.ingredients.map((ing, i) => {
                           const scaledIng = scaleAndConvertIngredient(ing, multiplier, measurementSystem);
+                          const statusObj = getIngredientStatus(scaledIng, items);
                           return (
-                            <div key={i} className="flex items-center gap-3 py-2.5 border-b border-black/5 last:border-0 px-2 group">
-                              <div className="w-8 h-8 rounded-full bg-[#6B705C]/10 flex items-center justify-center shrink-0">
-                                <span className="text-[10px]">🍽️</span>
+                            <div key={i} className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 text-sm p-3 rounded-xl bg-white border border-black/10 text-black font-medium shadow-sm">
+                              <span>{scaledIng}</span>
+                              <div className="shrink-0">
+                                {statusObj.status === 'in_stock' && <span className="text-[10px] px-2.5 py-1 bg-[#6B705C] text-white rounded-full font-bold uppercase tracking-wider shadow-sm">In Pantry ({statusObj.availableText})</span>}
+                                {statusObj.status === 'insufficient' && <span className="text-[10px] px-2.5 py-1 border border-[#6B705C]/50 text-[#6B705C] rounded-full font-bold uppercase tracking-wider">Low Stock</span>}
+                                {statusObj.status === 'missing' && <span className="text-[10px] px-2.5 py-1 bg-black text-white rounded-full font-bold uppercase tracking-wider shadow-sm">Missing</span>}
                               </div>
-                              <span className="text-sm text-black font-medium">{scaledIng}</span>
                             </div>
                           );
                         })}
@@ -1685,17 +1690,44 @@ export default function PantryManager() {
                               <span className="text-sm font-semibold tracking-wider uppercase text-black">{groupCategory}</span>
                             </div>
                             <div className="space-y-2">
-                              {groupList.map((item) => (
-                                <div key={item.id} className="flex items-center justify-between p-3 rounded-[20px] transition bg-white border border-black/10 shadow-sm">
-                                  <div>
-                                    <h3 className="font-semibold text-base capitalize text-black">{item.name}</h3>
-                                    <p className="text-sm text-black/70 font-normal">{item.quantity} {item.unit}</p>
+                              {groupList.map((item) => {
+                                const isEditing = editingId === item.id;
+                                return (
+                                  <div key={item.id} className="rounded-[20px] p-3 transition bg-white border border-black/10 shadow-sm">
+                                    {!isEditing ? (
+                                      <div className="flex items-center justify-between">
+                                        <div>
+                                          <h3 className="font-semibold text-base capitalize text-black">{item.name}</h3>
+                                          <p className="text-sm text-black/70 font-normal">{item.quantity} {item.unit}</p>
+                                        </div>
+                                        <button onClick={() => setPantryActionMenu({isOpen: true, item})} className="p-2 hover:bg-black/5 rounded-full text-black/40 hover:text-black transition shrink-0">
+                                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-sm font-semibold capitalize text-black">Edit Item</span>
+                                          <button onClick={() => setEditingId(null)} className="text-sm text-black/70 hover:text-black">Cancel</button>
+                                        </div>
+                                        <div className="flex flex-col gap-2">
+                                          <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full px-3 py-2 rounded-xl text-sm focus:outline-none bg-white border border-black/20 text-black" placeholder="Item name" />
+                                          <div className="flex gap-2">
+                                            <select value={editCategory} onChange={(e) => setEditCategory(e.target.value)} className="w-28 px-2 py-2 rounded-xl text-sm focus:outline-none bg-white border border-black/20 text-black">
+                                              {CATEGORIES.map((cat) => <option key={cat.name} value={cat.name} className="text-black">{cat.name}</option>)}
+                                            </select>
+                                            <input type="number" step="any" min="0" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} className="w-16 px-2 py-2 rounded-xl text-center text-sm focus:outline-none bg-white border border-black/20 text-black" />
+                                            <select value={editUnit} onChange={(e) => setEditUnit(e.target.value)} className="flex-1 px-2 py-2 rounded-xl text-sm focus:outline-none capitalize bg-white border border-black/20 text-black">
+                                              {COMMON_UNITS.map((u) => <option key={u} value={u} className="text-black">{u}</option>)}
+                                            </select>
+                                          </div>
+                                          <button onClick={() => saveEdit(item.id)} className="w-full py-2.5 rounded-xl text-sm font-bold bg-black text-white mt-1 shadow-sm hover:bg-black/80 transition">Save Changes</button>
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
-                                  <button onClick={() => setPantryActionMenu({isOpen: true, item})} className="p-2 hover:bg-black/5 rounded-full text-black/40 hover:text-black transition shrink-0">
-                                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
-                                  </button>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           </div>
                         );
@@ -1733,7 +1765,7 @@ export default function PantryManager() {
                         
                         <div className="flex bg-white rounded-2xl p-1 shadow-sm border border-black/20 shrink-0">
                           <button onClick={() => setRecipeViewMode('grid')} className={`px-3 flex items-center justify-center rounded-xl transition ${recipeViewMode === 'grid' ? 'bg-[#6B705C] text-white' : 'text-black/40 hover:text-black'}`}>
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
                           </button>
                           <button onClick={() => setRecipeViewMode('list')} className={`px-3 flex items-center justify-center rounded-xl transition ${recipeViewMode === 'list' ? 'bg-[#6B705C] text-white' : 'text-black/40 hover:text-black'}`}>
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
