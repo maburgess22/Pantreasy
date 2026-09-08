@@ -44,8 +44,9 @@ export async function POST(req: Request) {
       },
     };
 
-const model = genAI.getGenerativeModel({ 
-      model: 'gemini-3.6-flash',
+    // FIXED: Changed gemini-3.6-flash to gemini-1.5-flash
+    const model = genAI.getGenerativeModel({ 
+      model: 'gemini-1.5-flash',
       generationConfig: {
         responseMimeType: "application/json",
         responseSchema: responseSchema as any, 
@@ -67,7 +68,7 @@ const model = genAI.getGenerativeModel({
     ]);
 
     const text = result.response.text();
-    console.log("✨ Raw Gemini Response:", text); // <-- THIS IS THE MAGIC LINE
+    console.log("✨ Raw Gemini Response:", text);
 
     let items = JSON.parse(text);
 

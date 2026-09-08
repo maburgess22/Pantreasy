@@ -60,8 +60,63 @@ const CATEGORIES = [
 const COMMON_UNITS = ['pcs', 'kg', 'g', 'lbs', 'oz', 'ml', 'l', 'cups', 'tbsp', 'tsp', 'cans', 'packs', 'dash', 'pinch', 'cloves'];
 
 /* ==========================================================================
-   2. HELPER FUNCTIONS
+   2. CUSTOM UI COMPONENTS
    ========================================================================== */
+function CustomSelect({ value, options, onChange, placeholder = "Select...", className = "", menuClassName = "" }: { value: string, options: {label: string, value: string}[], onChange: (val: string) => void, placeholder?: string, className?: string, menuClassName?: string }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setIsOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const selectedLabel = options.find(o => o.value === value)?.label || placeholder;
+
+  return (
+    <div className={`relative ${className}`} ref={ref}>
+      <div onClick={() => setIsOpen(!isOpen)} className="w-full h-full flex items-center justify-between cursor-pointer focus:outline-none select-none">
+        <span className="truncate capitalize text-black">{selectedLabel}</span>
+        <span className="text-[10px] ml-2 opacity-50 text-black">▼</span>
+      </div>
+      {isOpen && (
+        <div className={`absolute top-full left-0 mt-2 min-w-full w-max max-h-48 overflow-y-auto bg-[#1A1A1A] text-white rounded-2xl shadow-2xl z-[100] border border-white/10 flex flex-col ${menuClassName}`}>
+          {options.length === 0 ? (
+            <div className="px-5 py-3 text-sm text-white/50 italic">No options</div>
+          ) : (
+            options.map(opt => (
+              <button type="button" key={opt.value} onClick={(e) => { e.preventDefault(); onChange(opt.value); setIsOpen(false); }} className="px-5 py-3 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5 last:border-0 capitalize">
+                {opt.label}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ==========================================================================
+   3. HELPER FUNCTIONS & UNIT CONVERSION
+   ========================================================================== */
+function toBaseUnit(qty: number, unit: string) {
+  const u = unit.toLowerCase();
+  if (u === 'kg') return { qty: qty * 1000, base: 'g' };
+  if (u === 'l') return { qty: qty * 1000, base: 'ml' };
+  if (u === 'lbs') return { qty: qty * 16, base: 'oz' };
+  return { qty, base: u };
+}
+
+function fromBaseUnit(qty: number, base: string) {
+  if (base === 'g' && qty >= 1000) return { qty: qty / 1000, unit: 'kg' };
+  if (base === 'ml' && qty >= 1000) return { qty: qty / 1000, unit: 'l' };
+  if (base === 'oz' && qty >= 16) return { qty: qty / 16, unit: 'lbs' };
+  return { qty, unit: base };
+}
+
 function scaleAndConvertIngredient(ingredient: string, multiplier: number, targetSystem: 'metric' | 'imperial'): string {
   let result = ingredient;
   if (multiplier !== 1) {
@@ -110,9 +165,7 @@ function getStandardGroceryItem(ingredient: string): string {
   const lowerName = name.toLowerCase();
 
   const staples = ['oil', 'vinegar', 'sauce', 'paste', 'mustard', 'mayo', 'ketchup', 'salt', 'pepper', 'spice', 'powder', 'extract', 'sugar', 'flour', 'honey', 'syrup', 'jam', 'butter', 'garlic', 'ginger', 'cinnamon', 'cumin', 'paprika', 'oregano', 'basil', 'thyme', 'chili', 'chilli', 'seeds', 'flaxseeds'];
-  if (staples.some(s => lowerName.includes(s))) {
-    return name.charAt(0).toUpperCase() + name.slice(1);
-  }
+  if (staples.some(s => lowerName.includes(s))) return name.charAt(0).toUpperCase() + name.slice(1);
 
   const liquids = ['milk', 'cream', 'broth', 'stock', 'water', 'juice'];
   if (liquids.some(l => lowerName.includes(l))) {
@@ -199,7 +252,7 @@ const normalizeName = (name: string) => {
 const getNext7Days = () => Array.from({ length: 7 }).map((_, i) => { const d = new Date(); d.setDate(d.getDate() + i); return d.toISOString().split('T')[0]; });
 
 /* ==========================================================================
-   3. MAIN COMPONENT & STATE MANAGEMENT
+   4. MAIN COMPONENT & STATE MANAGEMENT
    ========================================================================== */
 export default function PantryManager() {
   const supabase = createClient();
@@ -235,11 +288,6 @@ export default function PantryManager() {
   const [isEditingRecipe, setIsEditingRecipe] = useState(false);
   const [editRecipeForm, setEditRecipeForm] = useState({ title: '', category: '', cook_time: '', portions: 4, image: '', ingredientsText: '', instructionsText: '' });
   const [showManualAddRecipe, setShowManualAddRecipe] = useState(false);
-  const [showImportInput, setShowImportInput] = useState(false);
-  const [showAddRecipeMenu, setShowAddRecipeMenu] = useState(false);
-  const [manualRecipe, setManualRecipe] = useState({ title: '', category: 'Main Dish', cook_time: '30 mins', portions: 4, ingredientsText: '', instructionsText: '', image: '' });
-  const [importUrl, setImportUrl] = useState('');
-  const [isImporting, setIsImporting] = useState(false);
 
   const [showAddPantryMenu, setShowAddPantryMenu] = useState(false);
   const [showPantryInput, setShowPantryInput] = useState(false);
@@ -298,7 +346,7 @@ export default function PantryManager() {
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
 
   /* ==========================================================================
-     4. DATA FETCHING & EVENT LISTENERS
+     DATA FETCHING & EVENT LISTENERS
      ========================================================================== */
   useEffect(() => {
     const loadData = async () => {
@@ -385,12 +433,17 @@ export default function PantryManager() {
     const existing = items.find(i => normalizeName(i.name) === normalizeName(newItem.name));
     
     if (existing) {
-      // If units match or the existing item has 0 stock (meaning we can overwrite its unit)
-      if (existing.unit === newItem.unit || existing.quantity === 0) {
-        const newQty = existing.quantity === 0 ? newItem.quantity : existing.quantity + newItem.quantity;
-        const newUnit = existing.quantity === 0 ? newItem.unit : existing.unit;
-        await supabase.from('pantry_items').update({ quantity: newQty, unit: newUnit, track_low_stock: newItem.track_low_stock || existing.track_low_stock }).eq('id', existing.id).eq('user_id', userId);
-        setItems(prev => prev.map(i => i.id === existing.id ? { ...i, quantity: newQty, unit: newUnit, track_low_stock: newItem.track_low_stock || i.track_low_stock } : i));
+      const existingBase = toBaseUnit(existing.quantity, existing.unit);
+      const newBase = toBaseUnit(newItem.quantity, newItem.unit);
+
+      if (existingBase.base === newBase.base || existing.quantity === 0) {
+        const combinedBaseQty = existing.quantity === 0 ? newBase.qty : existingBase.qty + newBase.qty;
+        const combinedBaseUnit = existing.quantity === 0 ? newBase.base : existingBase.base;
+
+        const final = fromBaseUnit(combinedBaseQty, combinedBaseUnit);
+        
+        await supabase.from('pantry_items').update({ quantity: final.qty, unit: final.unit, track_low_stock: newItem.track_low_stock || existing.track_low_stock }).eq('id', existing.id).eq('user_id', userId);
+        setItems(prev => prev.map(i => i.id === existing.id ? { ...i, quantity: final.qty, unit: final.unit, track_low_stock: newItem.track_low_stock || i.track_low_stock } : i));
         return;
       }
     }
@@ -400,19 +453,27 @@ export default function PantryManager() {
   };
 
   const addOrMergeShoppingItem = async (newItem: { name: string, quantity: number, unit: string }) => {
-    const existing = shoppingList.find(i => normalizeName(i.name) === normalizeName(newItem.name) && i.unit === newItem.unit && !i.checked);
+    const existing = shoppingList.find(i => normalizeName(i.name) === normalizeName(newItem.name) && !i.checked);
     if (existing) {
-      const newQty = (existing.quantity || 1) + newItem.quantity;
-      await supabase.from('shopping_list').update({ quantity: newQty }).eq('id', existing.id).eq('user_id', userId);
-      setShoppingList(prev => prev.map(i => i.id === existing.id ? { ...i, quantity: newQty } : i));
-    } else {
-      const { data } = await supabase.from('shopping_list').insert([{ ...newItem, user_id: userId }]).select().single();
-      if (data) setShoppingList(prev => [data, ...prev]);
-    }
+      const existingBase = toBaseUnit(existing.quantity || 1, existing.unit || 'pcs');
+      const newBase = toBaseUnit(newItem.quantity, newItem.unit);
+
+      if (existingBase.base === newBase.base) {
+        const combinedBaseQty = existingBase.qty + newBase.qty;
+        const final = fromBaseUnit(combinedBaseQty, existingBase.base);
+        
+        await supabase.from('shopping_list').update({ quantity: final.qty, unit: final.unit }).eq('id', existing.id).eq('user_id', userId);
+        setShoppingList(prev => prev.map(i => i.id === existing.id ? { ...i, quantity: final.qty, unit: final.unit } : i));
+        return;
+      }
+    } 
+
+    const { data } = await supabase.from('shopping_list').insert([{ ...newItem, user_id: userId }]).select().single();
+    if (data) setShoppingList(prev => [data, ...prev]);
   };
 
   /* ==========================================================================
-     5. ADVANCED VOICE INPUT PARSING
+     ADVANCED VOICE INPUT PARSING
      ========================================================================== */
   const toggleListening = () => {
     if (isListening) {
@@ -502,7 +563,7 @@ export default function PantryManager() {
   };
 
   /* ==========================================================================
-     6. CRUD HANDLERS (Pantry, Recipes, Shopping, Meal Planner)
+     CRUD HANDLERS (Pantry, Recipes, Shopping, Meal Planner)
      ========================================================================== */
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value; useStateName(val);
@@ -539,7 +600,7 @@ export default function PantryManager() {
       const data = await res.json();
       if (data.items && data.items.length > 0) setScannedItems(data.items); 
       else showToast(data.message || 'Scanner API didn\'t find any items. Check your backend configuration or try a clearer photo!');
-    } catch { showToast('Failed to read receipt. Check API logs.'); }
+    } catch { showToast('Failed to read receipt. Image may be too large or backend error.'); }
     if (fileInputRef.current) fileInputRef.current.value = ''; setIsScanning(false);
   };
 
@@ -596,34 +657,19 @@ export default function PantryManager() {
 
   const addNewTrackedItem = async (e: React.FormEvent) => {
     e.preventDefault(); if (!newTrackName.trim()) return; setLoading(true);
-    
-    // Check if item already exists to prevent duplicate 0-stock entries
-    const existing = items.find(i => normalizeName(i.name) === normalizeName(newTrackName));
+    const existing = items.find(i => 
+      i.name.toLowerCase().trim() === newTrackName.toLowerCase().trim() || 
+      normalizeName(i.name) === normalizeName(newTrackName)
+    );
     if (existing) {
-       await enableTrackingForId(existing.id);
+       await supabase.from('pantry_items').update({ track_low_stock: true, low_stock_threshold: 1 }).eq('id', existing.id).eq('user_id', userId);
+       setItems(prev => prev.map(i => i.id === existing.id ? { ...i, track_low_stock: true, low_stock_threshold: 1 } : i));
+       showToast(`Linked tracker to existing ${existing.name} in pantry!`);
     } else {
        await addOrMergePantryItem({ name: newTrackName.trim(), category: newTrackCategory, quantity: 0, unit: newTrackUnit, track_low_stock: true, low_stock_threshold: 1 });
+       showToast('Tracking added!');
     }
-    
-    setNewTrackName(''); setLoading(false); showToast('Tracking added!');
-  };
-
-  const handleImportRecipe = async (e: React.FormEvent) => {
-    e.preventDefault(); if (!importUrl) return; setIsImporting(true);
-    try {
-      const res = await fetch('/api/scrape-recipe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: importUrl }) });
-      const data = await res.json();
-      if (res.ok && data.title) {
-        const { data: insertedData } = await supabase.from('recipes').insert([{ ...data, portions: 4, user_id: userId }]).select().single();
-        if (insertedData) { setRecipes(prev => [insertedData, ...prev]); showToast('Recipe imported!'); setShowImportInput(false); }
-      } else showToast(data.error || 'Could not extract a recipe.');
-    } catch { showToast('Failed to import recipe.'); }
-    setImportUrl(''); setIsImporting(false);
-  };
-
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setFormState: Function) => {
-    const file = e.target.files?.[0]; if (!file) return;
-    const reader = new FileReader(); reader.onloadend = () => { setFormState((prev: any) => ({ ...prev, image: reader.result as string })); }; reader.readAsDataURL(file);
+    setNewTrackName(''); setLoading(false); 
   };
 
   const saveManualRecipe = async () => {
@@ -696,12 +742,6 @@ export default function PantryManager() {
     if (data) { setMealPlans(prev => [...prev, data as MealPlanItem]); setManualInputs(prev => ({ ...prev, [key]: '' })); setManualInputsQty(prev => ({ ...prev, [key]: 1 })); }
   };
   
-  const saveRecipeToMealPlan = async (date: string, mealType: string, recipeId: string) => {
-    if (!recipeId) return;
-    const { data } = await supabase.from('meal_plan').insert([{ date, meal_type: mealType, recipe_id: recipeId, portions: 1, user_id: userId }]).select('*, recipes(title, image, cook_time, category)').single();
-    if (data) { setMealPlans(prev => [...prev, data as MealPlanItem]); }
-  };
-
   const deleteMealPlan = async (id: string) => { setMealPlans(prev => prev.filter(m => m.id !== id)); await supabase.from('meal_plan').delete().eq('id', id).eq('user_id', userId); };
 
   const handleAddShoppingItem = async (e: React.FormEvent) => {
@@ -727,7 +767,7 @@ export default function PantryManager() {
   };
 
   /* ==========================================================================
-     7. COMPUTED DATA FOR RENDERING
+     COMPUTED DATA FOR RENDERING
      ========================================================================== */
   const trackedItemsList = items.filter(i => i.track_low_stock);
   const untrackedItemsList = items.filter(i => !i.track_low_stock);
@@ -833,7 +873,7 @@ export default function PantryManager() {
       {recipeActionMenu.isOpen && recipeActionMenu.recipe && (
         <div className="fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 transition-opacity" onClick={() => setRecipeActionMenu({isOpen: false, recipe: null})}>
            <div className="bg-white w-full sm:max-w-sm rounded-t-[32px] sm:rounded-[32px] p-6 pb-10 sm:pb-6 shadow-2xl animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-0 sm:zoom-in-95" onClick={e => e.stopPropagation()}>
-              <h3 className="font-bold text-xl mb-4 text-center px-4">{recipeActionMenu.recipe.title}</h3>
+              <h3 className="font-bold text-xl mb-4 text-center px-4 leading-tight">{recipeActionMenu.recipe.title}</h3>
               <div className="flex flex-col gap-2">
                  <button onClick={() => { handleOpenRecipe(recipeActionMenu.recipe!); setRecipeActionMenu({isOpen: false, recipe: null}); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition">View Recipe</button>
                  <button onClick={() => { handleTabChange('planner'); setRecipeActionMenu({isOpen: false, recipe: null}); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition">Add to Planner</button>
@@ -850,17 +890,23 @@ export default function PantryManager() {
              <h2 className="text-2xl font-bold mb-4">Review Scanned Items</h2>
              <div className="overflow-y-auto flex-1 space-y-3 pr-2">
                {scannedItems.map((item, index) => (
-                  <div key={index} className="flex flex-col sm:flex-row gap-2 bg-black/5 p-3 rounded-2xl">
+                  <div key={index} className="flex flex-col sm:flex-row gap-2 bg-black/5 p-3 rounded-2xl relative z-0 hover:z-10">
                     <input value={item.name} onChange={e => updateScannedItem(index, 'name', e.target.value)} className="flex-1 px-3 py-2 rounded-xl focus:outline-none placeholder:text-black/50" placeholder="Item Name" />
                     <div className="flex gap-2">
                       <input type="number" step="any" value={item.quantity || 1} onChange={e => updateScannedItem(index, 'quantity', e.target.value)} className="w-16 px-2 py-2 rounded-xl text-center focus:outline-none" />
-                      <select value={item.unit || 'pcs'} onChange={e => updateScannedItem(index, 'unit', e.target.value)} className="w-20 px-2 py-2 rounded-xl focus:outline-none capitalize">
-                        {COMMON_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-                      </select>
+                      <CustomSelect 
+                        value={item.unit || 'pcs'} 
+                        onChange={v => updateScannedItem(index, 'unit', v)} 
+                        options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
+                        className="w-24 bg-white rounded-xl"
+                      />
                     </div>
-                    <select value={item.category || 'Other'} onChange={e => updateScannedItem(index, 'category', e.target.value)} className="w-full sm:w-28 px-2 py-2 rounded-xl focus:outline-none">
-                      {CATEGORIES.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                    </select>
+                    <CustomSelect 
+                      value={item.category || 'Other'} 
+                      onChange={v => updateScannedItem(index, 'category', v)} 
+                      options={CATEGORIES.map(c => ({label: c.name, value: c.name}))} 
+                      className="w-full sm:w-32 bg-white rounded-xl"
+                    />
                     <button onClick={() => removeScannedItem(index)} className="px-3 py-2 bg-red-500/80 text-white rounded-xl font-bold hover:bg-red-500 transition">✕</button>
                   </div>
                ))}
@@ -1102,16 +1148,22 @@ export default function PantryManager() {
               <div className="flex flex-col gap-3 mt-4">
                 <h3 className="text-sm font-semibold uppercase tracking-wider text-white/80 border-b border-white/20 pb-2 mb-2">Review Items</h3>
                 {voiceParsedItems.map((item, index) => (
-                  <div key={item.id} className="flex flex-row items-center gap-2 bg-white/10 p-2 rounded-2xl w-full">
+                  <div key={item.id} className="flex flex-row items-center gap-2 bg-white/10 p-2 rounded-2xl w-full relative z-0 hover:z-10">
                     <input value={item.name} onChange={e => updateVoiceItem(index, 'name', e.target.value)} className="flex-1 min-w-[80px] bg-white text-black px-2 py-2 rounded-xl text-sm focus:outline-none placeholder:text-black/50" placeholder="Item Name" />
                     <input type="number" step="any" value={item.quantity} onChange={e => updateVoiceItem(index, 'quantity', e.target.value)} className="w-12 bg-white text-black px-1 py-2 rounded-xl text-sm text-center focus:outline-none" />
-                    <select value={item.unit} onChange={e => updateVoiceItem(index, 'unit', e.target.value)} className="w-[70px] bg-white text-black px-1 py-2 rounded-xl text-sm focus:outline-none capitalize">
-                      {COMMON_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-                    </select>
+                    <CustomSelect 
+                      value={item.unit} 
+                      onChange={v => updateVoiceItem(index, 'unit', v)} 
+                      options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
+                      className="w-[75px] bg-white rounded-xl"
+                    />
                     {voiceContext === 'pantry' && (
-                      <select value={item.category} onChange={e => updateVoiceItem(index, 'category', e.target.value)} className="w-24 hidden sm:block bg-white text-black px-2 py-2 rounded-xl text-sm focus:outline-none">
-                        {CATEGORIES.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                      </select>
+                      <CustomSelect 
+                        value={item.category || 'Other'} 
+                        onChange={v => updateVoiceItem(index, 'category', v)} 
+                        options={CATEGORIES.map(c => ({label: c.name, value: c.name}))} 
+                        className="w-24 hidden sm:block bg-white rounded-xl"
+                      />
                     )}
                     <button onClick={() => removeVoiceItem(index)} className="w-8 h-8 shrink-0 flex items-center justify-center bg-red-500/80 text-white rounded-xl font-bold hover:bg-red-500 transition">✕</button>
                   </div>
@@ -1207,10 +1259,13 @@ export default function PantryManager() {
                         <button onClick={() => setShowTrackPantryInput(false)} className="text-sm font-bold text-black/40 hover:text-black">✕ Close</button>
                       </div>
                       <div className="flex flex-col sm:flex-row gap-3">
-                        <select value={itemToTrackId} onChange={(e) => setItemToTrackId(e.target.value)} className="flex-1 px-4 py-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm text-sm">
-                          <option value="">Select an untracked pantry item...</option>
-                          {untrackedItemsList.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-                        </select>
+                        <CustomSelect 
+                          value={itemToTrackId} 
+                          onChange={setItemToTrackId} 
+                          options={untrackedItemsList.map(i => ({label: i.name, value: i.id}))} 
+                          placeholder="Select an untracked pantry item..."
+                          className="flex-1 rounded-xl border border-black/20 bg-white shadow-sm"
+                        />
                         <button onClick={() => { enableTrackingForId(itemToTrackId); setShowTrackPantryInput(false); }} disabled={!itemToTrackId} className="px-6 py-3 bg-black text-white rounded-xl text-sm font-medium hover:bg-black/80 disabled:opacity-50 transition shadow-sm">Track Item</button>
                       </div>
                     </div>
@@ -1222,15 +1277,21 @@ export default function PantryManager() {
                         <h3 className="text-sm font-bold uppercase tracking-wider text-black">Add New Item</h3>
                         <button onClick={() => setShowTrackNewInput(false)} className="text-sm font-bold text-black/40 hover:text-black">✕ Close</button>
                       </div>
-                      <form onSubmit={(e) => { addNewTrackedItem(e); setShowTrackNewInput(false); }} className="flex flex-col sm:flex-row gap-2">
+                      <form onSubmit={(e) => { addNewTrackedItem(e); setShowTrackNewInput(false); }} className="flex flex-col sm:flex-row gap-2 relative z-0 hover:z-10">
                         <input type="text" placeholder="New item name..." value={newTrackName} onChange={handleNewTrackNameChange} className="w-full sm:flex-1 px-4 py-3 rounded-xl text-sm focus:outline-none bg-white border border-black/20 text-black shadow-sm" required />
                         <div className="flex gap-2 w-full sm:w-auto">
-                          <select value={newTrackCategory} onChange={(e) => setNewTrackCategory(e.target.value)} className="flex-1 sm:w-28 px-2 py-3 rounded-xl text-xs focus:outline-none bg-white border border-black/20 text-black shadow-sm">
-                            {CATEGORIES.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                          </select>
-                          <select value={newTrackUnit} onChange={(e) => setNewTrackUnit(e.target.value)} className="flex-1 sm:w-20 px-2 py-3 rounded-xl text-xs focus:outline-none bg-white border border-black/20 text-black shadow-sm">
-                            {COMMON_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-                          </select>
+                          <CustomSelect 
+                            value={newTrackCategory} 
+                            onChange={setNewTrackCategory} 
+                            options={CATEGORIES.map(c => ({label: c.name, value: c.name}))} 
+                            className="flex-1 sm:w-32 bg-white rounded-xl border border-black/20 shadow-sm"
+                          />
+                          <CustomSelect 
+                            value={newTrackUnit} 
+                            onChange={setNewTrackUnit} 
+                            options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
+                            className="flex-1 sm:w-24 bg-white rounded-xl border border-black/20 shadow-sm"
+                          />
                         </div>
                         <button type="submit" disabled={loading} className="w-full sm:w-auto px-6 py-3 bg-black text-white rounded-xl text-sm font-medium hover:bg-black/80 disabled:opacity-50 transition shadow-sm">Add & Track</button>
                       </form>
@@ -1567,12 +1628,15 @@ export default function PantryManager() {
                         <h3 className="text-sm font-bold uppercase tracking-wider text-[#6B705C]">Add Manually</h3>
                         <button type="button" onClick={() => setShowShoppingInput(false)} className="text-sm font-bold text-black/40 hover:text-black">✕ Close</button>
                       </div>
-                      <div className="flex gap-2 w-full">
+                      <div className="flex gap-2 w-full relative z-0 hover:z-10">
                         <input type="text" value={shoppingInputName} onChange={(e) => setShoppingInputName(e.target.value)} placeholder="Type product name..." className="flex-1 min-w-0 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black placeholder:text-black/50 shadow-sm" autoFocus required />
                         <input type="number" step="any" min="0.01" value={shoppingInputQty} onChange={(e) => setShoppingInputQty(e.target.value)} className="w-16 md:w-20 px-2 py-3 rounded-2xl text-center text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm" />
-                        <select value={shoppingInputUnit} onChange={(e) => setShoppingInputUnit(e.target.value)} className="w-20 md:w-24 px-2 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm capitalize cursor-pointer">
-                          {COMMON_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-                        </select>
+                        <CustomSelect 
+                          value={shoppingInputUnit} 
+                          onChange={setShoppingInputUnit} 
+                          options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
+                          className="w-24 md:w-28 bg-white rounded-2xl border border-black/20 shadow-sm"
+                        />
                       </div>
                       <button type="submit" className="w-full px-6 py-3 font-medium rounded-2xl bg-black text-white hover:bg-black/80 shadow-sm mt-2">Add Item</button>
                     </form>
@@ -1638,23 +1702,29 @@ export default function PantryManager() {
                   {isScanning && <div className="text-center font-bold animate-pulse text-[#6B705C]">Reading Receipt...</div>}
 
                   {showPantryInput && (
-                    <form onSubmit={addItem} className="flex flex-col gap-3 mb-8 animate-in fade-in slide-in-from-top-2 p-6 bg-[#6B705C]/10 border border-black/10 rounded-[28px]">
+                    <form onSubmit={addItem} className="flex flex-col gap-3 mb-8 animate-in fade-in slide-in-from-top-2 p-6 bg-[#6B705C]/10 border border-black/10 rounded-[28px] relative z-0 hover:z-10">
                       <div className="flex justify-between items-center mb-2">
                         <h3 className="text-sm font-bold uppercase tracking-wider text-[#6B705C]">Add Manually</h3>
                         <button type="button" onClick={() => setShowPantryInput(false)} className="text-sm font-bold text-black/40 hover:text-black">✕ Close</button>
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                        <input type="text" placeholder="Item name (e.g. Crisp Lettuce)" value={name} onChange={handleNameChange} className="sm:col-span-5 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black placeholder:text-black/50 shadow-sm" required />
-                        <select value={category} onChange={(e) => { setCategory(e.target.value); setIsManualCategory(true); }} className="sm:col-span-3 px-3 py-3 rounded-2xl text-base focus:outline-none cursor-pointer bg-white border border-black/20 text-black shadow-sm">
-                          {CATEGORIES.map((cat) => <option key={cat.name} value={cat.name} className="text-black">{cat.name}</option>)}
-                        </select>
-                        <div className="sm:col-span-2 flex gap-1.5">
+                      <div className="flex flex-col sm:flex-row gap-3">
+                        <input type="text" placeholder="Item name (e.g. Crisp Lettuce)" value={name} onChange={handleNameChange} className="w-full sm:flex-1 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black placeholder:text-black/50 shadow-sm" required />
+                        <CustomSelect 
+                          value={category} 
+                          onChange={(v) => { setCategory(v); setIsManualCategory(true); }} 
+                          options={CATEGORIES.map(c => ({label: c.name, value: c.name}))} 
+                          className="w-full sm:w-48 bg-white rounded-2xl border border-black/20 shadow-sm"
+                        />
+                        <div className="flex gap-2 w-full sm:w-auto">
                           <input type="number" step="any" min="0.01" placeholder="Qty" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-16 px-2 py-3 rounded-2xl text-center text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm" />
-                          <select value={unit} onChange={(e) => setUnit(e.target.value)} className="flex-1 px-2 py-3 rounded-2xl text-base focus:outline-none cursor-pointer capitalize bg-white border border-black/20 text-black shadow-sm">
-                            {COMMON_UNITS.map((u) => <option key={u} value={u} className="text-black">{u}</option>)}
-                          </select>
+                          <CustomSelect 
+                            value={unit} 
+                            onChange={setUnit} 
+                            options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
+                            className="flex-1 sm:w-28 bg-white rounded-2xl border border-black/20 shadow-sm"
+                          />
                         </div>
-                        <button type="submit" disabled={loading} className="sm:col-span-2 font-medium py-3.5 rounded-2xl transition text-base shadow-md active:scale-95 disabled:opacity-50 bg-black text-white hover:bg-black/80">Add</button>
+                        <button type="submit" disabled={loading} className="w-full sm:w-auto px-8 font-medium py-3.5 rounded-2xl transition text-base shadow-md active:scale-95 disabled:opacity-50 bg-black text-white hover:bg-black/80">Add</button>
                       </div>
                     </form>
                   )}
@@ -1668,17 +1738,50 @@ export default function PantryManager() {
                               <span className="text-sm font-semibold tracking-wider uppercase text-black">{groupCategory}</span>
                             </div>
                             <div className="space-y-2">
-                              {groupList.map((item) => (
-                                <div key={item.id} className="flex items-center justify-between p-3 rounded-[20px] transition bg-white border border-black/10 shadow-sm">
-                                  <div>
-                                    <h3 className="font-semibold text-base capitalize text-black leading-tight mb-1">{item.name}</h3>
-                                    <p className="text-sm text-black/70 font-normal">{item.quantity} {item.unit}</p>
+                              {groupList.map((item) => {
+                                const isEditing = editingId === item.id;
+                                return (
+                                  <div key={item.id} className="rounded-[20px] p-3 transition bg-white border border-black/10 shadow-sm relative z-0 hover:z-10">
+                                    {!isEditing ? (
+                                      <div className="flex items-center justify-between">
+                                        <div>
+                                          <h3 className="font-semibold text-base capitalize text-black leading-tight mb-1">{item.name}</h3>
+                                          <p className="text-sm text-black/70 font-normal">{item.quantity} {item.unit}</p>
+                                        </div>
+                                        <button onClick={() => setPantryActionMenu({isOpen: true, item})} className="p-2 hover:bg-black/5 rounded-full text-black/40 hover:text-black transition shrink-0">
+                                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-sm font-semibold capitalize text-black">Edit Item</span>
+                                          <button onClick={() => setEditingId(null)} className="text-sm text-black/70 hover:text-black">Cancel</button>
+                                        </div>
+                                        <div className="flex flex-col gap-2">
+                                          <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full px-3 py-2 rounded-xl text-sm focus:outline-none bg-white border border-black/20 text-black" placeholder="Item name" />
+                                          <div className="flex gap-2">
+                                            <CustomSelect 
+                                              value={editCategory} 
+                                              onChange={setEditCategory} 
+                                              options={CATEGORIES.map(c => ({label: c.name, value: c.name}))} 
+                                              className="flex-1 bg-white rounded-xl border border-black/20"
+                                            />
+                                            <input type="number" step="any" min="0.01" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} className="w-16 px-2 py-2 rounded-xl text-center text-sm focus:outline-none bg-white border border-black/20 text-black" />
+                                            <CustomSelect 
+                                              value={editUnit} 
+                                              onChange={setEditUnit} 
+                                              options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
+                                              className="w-24 bg-white rounded-xl border border-black/20"
+                                            />
+                                          </div>
+                                          <button onClick={() => saveEdit(item.id)} className="w-full py-2.5 rounded-xl text-sm font-bold bg-black text-white mt-1 shadow-sm hover:bg-black/80 transition">Save Changes</button>
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
-                                  <button onClick={() => setPantryActionMenu({isOpen: true, item})} className="p-2 hover:bg-black/5 rounded-full text-black/40 hover:text-black transition shrink-0">
-                                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
-                                  </button>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           </div>
                         );
@@ -1693,7 +1796,7 @@ export default function PantryManager() {
               {/* --- TAB: RECIPES & IMPORT --- */}
               {activeTab === 'recipes' && (
                 <div className="space-y-6">
-                   <div className="rounded-[28px] p-6 bg-[#6B705C] text-white border border-black/10 shadow-sm flex flex-col gap-4">
+                   <div className="rounded-[28px] p-6 bg-[#6B705C] text-white border border-black/10 shadow-sm flex flex-col gap-4 relative z-0 hover:z-10">
                     
                     <div className="flex flex-col sm:flex-row gap-3">
                       <div className="w-full sm:flex-1 min-w-0">
@@ -1706,13 +1809,12 @@ export default function PantryManager() {
                         />
                       </div>
                       <div className="flex gap-2 w-full sm:w-auto">
-                        <select 
-                          value={recipeCategoryFilter}
-                          onChange={(e) => setRecipeCategoryFilter(e.target.value)}
-                          className="flex-1 sm:flex-none min-w-0 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm sm:w-[200px]"
-                        >
-                          {uniqueRecipeCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                        </select>
+                        <CustomSelect 
+                          value={recipeCategoryFilter} 
+                          onChange={setRecipeCategoryFilter} 
+                          options={uniqueRecipeCategories.map(c => ({label: c, value: c}))} 
+                          className="flex-1 sm:w-48 bg-white rounded-2xl border border-black/20 shadow-sm text-black"
+                        />
                         
                         <div className="flex bg-white rounded-2xl p-1 shadow-sm border border-black/20 shrink-0">
                           <button onClick={() => setRecipeViewMode('grid')} className={`px-3 flex items-center justify-center rounded-xl transition ${recipeViewMode === 'grid' ? 'bg-[#6B705C] text-white' : 'text-black/40 hover:text-black'}`}>
@@ -1727,7 +1829,7 @@ export default function PantryManager() {
 
                     <div className="w-full h-px bg-white/20 my-2"></div>
 
-                    <div className="flex justify-end relative">
+                    <div className="flex justify-end relative z-10">
                       <div className="relative w-full md:w-auto" ref={recipeDropdownRef}>
                         <button onClick={() => setShowAddRecipeMenu(!showAddRecipeMenu)} className="w-full md:w-auto px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-between md:justify-center gap-2 border border-black/20">
                           Add Recipe ▾
@@ -1735,7 +1837,7 @@ export default function PantryManager() {
                         {showAddRecipeMenu && (
                           <div className="absolute left-0 md:left-auto md:right-0 mt-2 w-full md:w-[240px] max-w-[90vw] bg-[#1A1A1A] rounded-2xl shadow-2xl border border-white/10 overflow-hidden z-[100] flex flex-col text-white">
                             <button onClick={() => { setShowManualAddRecipe(true); setShowAddRecipeMenu(false); setShowImportInput(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Create New Recipe</button>
-                            <button onClick={() => { setShowImportInput(true); setShowAddRecipeMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition">Add using Recipe URL</button>
+                            <button onClick={() => { setShowImportInput(true); setShowAddRecipeMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Add using Recipe URL</button>
                           </div>
                         )}
                       </div>
