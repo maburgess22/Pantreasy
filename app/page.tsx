@@ -524,28 +524,35 @@ export default function PantryManager() {
      BARCODE SCANNING INTEGRATION
      ========================================================================== */
   useEffect(() => {
+    let html5QrCode: any;
+    
     if (showBarcodeScanner) {
-      let scanner: any;
-      import('html5-qrcode').then(({ Html5QrcodeScanner }) => {
-        scanner = new Html5QrcodeScanner(
-          "barcode-reader",
-          { fps: 10, qrbox: { width: 250, height: 150 }, aspectRatio: 1.0 },
-          false
-        );
-        scanner.render(async (decodedText: string) => {
-          scanner.clear();
-          setShowBarcodeScanner(false);
-          await handleBarcodeScanned(decodedText);
-        }, (err: any) => { /* ignore normal scanning errors */ });
+      import('html5-qrcode').then(({ Html5Qrcode }) => {
+        html5QrCode = new Html5Qrcode("barcode-reader");
+        html5QrCode.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 250, height: 150 } },
+          async (decodedText: string) => {
+            try { await html5QrCode.stop(); html5QrCode.clear(); } catch(e) {}
+            setShowBarcodeScanner(false);
+            await handleBarcodeScanned(decodedText);
+          },
+          (err: any) => { /* ignore normal scanning errors */ }
+        ).catch((err: any) => {
+           showToast("Camera access denied or unavailable.");
+           setShowBarcodeScanner(false);
+        });
       }).catch(err => {
          showToast("Barcode scanner library failed to load.");
          setShowBarcodeScanner(false);
       });
-
-      return () => {
-        if (scanner) scanner.clear().catch((e: any) => console.log(e));
-      };
     }
+
+    return () => {
+      if (html5QrCode && html5QrCode.isScanning) {
+        html5QrCode.stop().then(() => html5QrCode.clear()).catch((e: any) => console.log(e));
+      }
+    };
   }, [showBarcodeScanner]);
 
   const handleBarcodeScanned = async (barcode: string) => {
@@ -630,8 +637,39 @@ export default function PantryManager() {
   };
 
   /* ==========================================================================
-     ADVANCED VOICE INPUT PARSING
+     VOICE INPUT PARSING
      ========================================================================== */
+  const toggleListening = () => {
+    if (isListening) {
+      if (recognitionRef.current) recognitionRef.current.stop();
+      setIsListening(false);
+      return;
+    }
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) return showToast('Web Speech API not supported.');
+    setVoiceTranscript(''); setVoiceParsedItems([]);
+    
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognitionRef.current = recognition;
+    recognition.lang = 'en-US';
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    
+    recognition.onstart = () => setIsListening(true);
+    recognition.onresult = (event: any) => {
+      let fullText = '';
+      for (let i = 0; i < event.results.length; i++) fullText += event.results[i][0].transcript + ' ';
+      setVoiceTranscript(fullText.trim());
+    };
+    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => setIsListening(false);
+    recognition.start();
+  };
+
+  useEffect(() => {
+    if (!isListening && voiceTranscript.trim() && voiceParsedItems.length === 0) parseVoiceInput(voiceTranscript);
+  }, [isListening, voiceTranscript]);
+
   const parseVoiceInput = async (textToParse: string) => {
     if (!textToParse.trim()) return;
     const numberMap: Record<string, string> = { 'one': '1', 'two': '2', 'three': '3', 'four': '4', 'five': '5', 'six': '6', 'seven': '7', 'eight': '8', 'nine': '9', 'ten': '10', 'a': '1', 'an': '1' };
@@ -728,7 +766,7 @@ export default function PantryManager() {
       const res = await fetch('/api/scan-receipt', { method: 'POST', body: formData }); 
       const data = await res.json();
       if (data.items && data.items.length > 0) setScannedItems(data.items); 
-      else showToast(data.message || 'Scanner API didn\'t find any items. Check your backend configuration or try a clearer photo!');
+      else showToast(data.message || 'Scanner API didn\'t find any items.');
     } catch { showToast('Failed to read receipt. Image may be too large or backend error.'); }
     if (fileInputRef.current) fileInputRef.current.value = ''; setIsScanning(false);
   };
@@ -969,7 +1007,6 @@ export default function PantryManager() {
       
       {/* Hidden Global Elements */}
       <datalist id="common-units">{COMMON_UNITS.map(u => <option key={u} value={u} />)}</datalist>
-      <input type="file" accept="image/*" capture="environment" ref={fileInputRef} className="hidden" onChange={handleScanReceipt} />
 
       {/* --- GLOBAL TOAST NOTIFICATION --- */}
       {toast && (
@@ -982,11 +1019,17 @@ export default function PantryManager() {
 
       {/* --- MODAL: BARCODE SCANNER --- */}
       {showBarcodeScanner && (
-        <div className="fixed inset-0 bg-black/90 z-[120] flex flex-col items-center justify-center p-4">
-          <h2 className="text-white text-2xl font-bold mb-4">Scan Barcode</h2>
-          <div id="barcode-reader" className="w-full max-w-sm bg-white rounded-2xl overflow-hidden border-4 border-white"></div>
-          <p className="text-white/60 text-sm mt-4 text-center">Point your camera at the barcode.<br/>Requires permissions.</p>
-          <button onClick={() => setShowBarcodeScanner(false)} className="mt-8 px-8 py-4 bg-white/20 text-white rounded-2xl font-bold hover:bg-white/30 transition">Cancel</button>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[120] flex items-center justify-center p-4">
+          <div className="bg-[#6B705C] p-6 md:p-8 rounded-[32px] shadow-2xl w-full max-w-sm flex flex-col items-center gap-6 text-white border border-black/10 animate-in fade-in zoom-in-95">
+             <div className="text-center">
+                <h2 className="text-3xl font-bold mb-2">Scan Barcode</h2>
+                <p className="text-white/80 text-sm">Align the barcode within the frame</p>
+             </div>
+             <div id="barcode-reader" className="w-full rounded-2xl overflow-hidden shadow-inner bg-black"></div>
+             <button onClick={() => setShowBarcodeScanner(false)} className="w-full py-4 bg-white text-black rounded-2xl font-bold hover:bg-gray-100 shadow-sm transition">
+               Cancel
+             </button>
+          </div>
         </div>
       )}
 
@@ -1128,6 +1171,93 @@ export default function PantryManager() {
               <button onClick={saveMealPlan} disabled={remainingPortions !== 0 || loading} className="w-full py-4 rounded-2xl font-bold text-lg bg-black text-white hover:bg-black/80 disabled:opacity-50 transition shadow-sm">
                 {loading ? 'Saving...' : remainingPortions === 0 ? 'Confirm Meal Plan' : `Allocate exactly ${planTargetPortions} portions`}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL: MANUAL RECIPE BUILDER --- */}
+      {showManualAddRecipe && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
+          <div className="w-full max-w-4xl rounded-[32px] p-6 md:p-8 bg-white border border-black/20 text-black shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95">
+            <div className="flex justify-between items-center border-b pb-4 border-black/10 mb-6 shrink-0">
+              <h2 className="text-2xl font-bold">Create Recipe</h2>
+              <button onClick={() => setShowManualAddRecipe(false)} className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-black font-bold">✕</button>
+            </div>
+            <div className="overflow-y-auto pr-2 space-y-6 flex-1">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Title</label>
+                  <input type="text" value={manualRecipe.title} onChange={e => setManualRecipe({...manualRecipe, title: e.target.value})} className="w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm" placeholder="e.g. Grandma's Lasagna" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Category</label>
+                  <input type="text" value={manualRecipe.category} onChange={e => setManualRecipe({...manualRecipe, category: e.target.value})} className="w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm" placeholder="e.g. Main Dish" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Cook Time</label>
+                  <input type="text" value={manualRecipe.cook_time} onChange={e => setManualRecipe({...manualRecipe, cook_time: e.target.value})} className="w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm" placeholder="e.g. 45 mins" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Portions</label>
+                  <input type="number" value={manualRecipe.portions} onChange={e => setManualRecipe({...manualRecipe, portions: parseInt(e.target.value) || 1})} className="w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm" />
+                </div>
+              </div>
+
+              <div className="space-y-1.5 mt-6">
+                <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Ingredients</label>
+                <textarea 
+                  value={manualRecipe.ingredientsText} 
+                  onChange={e => setManualRecipe({...manualRecipe, ingredientsText: e.target.value})} 
+                  className="w-full p-4 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm min-h-[150px]" 
+                  placeholder="Paste one or multiple ingredients (each on a new line)..." 
+                />
+                <p className="text-xs text-black/50">Press Enter for a new ingredient.</p>
+              </div>
+
+              <div className="space-y-1.5 mt-6">
+                <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Instructions</label>
+                <textarea 
+                  value={manualRecipe.instructionsText} 
+                  onChange={e => setManualRecipe({...manualRecipe, instructionsText: e.target.value})} 
+                  className="w-full p-4 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm min-h-[150px]" 
+                  placeholder="Paste one or multiple steps (each on a new line)..." 
+                />
+                <p className="text-xs text-black/50">Press Enter for a new step.</p>
+              </div>
+            </div>
+            <div className="pt-6 mt-4 border-t border-black/10 shrink-0 flex gap-3">
+               <button onClick={() => setShowManualAddRecipe(false)} className="flex-1 py-4 rounded-2xl font-bold text-lg border border-black/20 bg-transparent text-black hover:bg-black/5 transition">Cancel</button>
+               <button onClick={saveManualRecipe} disabled={loading} className="flex-1 py-4 rounded-2xl font-bold text-lg bg-black text-white hover:bg-black/80 disabled:opacity-50 transition shadow-sm">
+                {loading ? 'Saving...' : 'Save Recipe'}
+               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL: ADD SAVED RECIPE PICKER (Meal Planner & Dashboard) --- */}
+      {recipePickerTarget && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[80]">
+          <div className="w-full max-w-lg rounded-[32px] p-6 bg-white border border-black/20 shadow-2xl flex flex-col max-h-[80vh] animate-in fade-in zoom-in-95">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-xl">Select a Recipe</h3>
+              <button onClick={() => setRecipePickerTarget(null)} className="text-black/50 hover:text-black font-bold text-xl">✕</button>
+            </div>
+            <div className="overflow-y-auto flex flex-col gap-3 pr-2 flex-1">
+              {(recipes || []).length === 0 ? <p className="text-sm text-black/50 text-center py-4">No saved recipes found.</p> : (recipes || []).map(r => (
+                <div key={r.id} onClick={() => handlePickRecipeForPlanner(r)} className="flex items-center gap-4 p-3 rounded-[24px] bg-white border border-black/10 shadow-sm cursor-pointer hover:shadow-md transition">
+                  {r.image ? (
+                    <img src={r.image} alt={r.title} className="w-16 h-16 rounded-[16px] object-cover shrink-0" />
+                  ) : (
+                    <div className="w-16 h-16 rounded-[16px] bg-[#6B705C]/10 flex items-center justify-center shrink-0 border border-black/5"><span className="text-[10px] font-semibold text-black/40">No Img</span></div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                     <h4 className="font-bold text-base text-black leading-tight mb-1">{r.title}</h4>
+                     <p className="text-xs text-black/60 truncate">{r.cook_time} &bull; {r.category}</p>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -1681,7 +1811,7 @@ export default function PantryManager() {
                         <h3 className="text-sm font-bold uppercase tracking-wider text-[#6B705C]">Add Manually</h3>
                         <button type="button" onClick={() => setShowShoppingInput(false)} className="text-sm font-bold text-black/40 hover:text-black">✕ Close</button>
                       </div>
-                      <div className="flex flex-col sm:flex-row gap-2 w-full">
+                      <div className="flex flex-col sm:flex-row gap-2 w-full relative z-0 hover:z-10">
                         <FoodAutocomplete 
                           value={shoppingInputName} 
                           onChange={setShoppingInputName} 
@@ -1690,13 +1820,13 @@ export default function PantryManager() {
                           className="w-full px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm"
                           autoFocus
                         />
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 w-full sm:w-auto">
                           <input type="number" step="any" min="0.01" value={shoppingInputQty} onChange={(e) => setShoppingInputQty(e.target.value)} className="w-16 md:w-20 px-2 py-3 rounded-2xl text-center text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm" />
                           <CustomSelect 
                             value={shoppingInputUnit} 
                             onChange={setShoppingInputUnit} 
                             options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
-                            className="w-24 md:w-28 bg-white rounded-2xl border border-black/20 shadow-sm"
+                            className="flex-1 sm:w-28 bg-white rounded-2xl border border-black/20 shadow-sm"
                           />
                         </div>
                       </div>
@@ -1912,7 +2042,9 @@ export default function PantryManager() {
                     {showImportInput && (
                       <form onSubmit={handleImportRecipe} className="flex flex-col sm:flex-row gap-3 pt-2">
                         <input type="url" placeholder="Paste recipe URL (e.g. foodnetwork.com/...)" value={importUrl} onChange={(e) => setImportUrl(e.target.value)} className="flex-1 min-w-0 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black placeholder:text-black/50 shadow-sm" required />
-                        <button type="submit" disabled={isImporting} className="px-8 font-medium py-3.5 rounded-2xl transition text-base shadow-md active:scale-95 disabled:opacity-50 bg-black text-white hover:bg-black/80 shrink-0">Import</button>
+                        <button type="submit" disabled={isImporting} className="px-8 font-medium py-3.5 rounded-2xl transition text-base shadow-md active:scale-95 disabled:opacity-50 bg-black text-white hover:bg-black/80 shrink-0">
+                          {isImporting ? 'Importing...' : 'Import'}
+                        </button>
                       </form>
                     )}
                   </div>
@@ -2020,7 +2152,7 @@ export default function PantryManager() {
                                           </div>
                                           <button 
                                             onClick={(e) => { e.stopPropagation(); deleteMealPlan(meal.id); }} 
-                                            className="text-black/30 hover:text-red-600 font-bold p-2 text-xs opacity-0 group-hover:opacity-100 transition z-10 rounded-full hover:bg-white shadow-sm"
+                                            className="w-8 h-8 shrink-0 flex items-center justify-center text-black/30 hover:text-red-600 font-bold p-2 text-xs opacity-0 group-hover:opacity-100 transition z-10 rounded-full hover:bg-white shadow-sm"
                                           >
                                             ✕
                                           </button>
