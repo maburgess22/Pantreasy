@@ -3,7 +3,6 @@ import React from 'react';
 import { PantryItem } from '@/utils/types';
 import FoodAutocomplete from '@/components/ui/FoodAutocomplete';
 import CustomSelect from '@/components/ui/CustomSelect';
-import { getAisle } from '@/utils/helpers';
 
 interface PantryTabProps {
   pantryDropdownRef: React.RefObject<HTMLDivElement>;
@@ -31,28 +30,14 @@ interface PantryTabProps {
   isScanning: boolean;
   fileInputRef: React.RefObject<HTMLInputElement>;
   groupedItems: Record<string, PantryItem[]>;
-  editingId: string | null;
-  setEditingId: (id: string | null) => void;
-  editName: string;
-  setEditName: (val: string) => void;
-  editCategory: string;
-  setEditCategory: (val: string) => void;
-  editQuantity: string;
-  setEditQuantity: (val: string) => void;
-  editUnit: string;
-  setEditUnit: (val: string) => void;
-  saveEdit: (id: string) => void;
   setPantryActionMenu: (val: { isOpen: boolean; item: PantryItem | null }) => void;
-  visiblePantryItems: PantryItem[];
 }
 
 export default function PantryTab({
   pantryDropdownRef, showAddPantryMenu, setShowAddPantryMenu, showPantryInput, setShowPantryInput,
   name, useStateName, handleNameChange, category, setCategory, setIsManualCategory, dynamicCategories,
   quantity, setQuantity, unit, setUnit, COMMON_UNITS, loading, addItem, setShowBarcodeScanner,
-  setVoiceContext, setShowVoiceInputScreen, isScanning, fileInputRef, groupedItems,
-  editingId, setEditingId, editName, setEditName, editCategory, setEditCategory,
-  editQuantity, setEditQuantity, editUnit, setEditUnit, saveEdit, setPantryActionMenu, visiblePantryItems
+  setVoiceContext, setShowVoiceInputScreen, isScanning, fileInputRef, groupedItems, setPantryActionMenu
 }: PantryTabProps) {
   return (
     <div className="space-y-6">
@@ -69,6 +54,7 @@ export default function PantryTab({
             {showAddPantryMenu && (
               <div className="absolute left-0 md:left-auto md:right-0 mt-2 w-full md:w-[240px] max-w-[90vw] bg-[#1A1A1A] rounded-2xl shadow-2xl border border-white/10 overflow-hidden z-[100] flex flex-col text-white">
                 <button onClick={() => { setShowPantryInput(true); setShowAddPantryMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Type Item Name</button>
+                <button onClick={() => { fileInputRef.current?.click(); setShowAddPantryMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Scan Receipt</button>
                 <button onClick={() => { setShowBarcodeScanner(true); setShowAddPantryMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Scan Barcode</button>
                 <button onClick={() => { setVoiceContext('pantry'); setShowVoiceInputScreen(true); setShowAddPantryMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition">Voice Input</button>
               </div>
@@ -89,7 +75,7 @@ export default function PantryTab({
             <FoodAutocomplete 
               value={name} 
               onChange={(val) => { useStateName(val); handleNameChange({ target: { value: val } } as any); }}
-              onSelect={(val, cat) => { useStateName(val); setCategory(cat !== 'Other' ? cat : getAisle(val)); setIsManualCategory(true); }}
+              onSelect={(val, cat) => { useStateName(val); setCategory(cat !== 'Other' ? cat : val); setIsManualCategory(true); }}
               placeholder="Item name (e.g. Crisp Lettuce)"
               className="w-full sm:flex-1 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm"
             />
@@ -122,50 +108,17 @@ export default function PantryTab({
                   <span className="text-sm font-semibold tracking-wider uppercase text-black">{groupCategory}</span>
                 </div>
                 <div className="space-y-2">
-                  {groupList.map((item) => {
-                    const isEditing = editingId === item.id;
-                    return (
-                      <div key={item.id} className="rounded-[20px] p-3 transition bg-white border border-black/10 shadow-sm relative z-0 hover:z-10">
-                        {!isEditing ? (
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <h3 className="font-semibold text-base capitalize text-black leading-tight mb-1">{item.name}</h3>
-                              <p className="text-sm text-black/70 font-normal">{item.quantity} {item.unit}</p>
-                            </div>
-                            <button onClick={() => setPantryActionMenu({isOpen: true, item})} className="p-2 hover:bg-black/5 rounded-full text-black/40 hover:text-black transition shrink-0">
-                              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="space-y-3">
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm font-semibold capitalize text-black">Edit Item</span>
-                              <button onClick={() => setEditingId(null)} className="text-sm text-black/70 hover:text-black">Cancel</button>
-                            </div>
-                            <div className="flex flex-col gap-2">
-                              <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full px-3 py-2 rounded-xl text-sm focus:outline-none bg-white border border-black/20 text-black" placeholder="Item name" />
-                              <div className="flex gap-2">
-                                <CustomSelect 
-                                  value={editCategory} 
-                                  onChange={setEditCategory} 
-                                  options={dynamicCategories.map(c => ({label: c, value: c}))} 
-                                  className="flex-1 bg-white rounded-xl border border-black/20"
-                                />
-                                <input type="number" step="any" min="0.01" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} className="w-16 px-2 py-2 rounded-xl text-center text-sm focus:outline-none bg-white border border-black/20 text-black" />
-                                <CustomSelect 
-                                  value={editUnit} 
-                                  onChange={setEditUnit} 
-                                  options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
-                                  className="w-24 bg-white rounded-xl border border-black/20"
-                                />
-                              </div>
-                              <button onClick={() => saveEdit(item.id)} className="w-full py-2.5 rounded-xl text-sm font-bold bg-black text-white mt-1 shadow-sm hover:bg-black/80 transition">Save Changes</button>
-                            </div>
-                          </div>
-                        )}
+                  {groupList.map((item) => (
+                    <div key={item.id} className="flex items-center justify-between p-3 rounded-[20px] transition bg-white border border-black/10 shadow-sm relative z-0 hover:z-10">
+                      <div>
+                        <h3 className="font-semibold text-base capitalize text-black leading-tight mb-1">{item.name}</h3>
+                        <p className="text-sm text-black/70 font-normal">{item.quantity} {item.unit}</p>
                       </div>
-                    );
-                  })}
+                      <button onClick={() => setPantryActionMenu({isOpen: true, item})} className="p-2 hover:bg-black/5 rounded-full text-black/40 hover:text-black transition shrink-0">
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
+                      </button>
+                    </div>
+                  ))}
                 </div>
               </div>
             );

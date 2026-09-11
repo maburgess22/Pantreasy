@@ -712,7 +712,9 @@ export default function PantryManager() {
   return (
     <main className="min-h-screen w-full overflow-x-hidden bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 pb-28 md:p-8 md:pb-8 font-montserrat">
       
+      {/* Hidden Global Elements */}
       <datalist id="common-units">{COMMON_UNITS.map(u => <option key={u} value={u} />)}</datalist>
+      <input type="file" accept="image/*" capture="environment" ref={fileInputRef} className="hidden" onChange={handleScanReceipt} />
 
       {/* --- GLOBAL TOAST NOTIFICATION --- */}
       {toast && (
@@ -832,7 +834,7 @@ export default function PantryManager() {
                       <input type="number" step="any" value={item.quantity || 1} onChange={e => updateScannedItem(index, 'quantity', e.target.value)} className="w-16 px-2 py-2 rounded-xl text-center focus:outline-none" />
                       <CustomSelect value={item.unit || 'pcs'} onChange={v => updateScannedItem(index, 'unit', v)} options={COMMON_UNITS.map(u => ({label: u, value: u}))} className="w-24 bg-white rounded-xl" />
                     </div>
-                    <CustomSelect value={item.category || 'Other'} onChange={v => updateScannedItem(index, 'category', v)} options={CATEGORIES.map(c => ({label: c.name, value: c.name}))} className="w-full sm:w-28 bg-white rounded-xl" />
+                    <CustomSelect value={item.category || 'Other'} onChange={v => updateScannedItem(index, 'category', v)} options={dynamicCategories.map(c => ({label: c, value: c}))} className="w-full sm:w-28 bg-white rounded-xl" />
                     <button onClick={() => removeScannedItem(index)} className="px-3 py-2 bg-red-500/80 text-white rounded-xl font-bold hover:bg-red-500 transition">✕</button>
                   </div>
                ))}
@@ -1162,12 +1164,8 @@ export default function PantryManager() {
               COMMON_UNITS={COMMON_UNITS} loading={loading} addItem={addItem} 
               setShowBarcodeScanner={setShowBarcodeScanner} setVoiceContext={setVoiceContext} 
               setShowVoiceInputScreen={setShowVoiceInputScreen} isScanning={isScanning} 
-              fileInputRef={fileInputRef} groupedItems={groupedItems} editingId={editingId} 
-              setEditingId={setEditingId} editName={editName} setEditName={setEditName} 
-              editCategory={editCategory} setEditCategory={setEditCategory} editQuantity={editQuantity} 
-              setEditQuantity={setEditQuantity} editUnit={editUnit} setEditUnit={setEditUnit} 
-              saveEdit={saveEdit} setPantryActionMenu={setPantryActionMenu} 
-              visiblePantryItems={visiblePantryItems}
+              fileInputRef={fileInputRef} groupedItems={groupedItems} 
+              setPantryActionMenu={setPantryActionMenu} 
             />
           )}
 
