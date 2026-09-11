@@ -10,9 +10,12 @@ import { createClient } from '@/utils/supabase/client';
 import { PantryItem, Recipe, ShoppingItem, MealPlanItem } from '@/utils/types';
 import { 
   toBaseUnit, fromBaseUnit, scaleAndConvertIngredient, cleanIngredientName, 
-  getStandardGroceryItem, getAisle, compressImage, normalizeName, getNext7Days 
+  getStandardGroceryItem, getAisle, compressImage, normalizeName, getNext7Days,
+  searchFoodFacts // <-- ADDED THIS MISSING IMPORT
 } from '@/utils/helpers';
 
+// <-- ADDED THIS MISSING IMPORT
+import FoodAutocomplete from '@/components/ui/FoodAutocomplete'; 
 import CustomSelect from '@/components/ui/CustomSelect';
 import TopHeader from '@/components/TopHeader';
 import BottomNav from '@/components/BottomNav';
@@ -383,6 +386,15 @@ export default function PantryManager() {
       }
       let standardizedName = parsedName.charAt(0).toUpperCase() + parsedName.slice(1);
       let predictedCategory = 'Other';
+      
+      try {
+        const dbMatches = await searchFoodFacts(parsedName);
+        if (dbMatches && dbMatches.length > 0) {
+          standardizedName = dbMatches[0].name;
+          predictedCategory = dbMatches[0].category;
+        }
+      } catch (err) {}
+
       if (unit === 'pcs') {
         if (standardizedName.toLowerCase().includes('milk') || standardizedName.toLowerCase().includes('water')) unit = 'ml';
         if (standardizedName.toLowerCase().includes('flour') || standardizedName.toLowerCase().includes('sugar') || standardizedName.toLowerCase().includes('rice')) unit = 'g';
@@ -475,16 +487,17 @@ export default function PantryManager() {
     }
   };
 
+  // SAFE FALLBACKS ADDED HERE
   const startEditing = (item: PantryItem) => { 
     setEditingPantryItem(item);
-    setEditName(item.name); 
-    setEditCategory(item.category); 
-    setEditQuantity(item.quantity.toString()); 
-    setEditUnit(item.unit); 
+    setEditName(item.name || ''); 
+    setEditCategory(item.category || 'Other'); 
+    setEditQuantity(item.quantity != null ? item.quantity.toString() : '1'); 
+    setEditUnit(item.unit || 'pcs'); 
   };
 
   const saveEdit = async (id: string) => {
-    const updatedItem = { name: editName.trim(), category: editCategory, quantity: parseFloat(editQuantity) || 0, unit: editUnit };
+    const updatedItem = { name: (editName || '').trim(), category: editCategory, quantity: parseFloat(editQuantity) || 0, unit: editUnit };
     if (!updatedItem.name) return showToast("Item name cannot be empty.");
     setItems(prev => prev.map(item => item.id === id ? { ...item, ...updatedItem } : item));
     setEditingPantryItem(null); 
