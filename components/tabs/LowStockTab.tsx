@@ -58,19 +58,20 @@ export default function LowStockTab({
             <h2 className="text-4xl md:text-5xl font-bold leading-snug">Low Stock Management</h2>
             <p className="text-white/80 text-sm mt-2 font-medium">Set thresholds to trigger alerts when essential items run low.</p>
           </div>
-          <div className="flex flex-col gap-3 shrink-0 w-full md:w-auto md:items-end">
-            <div className="relative w-full md:w-auto" ref={lowStockDropdownRef}>
-              <button onClick={() => setShowAddTrackMenu(!showAddTrackMenu)} className="w-full md:w-auto px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-between md:justify-center gap-2 border border-black/20">
-                Add Item to Track ▾
+          <div className="flex flex-col gap-3 shrink-0 w-full md:w-56">
+            <div className="relative w-full" ref={lowStockDropdownRef}>
+              <button onClick={() => setShowAddTrackMenu(!showAddTrackMenu)} className="relative w-full px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center border border-black/20">
+                <span>Add Item to Track</span>
+                <span className="absolute right-4 text-[10px]">▼</span>
               </button>
               {showAddTrackMenu && (
                 <div className="absolute left-0 md:left-auto md:right-0 mt-2 w-full md:w-[240px] max-w-[90vw] bg-[#1A1A1A] rounded-2xl shadow-2xl border border-white/10 overflow-hidden z-[100] flex flex-col text-white">
-                  <button onClick={() => { setShowTrackPantryInput(true); setShowTrackNewInput(false); setShowAddTrackMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Add Item from Pantry</button>
-                  <button onClick={() => { setShowTrackNewInput(true); setShowTrackPantryInput(false); setShowAddTrackMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition">Add New Item</button>
+                  <button onClick={() => { setShowTrackPantryInput(true); setShowTrackNewInput(false); setShowAddTrackMenu(false); }} className="px-5 py-4 text-center text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Add Item from Pantry</button>
+                  <button onClick={() => { setShowTrackNewInput(true); setShowTrackPantryInput(false); setShowAddTrackMenu(false); }} className="px-5 py-4 text-center text-sm font-semibold hover:bg-white/10 transition">Add New Item</button>
                 </div>
               )}
             </div>
-            <button onClick={addLowStockToShopping} disabled={lowStockItems.length === 0} className="w-full md:w-auto px-5 py-2.5 bg-white text-black rounded-xl text-sm font-bold transition hover:bg-gray-100 disabled:opacity-50 shadow-sm border border-black/20 text-center">
+            <button onClick={addLowStockToShopping} disabled={lowStockItems.length === 0} className="w-full px-5 py-2.5 bg-white text-black rounded-xl text-sm font-bold transition hover:bg-gray-100 disabled:opacity-50 shadow-sm border border-black/20 text-center">
               + Restock Alerts to List
             </button>
           </div>

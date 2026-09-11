@@ -68,14 +68,15 @@ export default function RecipesTab({
         <div className="w-full h-px bg-white/20 my-2"></div>
 
         <div className="flex justify-end relative z-10">
-          <div className="relative w-full md:w-auto" ref={recipeDropdownRef}>
-            <button onClick={() => setShowAddRecipeMenu(!showAddRecipeMenu)} className="w-full md:w-auto px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-between md:justify-center gap-2 border border-black/20">
-              Add Recipe ▾
+          <div className="relative w-full md:w-56" ref={recipeDropdownRef}>
+            <button onClick={() => setShowAddRecipeMenu(!showAddRecipeMenu)} className="relative w-full px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center border border-black/20">
+              <span>Add Recipe</span>
+              <span className="absolute right-4 text-[10px]">▼</span>
             </button>
             {showAddRecipeMenu && (
               <div className="absolute left-0 md:left-auto md:right-0 mt-2 w-full md:w-[240px] max-w-[90vw] bg-[#1A1A1A] rounded-2xl shadow-2xl border border-white/10 overflow-hidden z-[100] flex flex-col text-white">
-                <button onClick={() => { setShowManualAddRecipe(true); setShowAddRecipeMenu(false); setShowImportInput(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Create New Recipe</button>
-                <button onClick={() => { setShowImportInput(true); setShowAddRecipeMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Add using Recipe URL</button>
+                <button onClick={() => { setShowManualAddRecipe(true); setShowAddRecipeMenu(false); setShowImportInput(false); }} className="px-5 py-4 text-center text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Create New Recipe</button>
+                <button onClick={() => { setShowImportInput(true); setShowAddRecipeMenu(false); }} className="px-5 py-4 text-center text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Add using Recipe URL</button>
               </div>
             )}
           </div>

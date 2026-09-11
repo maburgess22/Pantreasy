@@ -39,7 +39,6 @@ export default function ShoppingTab({
   groupedShoppingList, toggleShoppingItem, deleteShoppingItem, showToast
 }: ShoppingTabProps) {
 
-  // Uses \r\n to ensure line breaks stick when pasting to notes apps
   const handleExport = () => {
     if (Object.keys(groupedShoppingList).length === 0) return showToast('Shopping list is empty!');
     const lines = ['📋 MY SHOPPING LIST', ''];
@@ -62,60 +61,73 @@ export default function ShoppingTab({
         
         <div className="flex flex-col gap-3 shrink-0 w-full md:w-56">
           <div className="relative w-full" ref={shoppingDropdownRef}>
-            <button onClick={() => setShowAddShoppingMenu(!showAddShoppingMenu)} className="w-full px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-between md:justify-center gap-2 border border-black/20">
-              Add Item ▾
+            <button onClick={() => setShowAddShoppingMenu(!showAddShoppingMenu)} className="relative w-full px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center border border-black/20">
+              <span>Add Item</span>
+              <span className="absolute right-4 text-[10px]">▼</span>
             </button>
             {showAddShoppingMenu && (
               <div className="absolute left-0 md:left-auto md:right-0 mt-2 w-full md:w-[240px] max-w-[90vw] bg-[#1A1A1A] rounded-2xl shadow-2xl border border-white/10 overflow-hidden z-[100] flex flex-col text-white">
-                <button onClick={() => { setShowShoppingInput(true); setShowAddShoppingMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Type Item Name</button>
-                <button onClick={() => { setVoiceContext('shopping'); setShowVoiceInputScreen(true); setShowAddShoppingMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Voice Input</button>
+                <button onClick={() => { setShowShoppingInput(true); setShowAddShoppingMenu(false); }} className="px-5 py-4 text-center text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Type Item Name</button>
+                <button onClick={() => { setVoiceContext('shopping'); setShowVoiceInputScreen(true); setShowAddShoppingMenu(false); }} className="px-5 py-4 text-center text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Voice Input</button>
                 
-                {/* MOVED RESTOCK BUTTON INTO DROPDOWN */}
-                <button 
-                  onClick={() => { addLowStockToShopping(); setShowAddShoppingMenu(false); }} 
-                  disabled={lowStockItems.length === 0} 
-                  className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Add Items from Restock Alerts List
+                <button onClick={() => { addLowStockToShopping(); setShowAddShoppingMenu(false); }} disabled={lowStockItems.length === 0} className="px-5 py-4 text-center text-sm font-semibold hover:bg-white/10 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                  Add Items from Restock Alerts
                 </button>
               </div>
             )}
           </div>
 
-          <button onClick={handleExport} className="w-full px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center gap-2 border border-black/20">
+          <button onClick={handleExport} className="relative w-full px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center gap-2 border border-black/20">
              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-             Export List
+             <span>Export List</span>
           </button>
         </div>
       </div>
 
+      {/* NEW MODAL FOR ADDING SHOPPING ITEMS */}
       {showShoppingInput && (
-        <form onSubmit={handleAddShoppingItem} className="flex flex-col gap-3 mb-8 animate-in fade-in slide-in-from-top-2 p-6 bg-[#6B705C]/10 border border-black/10 rounded-[28px] relative z-0 hover:z-10">
-          <div className="flex justify-between items-center mb-2">
-            <h3 className="text-sm font-bold uppercase tracking-wider text-[#6B705C]">Add Manually</h3>
-            <button type="button" onClick={() => setShowShoppingInput(false)} className="text-sm font-bold text-black/40 hover:text-black">✕ Close</button>
-          </div>
-          <div className="flex flex-col sm:flex-row gap-2 w-full relative z-0 hover:z-10">
-            <FoodAutocomplete 
-              value={shoppingInputName} 
-              onChange={setShoppingInputName} 
-              onSelect={(val, cat) => setShoppingInputName(val)}
-              placeholder="Type product name..."
-              className="w-full px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm"
-              autoFocus
-            />
-            <div className="flex gap-2">
-              <input type="number" step="any" min="0.01" value={shoppingInputQty} onChange={(e) => setShoppingInputQty(e.target.value)} className="w-16 md:w-20 px-2 py-3 rounded-2xl text-center text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm" />
-              <CustomSelect 
-                value={shoppingInputUnit} 
-                onChange={setShoppingInputUnit} 
-                options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
-                className="w-24 md:w-28 bg-white rounded-2xl border border-black/20 shadow-sm"
-              />
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4 transition-opacity">
+          <div className="bg-white rounded-[32px] p-6 md:p-8 w-full max-w-md shadow-2xl flex flex-col gap-4 animate-in zoom-in-95">
+            <div className="flex justify-between items-center mb-2 border-b border-black/10 pb-4 shrink-0">
+              <h2 className="text-2xl font-bold text-black">Add Item Manually</h2>
+              <button type="button" onClick={() => setShowShoppingInput(false)} className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-black font-bold">✕</button>
+            </div>
+            
+            <form id="addShoppingForm" onSubmit={(e) => { handleAddShoppingItem(e); setShowShoppingInput(false); }} className="space-y-4 mt-2 overflow-y-auto pr-1 flex-1">
+              <div className="space-y-1.5 relative z-20">
+                <label className="text-xs font-bold uppercase tracking-wider text-black/60">Item Name</label>
+                <FoodAutocomplete 
+                  value={shoppingInputName} 
+                  onChange={setShoppingInputName} 
+                  onSelect={(val, cat) => setShoppingInputName(val)}
+                  placeholder="e.g. Crisp Lettuce"
+                  className="w-full px-4 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium text-base"
+                  autoFocus
+                />
+              </div>
+              <div className="flex gap-4 relative z-0">
+                <div className="space-y-1.5 flex-1">
+                  <label className="text-xs font-bold uppercase tracking-wider text-black/60">Quantity</label>
+                  <input type="number" step="any" min="0.01" placeholder="1" value={shoppingInputQty} onChange={(e) => setShoppingInputQty(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium text-center text-base" required />
+                </div>
+                <div className="space-y-1.5 flex-1">
+                  <label className="text-xs font-bold uppercase tracking-wider text-black/60">Unit</label>
+                  <CustomSelect 
+                    value={shoppingInputUnit} 
+                    onChange={setShoppingInputUnit} 
+                    options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
+                  />
+                </div>
+              </div>
+            </form>
+            
+            <div className="pt-2 shrink-0">
+              <button type="submit" form="addShoppingForm" disabled={loading} className="w-full py-4 bg-black text-white rounded-2xl font-bold hover:bg-black/80 shadow-sm transition">
+                {loading ? 'Adding...' : 'Add to List'}
+              </button>
             </div>
           </div>
-          <button type="submit" className="w-full px-6 py-3 font-medium rounded-2xl bg-black text-white hover:bg-black/80 shadow-sm mt-2">Add Item</button>
-        </form>
+        </div>
       )}
 
       {hasCheckedShoppingItems && (

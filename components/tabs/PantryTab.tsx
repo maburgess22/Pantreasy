@@ -41,7 +41,6 @@ export default function PantryTab({
   setVoiceContext, setShowVoiceInputScreen, isScanning, fileInputRef, groupedItems, setPantryActionMenu, showToast
 }: PantryTabProps) {
 
-  // Uses \r\n to ensure line breaks stick when pasting to notes apps
   const handleExport = () => {
     if (Object.keys(groupedItems).length === 0) return showToast('Pantry is empty!');
     const lines = ['🛒 MY PANTRY INVENTORY', ''];
@@ -64,60 +63,73 @@ export default function PantryTab({
         
         <div className="flex flex-col gap-3 shrink-0 w-full md:w-48">
           <div className="relative w-full" ref={pantryDropdownRef}>
-            <button onClick={() => setShowAddPantryMenu(!showAddPantryMenu)} className="w-full px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-between md:justify-center gap-2 border border-black/20">
-              Add Item ▾
+            <button onClick={() => setShowAddPantryMenu(!showAddPantryMenu)} className="relative w-full px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center border border-black/20">
+              <span>Add Item</span>
+              <span className="absolute right-4 text-[10px]">▼</span>
             </button>
             {showAddPantryMenu && (
               <div className="absolute left-0 md:left-auto md:right-0 mt-2 w-full md:w-[240px] max-w-[90vw] bg-[#1A1A1A] rounded-2xl shadow-2xl border border-white/10 overflow-hidden z-[100] flex flex-col text-white">
-                <button onClick={() => { setShowPantryInput(true); setShowAddPantryMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Type Item Name</button>
-                <button onClick={() => { fileInputRef.current?.click(); setShowAddPantryMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Scan Receipt</button>
-                <button onClick={() => { setShowBarcodeScanner(true); setShowAddPantryMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Scan Barcode</button>
-                <button onClick={() => { setVoiceContext('pantry'); setShowVoiceInputScreen(true); setShowAddPantryMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition">Voice Input</button>
+                <button onClick={() => { setShowPantryInput(true); setShowAddPantryMenu(false); }} className="px-5 py-4 text-center text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Type Item Name</button>
+                <button onClick={() => { fileInputRef.current?.click(); setShowAddPantryMenu(false); }} className="px-5 py-4 text-center text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Scan Receipt</button>
+                <button onClick={() => { setShowBarcodeScanner(true); setShowAddPantryMenu(false); }} className="px-5 py-4 text-center text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Scan Barcode</button>
+                <button onClick={() => { setVoiceContext('pantry'); setShowVoiceInputScreen(true); setShowAddPantryMenu(false); }} className="px-5 py-4 text-center text-sm font-semibold hover:bg-white/10 transition">Voice Input</button>
               </div>
             )}
           </div>
           
-          <button onClick={handleExport} className="w-full px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center gap-2 border border-black/20">
+          <button onClick={handleExport} className="relative w-full px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center gap-2 border border-black/20">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-            Export List
+            <span>Export List</span>
           </button>
         </div>
       </div>
 
       {isScanning && <div className="text-center font-bold animate-pulse text-[#6B705C]">Reading Receipt...</div>}
 
+      {/* NEW MODAL FOR ADDING ITEMS */}
       {showPantryInput && (
-        <form onSubmit={addItem} className="flex flex-col gap-3 mb-8 animate-in fade-in slide-in-from-top-2 p-6 bg-[#6B705C]/10 border border-black/10 rounded-[28px] relative z-0 hover:z-10">
-          <div className="flex justify-between items-center mb-2">
-            <h3 className="text-sm font-bold uppercase tracking-wider text-[#6B705C]">Add Manually</h3>
-            <button type="button" onClick={() => setShowPantryInput(false)} className="text-sm font-bold text-black/40 hover:text-black">✕ Close</button>
-          </div>
-          <div className="flex flex-col sm:flex-row gap-3">
-            <FoodAutocomplete 
-              value={name} 
-              onChange={(val) => { useStateName(val); handleNameChange({ target: { value: val } } as any); }}
-              onSelect={(val, cat) => { useStateName(val); setCategory(cat !== 'Other' ? cat : val); setIsManualCategory(true); }}
-              placeholder="Item name (e.g. Crisp Lettuce)"
-              className="w-full sm:flex-1 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm"
-            />
-            <CustomSelect 
-              value={category} 
-              onChange={(v) => { setCategory(v); setIsManualCategory(true); }} 
-              options={dynamicCategories.map(c => ({label: c, value: c}))} 
-              className="w-full sm:w-48 bg-white rounded-2xl border border-black/20 shadow-sm"
-            />
-            <div className="flex gap-2 w-full sm:w-auto">
-              <input type="number" step="any" min="0.01" placeholder="Qty" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-16 px-2 py-3 rounded-2xl text-center text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm" />
-              <CustomSelect 
-                value={unit} 
-                onChange={setUnit} 
-                options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
-                className="flex-1 sm:w-28 bg-white rounded-2xl border border-black/20 shadow-sm"
-              />
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4 transition-opacity">
+          <div className="bg-white rounded-[32px] p-6 md:p-8 w-full max-w-md shadow-2xl flex flex-col gap-4 animate-in zoom-in-95">
+            <div className="flex justify-between items-center mb-2 border-b border-black/10 pb-4 shrink-0">
+              <h2 className="text-2xl font-bold text-black">Add Item Manually</h2>
+              <button type="button" onClick={() => setShowPantryInput(false)} className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-black font-bold">✕</button>
             </div>
-            <button type="submit" disabled={loading} className="w-full sm:w-auto px-8 font-medium py-3.5 rounded-2xl transition text-base shadow-md active:scale-95 disabled:opacity-50 bg-black text-white hover:bg-black/80">Add</button>
+            
+            <form id="addPantryForm" onSubmit={addItem} className="space-y-4 mt-2 overflow-y-auto pr-1 flex-1">
+              <div className="space-y-1.5 relative z-20">
+                <label className="text-xs font-bold uppercase tracking-wider text-black/60">Item Name</label>
+                <FoodAutocomplete 
+                  value={name} 
+                  onChange={(val) => { useStateName(val); handleNameChange({ target: { value: val } } as any); }}
+                  onSelect={(val, cat) => { useStateName(val); setCategory(cat !== 'Other' ? cat : val); setIsManualCategory(true); }}
+                  placeholder="e.g. Crisp Lettuce"
+                  className="w-full px-4 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium text-base"
+                  autoFocus
+                />
+              </div>
+              <div className="flex gap-4 relative z-0">
+                <div className="space-y-1.5 flex-1">
+                  <label className="text-xs font-bold uppercase tracking-wider text-black/60">Quantity</label>
+                  <input type="number" step="any" min="0.01" placeholder="1" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium text-center text-base" required />
+                </div>
+                <div className="space-y-1.5 flex-1">
+                  <label className="text-xs font-bold uppercase tracking-wider text-black/60">Unit</label>
+                  <CustomSelect 
+                    value={unit} 
+                    onChange={setUnit} 
+                    options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
+                  />
+                </div>
+              </div>
+            </form>
+            
+            <div className="pt-2 shrink-0">
+              <button type="submit" form="addPantryForm" disabled={loading} className="w-full py-4 bg-black text-white rounded-2xl font-bold hover:bg-black/80 shadow-sm transition">
+                {loading ? 'Adding...' : 'Add to Pantry'}
+              </button>
+            </div>
           </div>
-        </form>
+        </div>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

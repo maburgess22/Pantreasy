@@ -782,6 +782,7 @@ export default function PantryManager() {
         </div>
       )}
 
+      {/* NEW STANDARDIZED EDIT MODAL */}
       {editingPantryItem && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4 transition-opacity">
           <div className="bg-white rounded-[32px] p-6 md:p-8 w-full max-w-md shadow-2xl flex flex-col gap-4 animate-in zoom-in-95">
@@ -789,26 +790,35 @@ export default function PantryManager() {
                <h2 className="text-2xl font-bold text-black">Edit Item</h2>
                <button onClick={() => setEditingPantryItem(null)} className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-black font-bold">✕</button>
              </div>
+             
              <div className="space-y-4 mt-2 overflow-y-auto pr-1 flex-1">
                <div className="space-y-1.5 relative z-20">
                  <label className="text-xs font-bold uppercase tracking-wider text-black/60">Item Name</label>
-                 <input type="text" value={editName} onChange={e => setEditName(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium" />
+                 <FoodAutocomplete 
+                    value={editName} 
+                    onChange={(val) => { setEditName(val); setEditCategory(getAisle(val)); }}
+                    onSelect={(val, cat) => { setEditName(val); setEditCategory(cat !== 'Other' ? cat : getAisle(val)); }}
+                    placeholder="Item name"
+                    className="w-full px-4 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium text-base"
+                  />
                </div>
-               <div className="space-y-1.5 relative z-10">
-                 <label className="text-xs font-bold uppercase tracking-wider text-black/60">Category</label>
-                 <CustomSelect value={editCategory} onChange={setEditCategory} options={dynamicCategories.map(c => ({label: c, value: c}))} className="w-full bg-black/5 rounded-xl border border-transparent" />
-               </div>
+               
                <div className="flex gap-4 relative z-0">
                  <div className="space-y-1.5 flex-1">
                    <label className="text-xs font-bold uppercase tracking-wider text-black/60">Quantity</label>
-                   <input type="number" step="any" min="0" value={editQuantity} onChange={e => setEditQuantity(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium text-center" />
+                   <input type="number" step="any" min="0.01" value={editQuantity} onChange={e => setEditQuantity(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium text-center text-base" />
                  </div>
                  <div className="space-y-1.5 flex-1">
                    <label className="text-xs font-bold uppercase tracking-wider text-black/60">Unit</label>
-                   <CustomSelect value={editUnit} onChange={setEditUnit} options={COMMON_UNITS.map(u => ({label: u, value: u}))} className="w-full bg-black/5 rounded-xl border border-transparent" />
+                   <CustomSelect 
+                      value={editUnit} 
+                      onChange={setEditUnit} 
+                      options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
+                   />
                  </div>
                </div>
              </div>
+             
              <div className="pt-2 shrink-0">
                 <button onClick={() => saveEdit(editingPantryItem.id)} className="w-full py-4 bg-black text-white rounded-2xl font-bold hover:bg-black/80 shadow-sm transition">Save Changes</button>
              </div>
@@ -1070,7 +1080,6 @@ export default function PantryManager() {
           {selectedRecipe && !isEditingRecipe && (
             <div className="space-y-6">
               
-              {/* REPLACED THE "BACK TO RECIPES" TEXT WITH A CLEAN ARROW ICON */}
               <button onClick={handleBackNavigation} className="w-10 h-10 flex items-center justify-center bg-white border border-black/10 rounded-full text-black/70 hover:text-black hover:bg-black/5 hover:shadow-md transition">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
               </button>
