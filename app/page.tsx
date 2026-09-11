@@ -63,7 +63,7 @@ const COMMON_UNITS = ['pcs', 'kg', 'g', 'lbs', 'oz', 'ml', 'l', 'cups', 'tbsp', 
    2. API CONNECTIONS & CUSTOM UI COMPONENTS
    ========================================================================== */
 
-// Open Food Facts API Search
+// Open Food Facts API Search (Text)
 const searchFoodFacts = async (query: string) => {
   if (!query || query.trim().length < 2) return [];
   try {
@@ -401,6 +401,9 @@ export default function PantryManager() {
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
 
+  // Barcode Scanner State
+  const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
+
   const [collapsedDays, setCollapsedDays] = useState<Record<string, boolean>>({});
   const [showDistributionModal, setShowDistributionModal] = useState(false);
   const [recipePickerTarget, setRecipePickerTarget] = useState<{date: string, mealType: string} | null>(null);
@@ -518,6 +521,69 @@ export default function PantryManager() {
   };
 
   /* ==========================================================================
+     BARCODE SCANNING INTEGRATION
+     ========================================================================== */
+  useEffect(() => {
+    if (showBarcodeScanner) {
+      let scanner: any;
+      import('html5-qrcode').then(({ Html5QrcodeScanner }) => {
+        scanner = new Html5QrcodeScanner(
+          "barcode-reader",
+          { fps: 10, qrbox: { width: 250, height: 150 }, aspectRatio: 1.0 },
+          false
+        );
+        scanner.render(async (decodedText: string) => {
+          scanner.clear();
+          setShowBarcodeScanner(false);
+          await handleBarcodeScanned(decodedText);
+        }, (err: any) => { /* ignore normal scanning errors */ });
+      }).catch(err => {
+         showToast("Barcode scanner library failed to load.");
+         setShowBarcodeScanner(false);
+      });
+
+      return () => {
+        if (scanner) scanner.clear().catch((e: any) => console.log(e));
+      };
+    }
+  }, [showBarcodeScanner]);
+
+  const handleBarcodeScanned = async (barcode: string) => {
+    setLoading(true);
+    showToast('Barcode recognized! Fetching details...');
+    try {
+      const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${barcode}.json?fields=product_name,generic_name,brands,quantity,categories_tags`);
+      const data = await res.json();
+      
+      if (data.status === 1 && data.product) {
+        const p = data.product;
+        const itemName = p.product_name || p.generic_name || 'Unknown Item';
+        const brand = p.brands ? `${p.brands.split(',')[0]} ` : '';
+        const fullName = `${brand}${itemName}`.trim().charAt(0).toUpperCase() + `${brand}${itemName}`.trim().slice(1).toLowerCase();
+        
+        useStateName(fullName);
+        setCategory(getAisle(fullName));
+        
+        if (p.quantity) {
+           const match = p.quantity.match(/^([\d.]+)\s*([a-zA-Z]+)/);
+           if (match) {
+              setQuantity(match[1]);
+              setUnit(match[2].toLowerCase());
+           }
+        }
+        setShowPantryInput(true);
+        showToast('Item loaded! Please review and save.');
+      } else {
+        showToast('Product not found in database. Try typing manually.');
+        setShowPantryInput(true);
+      }
+    } catch (e) {
+      showToast('Error looking up barcode.');
+    }
+    setLoading(false);
+  };
+
+  /* ==========================================================================
      MERGING / ACCUMULATION ENGINES
      ========================================================================== */
   const addOrMergePantryItem = async (newItem: { name: string, category: string, quantity: number, unit: string, track_low_stock: boolean, low_stock_threshold: number }) => {
@@ -530,6 +596,7 @@ export default function PantryManager() {
       if (existingBase.base === newBase.base || existing.quantity === 0) {
         const combinedBaseQty = existing.quantity === 0 ? newBase.qty : existingBase.qty + newBase.qty;
         const combinedBaseUnit = existing.quantity === 0 ? newBase.base : existingBase.base;
+
         const final = fromBaseUnit(combinedBaseQty, combinedBaseUnit);
         
         await supabase.from('pantry_items').update({ quantity: final.qty, unit: final.unit, track_low_stock: newItem.track_low_stock || existing.track_low_stock }).eq('id', existing.id).eq('user_id', userId);
@@ -563,39 +630,8 @@ export default function PantryManager() {
   };
 
   /* ==========================================================================
-     ADVANCED VOICE INPUT PARSING WITH OPEN FOOD FACTS API
+     ADVANCED VOICE INPUT PARSING
      ========================================================================== */
-  const toggleListening = () => {
-    if (isListening) {
-      if (recognitionRef.current) recognitionRef.current.stop();
-      setIsListening(false);
-      return;
-    }
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) return showToast('Web Speech API not supported.');
-    setVoiceTranscript(''); setVoiceParsedItems([]);
-    
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
-    recognitionRef.current = recognition;
-    recognition.lang = 'en-US';
-    recognition.continuous = true;
-    recognition.interimResults = false;
-    
-    recognition.onstart = () => setIsListening(true);
-    recognition.onresult = (event: any) => {
-      let fullText = '';
-      for (let i = 0; i < event.results.length; i++) fullText += event.results[i][0].transcript + ' ';
-      setVoiceTranscript(fullText.trim());
-    };
-    recognition.onend = () => setIsListening(false);
-    recognition.onerror = () => setIsListening(false);
-    recognition.start();
-  };
-
-  useEffect(() => {
-    if (!isListening && voiceTranscript.trim() && voiceParsedItems.length === 0) parseVoiceInput(voiceTranscript);
-  }, [isListening, voiceTranscript]);
-
   const parseVoiceInput = async (textToParse: string) => {
     if (!textToParse.trim()) return;
     const numberMap: Record<string, string> = { 'one': '1', 'two': '2', 'three': '3', 'four': '4', 'five': '5', 'six': '6', 'seven': '7', 'eight': '8', 'nine': '9', 'ten': '10', 'a': '1', 'an': '1' };
@@ -619,32 +655,20 @@ export default function PantryManager() {
         if (match[3]) parsedName = match[3];
       }
 
-      // Query Open Food Facts database to get the clean canonical product name
       let standardizedName = parsedName.charAt(0).toUpperCase() + parsedName.slice(1);
       try {
         const dbMatches = await searchFoodFacts(parsedName);
         if (dbMatches && dbMatches.length > 0) {
           standardizedName = dbMatches[0];
         }
-      } catch (err) {
-        console.error("Database matching error:", err);
-      }
+      } catch (err) {}
 
       if (unit === 'pcs') {
         if (standardizedName.toLowerCase().includes('milk') || standardizedName.toLowerCase().includes('water')) unit = 'ml';
         if (standardizedName.toLowerCase().includes('flour') || standardizedName.toLowerCase().includes('sugar') || standardizedName.toLowerCase().includes('rice')) unit = 'g';
       }
 
-      let predictedCategory = 'Produce';
-      const aisle = getAisle(standardizedName);
-      if (aisle.includes('Dairy')) predictedCategory = 'Dairy & Eggs'; 
-      else if (aisle.includes('Meat')) predictedCategory = 'Meat & Seafood'; 
-      else if (aisle.includes('Bakery')) predictedCategory = 'Bakery'; 
-      else if (aisle.includes('Frozen')) predictedCategory = 'Frozen'; 
-      else if (aisle.includes('Beverages')) predictedCategory = 'Beverages'; 
-      else if (aisle.includes('Snacks')) predictedCategory = 'Snacks'; 
-      else if (aisle.includes('World') || aisle.includes('Pantry')) predictedCategory = 'Pantry Staples'; 
-      else predictedCategory = 'Other';
+      let predictedCategory = getAisle(standardizedName);
 
       return { id: Date.now() + idx, name: standardizedName.trim(), quantity: qty, unit, category: predictedCategory };
     });
@@ -679,27 +703,21 @@ export default function PantryManager() {
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement> | {target: {value: string}}) => {
     const val = e.target.value; useStateName(val);
     if (!isManualCategory && val.length > 2) {
-      const lower = val.toLowerCase();
-      if (lower.includes('milk') || lower.includes('cheese') || lower.includes('egg')) setCategory('Dairy & Eggs');
-      else if (lower.includes('apple') || lower.includes('lettuce') || lower.includes('berry')) setCategory('Produce');
-      else if (lower.includes('steak') || lower.includes('chicken') || lower.includes('fish')) setCategory('Meat & Seafood');
+      setCategory(getAisle(val));
     }
   };
 
   const handleNewTrackNameChange = (e: React.ChangeEvent<HTMLInputElement> | {target: {value: string}}) => {
     const val = e.target.value; setNewTrackName(val);
     if (val.length > 2) {
-      const lower = val.toLowerCase();
-      if (lower.includes('milk') || lower.includes('cheese') || lower.includes('egg')) setNewTrackCategory('Dairy & Eggs');
-      else if (lower.includes('apple') || lower.includes('lettuce') || lower.includes('berry')) setNewTrackCategory('Produce');
-      else if (lower.includes('steak') || lower.includes('chicken') || lower.includes('fish')) setNewTrackCategory('Meat & Seafood');
+      setNewTrackCategory(getAisle(val));
     }
   };
 
   const addItem = async (e: React.FormEvent) => {
     e.preventDefault(); if (!name.trim()) return; setLoading(true);
     await addOrMergePantryItem({ name: name.trim(), category, quantity: parseFloat(quantity) || 1, unit, track_low_stock: false, low_stock_threshold: 1 });
-    useStateName(''); setQuantity('1'); setIsManualCategory(false); setLoading(false); showToast('Item added to pantry!');
+    useStateName(''); setQuantity('1'); setIsManualCategory(false); setLoading(false); setShowPantryInput(false); showToast('Item added to pantry!');
   };
 
   const handleScanReceipt = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -710,7 +728,7 @@ export default function PantryManager() {
       const res = await fetch('/api/scan-receipt', { method: 'POST', body: formData }); 
       const data = await res.json();
       if (data.items && data.items.length > 0) setScannedItems(data.items); 
-      else showToast(data.message || 'Scanner API didn\'t find any items.');
+      else showToast(data.message || 'Scanner API didn\'t find any items. Check your backend configuration or try a clearer photo!');
     } catch { showToast('Failed to read receipt. Image may be too large or backend error.'); }
     if (fileInputRef.current) fileInputRef.current.value = ''; setIsScanning(false);
   };
@@ -731,12 +749,6 @@ export default function PantryManager() {
 
   const deleteItem = async (id: string) => { setItems(prev => prev.filter(item => item.id !== id)); await supabase.from('pantry_items').delete().eq('id', id).eq('user_id', userId); showToast('Item deleted.'); };
   
-  const adjustQuantity = async (item: PantryItem, delta: number) => {
-    const newQty = Math.max(0, Number((item.quantity + delta).toFixed(2)));
-    setItems(prev => prev.map(i => i.id === item.id ? { ...i, quantity: newQty } : i));
-    await supabase.from('pantry_items').update({ quantity: newQty }).eq('id', item.id).eq('user_id', userId);
-  };
-
   const startEditing = (item: PantryItem) => { 
     setEditingId(item.id); 
     setEditName(item.name); 
@@ -780,32 +792,7 @@ export default function PantryManager() {
        await addOrMergePantryItem({ name: newTrackName.trim(), category: newTrackCategory, quantity: 0, unit: newTrackUnit, track_low_stock: true, low_stock_threshold: 1 });
        showToast('Tracking added!');
     }
-    setNewTrackName(''); setLoading(false); 
-  };
-
-  const handleImportRecipe = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!importUrl) return;
-    setIsImporting(true);
-    try {
-      const res = await fetch('/api/scrape-recipe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: importUrl }) });
-      const data = await res.json();
-      if (res.ok && data.title) {
-        const { data: insertedData, error } = await supabase.from('recipes').insert([{ ...data, portions: 4, user_id: userId }]).select().single();
-        if (error) throw error;
-        if (insertedData) { setRecipes(prev => [insertedData, ...prev]); showToast('Recipe imported!'); setShowImportInput(false); }
-      } else {
-        showToast(data.error || 'Could not extract a recipe from that URL.');
-      }
-    } catch {
-      showToast('Failed to import recipe.');
-    }
-    setImportUrl(''); setIsImporting(false);
-  };
-
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setFormState: Function) => {
-    const file = e.target.files?.[0]; if (!file) return;
-    const reader = new FileReader(); reader.onloadend = () => { setFormState((prev: any) => ({ ...prev, image: reader.result as string })); }; reader.readAsDataURL(file);
+    setNewTrackName(''); setLoading(false); setShowTrackNewInput(false);
   };
 
   const saveManualRecipe = async () => {
@@ -878,18 +865,12 @@ export default function PantryManager() {
     if (data) { setMealPlans(prev => [...prev, data as MealPlanItem]); setManualInputs(prev => ({ ...prev, [key]: '' })); setManualInputsQty(prev => ({ ...prev, [key]: 1 })); }
   };
   
-  const saveRecipeToMealPlan = async (date: string, mealType: string, recipeId: string) => {
-    if (!recipeId) return;
-    const { data } = await supabase.from('meal_plan').insert([{ date, meal_type: mealType, recipe_id: recipeId, portions: 1, user_id: userId }]).select('*, recipes(title, image, cook_time, category)').single();
-    if (data) { setMealPlans(prev => [...prev, data as MealPlanItem]); }
-  };
-
   const deleteMealPlan = async (id: string) => { setMealPlans(prev => prev.filter(m => m.id !== id)); await supabase.from('meal_plan').delete().eq('id', id).eq('user_id', userId); };
 
   const handleAddShoppingItem = async (e: React.FormEvent) => {
     e.preventDefault(); if (!shoppingInputName.trim()) return;
     await addOrMergeShoppingItem({ name: shoppingInputName.trim(), quantity: parseFloat(shoppingInputQty) || 1, unit: shoppingInputUnit });
-    setShoppingInputName(''); setShoppingInputQty('1'); setShoppingInputUnit('pcs'); showToast('Added to list!');
+    setShoppingInputName(''); setShoppingInputQty('1'); setShoppingInputUnit('pcs'); setShowShoppingInput(false); showToast('Added to list!');
   };
 
   const toggleShoppingItem = async (id: string) => {
@@ -923,6 +904,7 @@ export default function PantryManager() {
     (recipeCategoryFilter === 'All' || r?.category === recipeCategoryFilter)
   );
   
+  // HIDING 0 QUANTITY ITEMS FROM MAIN PANTRY GRID
   const visiblePantryItems = items.filter(i => i.quantity > 0);
   const groupedItems = visiblePantryItems.reduce((acc, item) => {
     acc[item.category] = acc[item.category] || []; acc[item.category].push(item); return acc;
@@ -998,6 +980,16 @@ export default function PantryManager() {
         </div>
       )}
 
+      {/* --- MODAL: BARCODE SCANNER --- */}
+      {showBarcodeScanner && (
+        <div className="fixed inset-0 bg-black/90 z-[120] flex flex-col items-center justify-center p-4">
+          <h2 className="text-white text-2xl font-bold mb-4">Scan Barcode</h2>
+          <div id="barcode-reader" className="w-full max-w-sm bg-white rounded-2xl overflow-hidden border-4 border-white"></div>
+          <p className="text-white/60 text-sm mt-4 text-center">Point your camera at the barcode.<br/>Requires permissions.</p>
+          <button onClick={() => setShowBarcodeScanner(false)} className="mt-8 px-8 py-4 bg-white/20 text-white rounded-2xl font-bold hover:bg-white/30 transition">Cancel</button>
+        </div>
+      )}
+
       {/* --- MODAL: PANTRY ITEM 3-DOT MENU --- */}
       {pantryActionMenu.isOpen && pantryActionMenu.item && (
         <div className="fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 transition-opacity" onClick={() => setPantryActionMenu({isOpen: false, item: null})}>
@@ -1047,7 +1039,7 @@ export default function PantryManager() {
                       value={item.category || 'Other'} 
                       onChange={v => updateScannedItem(index, 'category', v)} 
                       options={CATEGORIES.map(c => ({label: c.name, value: c.name}))} 
-                      className="w-full sm:w-32 bg-white rounded-xl"
+                      className="w-full sm:w-28 bg-white rounded-xl"
                     />
                     <button onClick={() => removeScannedItem(index)} className="px-3 py-2 bg-red-500/80 text-white rounded-xl font-bold hover:bg-red-500 transition">✕</button>
                   </div>
@@ -1136,93 +1128,6 @@ export default function PantryManager() {
               <button onClick={saveMealPlan} disabled={remainingPortions !== 0 || loading} className="w-full py-4 rounded-2xl font-bold text-lg bg-black text-white hover:bg-black/80 disabled:opacity-50 transition shadow-sm">
                 {loading ? 'Saving...' : remainingPortions === 0 ? 'Confirm Meal Plan' : `Allocate exactly ${planTargetPortions} portions`}
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* --- MODAL: MANUAL RECIPE BUILDER --- */}
-      {showManualAddRecipe && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
-          <div className="w-full max-w-4xl rounded-[32px] p-6 md:p-8 bg-white border border-black/20 text-black shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95">
-            <div className="flex justify-between items-center border-b pb-4 border-black/10 mb-6 shrink-0">
-              <h2 className="text-2xl font-bold">Create Recipe</h2>
-              <button onClick={() => setShowManualAddRecipe(false)} className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-black font-bold">✕</button>
-            </div>
-            <div className="overflow-y-auto pr-2 space-y-6 flex-1">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Title</label>
-                  <input type="text" value={manualRecipe.title} onChange={e => setManualRecipe({...manualRecipe, title: e.target.value})} className="w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm" placeholder="e.g. Grandma's Lasagna" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Category</label>
-                  <input type="text" value={manualRecipe.category} onChange={e => setManualRecipe({...manualRecipe, category: e.target.value})} className="w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm" placeholder="e.g. Main Dish" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Cook Time</label>
-                  <input type="text" value={manualRecipe.cook_time} onChange={e => setManualRecipe({...manualRecipe, cook_time: e.target.value})} className="w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm" placeholder="e.g. 45 mins" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Portions</label>
-                  <input type="number" value={manualRecipe.portions} onChange={e => setManualRecipe({...manualRecipe, portions: parseInt(e.target.value) || 1})} className="w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm" />
-                </div>
-              </div>
-
-              <div className="space-y-1.5 mt-6">
-                <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Ingredients</label>
-                <textarea 
-                  value={manualRecipe.ingredientsText} 
-                  onChange={e => setManualRecipe({...manualRecipe, ingredientsText: e.target.value})} 
-                  className="w-full p-4 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm min-h-[150px]" 
-                  placeholder="Paste one or multiple ingredients (each on a new line)..." 
-                />
-                <p className="text-xs text-black/50">Press Enter for a new ingredient.</p>
-              </div>
-
-              <div className="space-y-1.5 mt-6">
-                <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Instructions</label>
-                <textarea 
-                  value={manualRecipe.instructionsText} 
-                  onChange={e => setManualRecipe({...manualRecipe, instructionsText: e.target.value})} 
-                  className="w-full p-4 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm min-h-[150px]" 
-                  placeholder="Paste one or multiple steps (each on a new line)..." 
-                />
-                <p className="text-xs text-black/50">Press Enter for a new step.</p>
-              </div>
-            </div>
-            <div className="pt-6 mt-4 border-t border-black/10 shrink-0 flex gap-3">
-               <button onClick={() => setShowManualAddRecipe(false)} className="flex-1 py-4 rounded-2xl font-bold text-lg border border-black/20 bg-transparent text-black hover:bg-black/5 transition">Cancel</button>
-               <button onClick={saveManualRecipe} disabled={loading} className="flex-1 py-4 rounded-2xl font-bold text-lg bg-black text-white hover:bg-black/80 disabled:opacity-50 transition shadow-sm">
-                {loading ? 'Saving...' : 'Save Recipe'}
-               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* --- MODAL: ADD SAVED RECIPE PICKER (Meal Planner & Dashboard) --- */}
-      {recipePickerTarget && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[80]">
-          <div className="w-full max-w-lg rounded-[32px] p-6 bg-white border border-black/20 shadow-2xl flex flex-col max-h-[80vh] animate-in fade-in zoom-in-95">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold text-xl">Select a Recipe</h3>
-              <button onClick={() => setRecipePickerTarget(null)} className="text-black/50 hover:text-black font-bold text-xl">✕</button>
-            </div>
-            <div className="overflow-y-auto flex flex-col gap-3 pr-2 flex-1">
-              {(recipes || []).length === 0 ? <p className="text-sm text-black/50 text-center py-4">No saved recipes found.</p> : (recipes || []).map(r => (
-                <div key={r.id} onClick={() => handlePickRecipeForPlanner(r)} className="flex items-center gap-4 p-3 rounded-[24px] bg-white border border-black/10 shadow-sm cursor-pointer hover:shadow-md transition">
-                  {r.image ? (
-                    <img src={r.image} alt={r.title} className="w-16 h-16 rounded-[16px] object-cover shrink-0" />
-                  ) : (
-                    <div className="w-16 h-16 rounded-[16px] bg-[#6B705C]/10 flex items-center justify-center shrink-0 border border-black/5"><span className="text-[10px] font-semibold text-black/40">No Img</span></div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                     <h4 className="font-bold text-base text-black leading-tight mb-1">{r.title}</h4>
-                     <p className="text-xs text-black/60 truncate">{r.cook_time} &bull; {r.category}</p>
-                  </div>
-                </div>
-              ))}
             </div>
           </div>
         </div>
@@ -1400,7 +1305,7 @@ export default function PantryManager() {
                         <h3 className="text-sm font-bold uppercase tracking-wider text-black">Add from Pantry</h3>
                         <button onClick={() => setShowTrackPantryInput(false)} className="text-sm font-bold text-black/40 hover:text-black">✕ Close</button>
                       </div>
-                      <div className="flex flex-col sm:flex-row gap-3">
+                      <div className="flex flex-col sm:flex-row gap-3 relative z-0 hover:z-10">
                         <CustomSelect 
                           value={itemToTrackId} 
                           onChange={setItemToTrackId} 
@@ -1609,12 +1514,15 @@ export default function PantryManager() {
                       <div className="space-y-0">
                         {(selectedRecipe.ingredients || []).map((ing, i) => {
                           const scaledIng = scaleAndConvertIngredient(ing, multiplier, measurementSystem);
+                          const statusObj = getIngredientStatus(scaledIng, items);
                           return (
-                            <div key={i} className="flex items-center gap-3 py-2.5 border-b border-black/5 last:border-0 px-2 group">
-                              <div className="w-8 h-8 rounded-full bg-[#6B705C]/10 flex items-center justify-center shrink-0">
-                                <span className="text-[10px]">🍽️</span>
+                            <div key={i} className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 text-sm p-3 rounded-xl bg-white border border-black/10 text-black font-medium shadow-sm">
+                              <span>{scaledIng}</span>
+                              <div className="shrink-0">
+                                {statusObj.status === 'in_stock' && <span className="text-[10px] px-2.5 py-1 bg-[#6B705C] text-white rounded-full font-bold uppercase tracking-wider shadow-sm">In Pantry ({statusObj.availableText})</span>}
+                                {statusObj.status === 'insufficient' && <span className="text-[10px] px-2.5 py-1 border border-[#6B705C]/50 text-[#6B705C] rounded-full font-bold uppercase tracking-wider">Low Stock</span>}
+                                {statusObj.status === 'missing' && <span className="text-[10px] px-2.5 py-1 bg-black text-white rounded-full font-bold uppercase tracking-wider shadow-sm">Missing</span>}
                               </div>
-                              <span className="text-sm text-black font-medium">{scaledIng}</span>
                             </div>
                           );
                         })}
@@ -1768,12 +1676,12 @@ export default function PantryManager() {
                   </div>
 
                   {showShoppingInput && (
-                    <form onSubmit={handleAddShoppingItem} className="flex flex-col gap-3 mb-8 animate-in fade-in slide-in-from-top-2 p-6 bg-[#6B705C]/10 border border-black/10 rounded-[28px]">
+                    <form onSubmit={handleAddShoppingItem} className="flex flex-col gap-3 mb-8 animate-in fade-in slide-in-from-top-2 p-6 bg-[#6B705C]/10 border border-black/10 rounded-[28px] relative z-0 hover:z-10">
                       <div className="flex justify-between items-center mb-2">
                         <h3 className="text-sm font-bold uppercase tracking-wider text-[#6B705C]">Add Manually</h3>
                         <button type="button" onClick={() => setShowShoppingInput(false)} className="text-sm font-bold text-black/40 hover:text-black">✕ Close</button>
                       </div>
-                      <div className="flex flex-col sm:flex-row gap-2 w-full relative z-0 hover:z-10">
+                      <div className="flex flex-col sm:flex-row gap-2 w-full">
                         <FoodAutocomplete 
                           value={shoppingInputName} 
                           onChange={setShoppingInputName} 
@@ -1845,15 +1753,13 @@ export default function PantryManager() {
                         {showAddPantryMenu && (
                           <div className="absolute left-0 md:left-auto md:right-0 mt-2 w-full md:w-[240px] max-w-[90vw] bg-[#1A1A1A] rounded-2xl shadow-2xl border border-white/10 overflow-hidden z-[100] flex flex-col text-white">
                             <button onClick={() => { setShowPantryInput(true); setShowAddPantryMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Type Item Name</button>
-                            <button onClick={() => { fileInputRef.current?.click(); setShowAddPantryMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Scan Receipt</button>
+                            <button onClick={() => { setShowBarcodeScanner(true); setShowAddPantryMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Scan Barcode</button>
                             <button onClick={() => { setVoiceContext('pantry'); setShowVoiceInputScreen(true); setShowAddPantryMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition">Voice Input</button>
                           </div>
                         )}
                       </div>
                     </div>
                   </div>
-
-                  {isScanning && <div className="text-center font-bold animate-pulse text-[#6B705C]">Reading Receipt...</div>}
 
                   {showPantryInput && (
                     <form onSubmit={addItem} className="flex flex-col gap-3 mb-8 animate-in fade-in slide-in-from-top-2 p-6 bg-[#6B705C]/10 border border-black/10 rounded-[28px] relative z-0 hover:z-10">
@@ -2006,15 +1912,13 @@ export default function PantryManager() {
                     {showImportInput && (
                       <form onSubmit={handleImportRecipe} className="flex flex-col sm:flex-row gap-3 pt-2">
                         <input type="url" placeholder="Paste recipe URL (e.g. foodnetwork.com/...)" value={importUrl} onChange={(e) => setImportUrl(e.target.value)} className="flex-1 min-w-0 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black placeholder:text-black/50 shadow-sm" required />
-                        <button type="submit" disabled={isImporting} className="px-8 font-medium py-3.5 rounded-2xl transition text-base shadow-md active:scale-95 disabled:opacity-50 bg-black text-white hover:bg-black/80 shrink-0">
-                          {isImporting ? 'Importing...' : 'Import'}
-                        </button>
+                        <button type="submit" disabled={isImporting} className="px-8 font-medium py-3.5 rounded-2xl transition text-base shadow-md active:scale-95 disabled:opacity-50 bg-black text-white hover:bg-black/80 shrink-0">Import</button>
                       </form>
                     )}
                   </div>
                   
                   <div className={recipeViewMode === 'grid' ? "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6" : "flex flex-col gap-3"}>
-                    {filteredRecipes.map((recipe) => (
+                    {(filteredRecipes || []).map((recipe) => (
                       recipeViewMode === 'grid' ? (
                         <div key={recipe.id} onClick={() => handleOpenRecipe(recipe)} className="rounded-[24px] overflow-hidden cursor-pointer transition border border-black/10 hover:border-black/40 flex flex-col justify-between bg-white shadow-sm hover:shadow-md">
                           {recipe.image && <img src={recipe.image} alt={recipe.title} className="w-full h-40 object-cover" />}
@@ -2116,7 +2020,7 @@ export default function PantryManager() {
                                           </div>
                                           <button 
                                             onClick={(e) => { e.stopPropagation(); deleteMealPlan(meal.id); }} 
-                                            className="w-8 h-8 shrink-0 flex items-center justify-center text-black/30 hover:text-red-600 font-bold p-2 text-xs opacity-0 group-hover:opacity-100 transition z-10 rounded-full hover:bg-white shadow-sm"
+                                            className="text-black/30 hover:text-red-600 font-bold p-2 text-xs opacity-0 group-hover:opacity-100 transition z-10 rounded-full hover:bg-white shadow-sm"
                                           >
                                             ✕
                                           </button>
