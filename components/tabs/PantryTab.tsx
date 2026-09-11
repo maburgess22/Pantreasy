@@ -41,7 +41,7 @@ export default function PantryTab({
   setVoiceContext, setShowVoiceInputScreen, isScanning, fileInputRef, groupedItems, setPantryActionMenu, showToast
 }: PantryTabProps) {
 
-  // Updated Export Logic for crisp line breaks
+  // Uses \r\n to ensure line breaks stick when pasting to notes apps
   const handleExport = () => {
     if (Object.keys(groupedItems).length === 0) return showToast('Pantry is empty!');
     const lines = ['🛒 MY PANTRY INVENTORY', ''];
@@ -50,7 +50,7 @@ export default function PantryTab({
       list.forEach(item => { lines.push(`• ${item.name} - ${item.quantity} ${item.unit}`); });
       lines.push('');
     });
-    navigator.clipboard.writeText(lines.join('\n'));
+    navigator.clipboard.writeText(lines.join('\r\n'));
     showToast('Pantry copied to clipboard!');
   };
 

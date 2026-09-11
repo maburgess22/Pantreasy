@@ -39,7 +39,7 @@ export default function ShoppingTab({
   groupedShoppingList, toggleShoppingItem, deleteShoppingItem, showToast
 }: ShoppingTabProps) {
 
-  // Updated Export Logic for crisp line breaks
+  // Uses \r\n to ensure line breaks stick when pasting to notes apps
   const handleExport = () => {
     if (Object.keys(groupedShoppingList).length === 0) return showToast('Shopping list is empty!');
     const lines = ['📋 MY SHOPPING LIST', ''];
@@ -48,7 +48,7 @@ export default function ShoppingTab({
       list.forEach(item => { lines.push(`${item.checked ? '[x]' : '[ ]'} ${item.name} (${item.quantity} ${item.unit})`); });
       lines.push('');
     });
-    navigator.clipboard.writeText(lines.join('\n'));
+    navigator.clipboard.writeText(lines.join('\r\n'));
     showToast('Shopping list copied to clipboard!');
   };
 
@@ -68,7 +68,16 @@ export default function ShoppingTab({
             {showAddShoppingMenu && (
               <div className="absolute left-0 md:left-auto md:right-0 mt-2 w-full md:w-[240px] max-w-[90vw] bg-[#1A1A1A] rounded-2xl shadow-2xl border border-white/10 overflow-hidden z-[100] flex flex-col text-white">
                 <button onClick={() => { setShowShoppingInput(true); setShowAddShoppingMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Type Item Name</button>
-                <button onClick={() => { setVoiceContext('shopping'); setShowVoiceInputScreen(true); setShowAddShoppingMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition">Voice Input</button>
+                <button onClick={() => { setVoiceContext('shopping'); setShowVoiceInputScreen(true); setShowAddShoppingMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Voice Input</button>
+                
+                {/* MOVED RESTOCK BUTTON INTO DROPDOWN */}
+                <button 
+                  onClick={() => { addLowStockToShopping(); setShowAddShoppingMenu(false); }} 
+                  disabled={lowStockItems.length === 0} 
+                  className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Add Items from Restock Alerts List
+                </button>
               </div>
             )}
           </div>
@@ -76,10 +85,6 @@ export default function ShoppingTab({
           <button onClick={handleExport} className="w-full px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center gap-2 border border-black/20">
              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
              Export List
-          </button>
-
-          <button onClick={addLowStockToShopping} disabled={lowStockItems.length === 0} className="w-full px-5 py-2.5 bg-white text-black rounded-xl text-sm font-bold transition hover:bg-gray-100 disabled:opacity-50 shadow-sm border border-black/20 text-center">
-            + Restock Alerts
           </button>
         </div>
       </div>
