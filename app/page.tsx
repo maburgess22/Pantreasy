@@ -60,8 +60,93 @@ const CATEGORIES = [
 const COMMON_UNITS = ['pcs', 'kg', 'g', 'lbs', 'oz', 'ml', 'l', 'cups', 'tbsp', 'tsp', 'cans', 'packs', 'dash', 'pinch', 'cloves'];
 
 /* ==========================================================================
-   2. CUSTOM UI COMPONENTS
+   2. API CONNECTIONS & CUSTOM UI COMPONENTS
    ========================================================================== */
+
+// Open Food Facts API Search
+const searchFoodFacts = async (query: string) => {
+  if (!query || query.length < 2) return [];
+  try {
+    const res = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&fields=product_name,generic_name&json=1&page_size=8`);
+    const data = await res.json();
+    if (data.products) {
+      const uniqueNames = Array.from(new Set(
+        data.products
+          .map((p: any) => p.product_name || p.generic_name)
+          .filter(Boolean)
+          .map((name: string) => name.charAt(0).toUpperCase() + name.slice(1).toLowerCase())
+      ));
+      return uniqueNames.slice(0, 5) as string[];
+    }
+  } catch (e) {
+    console.error("FoodFacts API Error:", e);
+  }
+  return [];
+};
+
+// Autocomplete Component
+function FoodAutocomplete({ value, onChange, onSelect, placeholder, className, autoFocus = false }: { value: string, onChange: (val: string) => void, onSelect: (val: string) => void, placeholder: string, className: string, autoFocus?: boolean }) {
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [isOpen, setIsOpen] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setIsOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      if (value.length >= 2 && isOpen) {
+        setIsSearching(true);
+        const results = await searchFoodFacts(value);
+        setSuggestions(results);
+        setIsSearching(false);
+      } else {
+        setSuggestions([]);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [value, isOpen]);
+
+  return (
+    <div className="relative flex-1 min-w-0" ref={ref}>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => { onChange(e.target.value); setIsOpen(true); }}
+        placeholder={placeholder}
+        className={className}
+        required
+        autoFocus={autoFocus}
+        onFocus={() => { if (value.length >= 2) setIsOpen(true); }}
+      />
+      {isOpen && (suggestions.length > 0 || isSearching) && (
+        <div className="absolute top-full left-0 mt-2 w-full bg-white text-black border border-black/10 rounded-2xl shadow-2xl z-[100] overflow-hidden flex flex-col max-h-48">
+          {isSearching && suggestions.length === 0 ? (
+            <div className="px-4 py-3 text-sm italic text-black/50">Searching database...</div>
+          ) : (
+            suggestions.map((sug, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => { onSelect(sug); setIsOpen(false); }}
+                className="px-4 py-3 text-left text-sm font-medium hover:bg-black/5 transition border-b border-black/5 last:border-0 truncate"
+              >
+                {sug}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CustomSelect({ value, options, onChange, placeholder = "Select...", className = "", menuClassName = "" }: { value: string, options: {label: string, value: string}[], onChange: (val: string) => void, placeholder?: string, className?: string, menuClassName?: string }) {
   const [isOpen, setIsOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -165,7 +250,9 @@ function getStandardGroceryItem(ingredient: string): string {
   const lowerName = name.toLowerCase();
 
   const staples = ['oil', 'vinegar', 'sauce', 'paste', 'mustard', 'mayo', 'ketchup', 'salt', 'pepper', 'spice', 'powder', 'extract', 'sugar', 'flour', 'honey', 'syrup', 'jam', 'butter', 'garlic', 'ginger', 'cinnamon', 'cumin', 'paprika', 'oregano', 'basil', 'thyme', 'chili', 'chilli', 'seeds', 'flaxseeds'];
-  if (staples.some(s => lowerName.includes(s))) return name.charAt(0).toUpperCase() + name.slice(1);
+  if (staples.some(s => lowerName.includes(s))) {
+    return name.charAt(0).toUpperCase() + name.slice(1);
+  }
 
   const liquids = ['milk', 'cream', 'broth', 'stock', 'water', 'juice'];
   if (liquids.some(l => lowerName.includes(l))) {
@@ -473,7 +560,7 @@ export default function PantryManager() {
   };
 
   /* ==========================================================================
-     ADVANCED VOICE INPUT PARSING
+     VOICE INPUT PARSING
      ========================================================================== */
   const toggleListening = () => {
     if (isListening) {
@@ -565,7 +652,7 @@ export default function PantryManager() {
   /* ==========================================================================
      CRUD HANDLERS (Pantry, Recipes, Shopping, Meal Planner)
      ========================================================================== */
-  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement> | {target: {value: string}}) => {
     const val = e.target.value; useStateName(val);
     if (!isManualCategory && val.length > 2) {
       const lower = val.toLowerCase();
@@ -575,7 +662,7 @@ export default function PantryManager() {
     }
   };
 
-  const handleNewTrackNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleNewTrackNameChange = (e: React.ChangeEvent<HTMLInputElement> | {target: {value: string}}) => {
     const val = e.target.value; setNewTrackName(val);
     if (val.length > 2) {
       const lower = val.toLowerCase();
@@ -684,7 +771,7 @@ export default function PantryManager() {
 
   const startEditingRecipe = () => {
     if (!selectedRecipe) return;
-    setEditRecipeForm({ title: selectedRecipe.title, category: selectedRecipe.category || 'Other', cook_time: selectedRecipe.cook_time || '', portions: selectedRecipe.portions || 4, image: selectedRecipe.image || '', ingredientsText: selectedRecipe.ingredients.join('\n'), instructionsText: selectedRecipe.instructions?.join('\n') || '' });
+    setEditRecipeForm({ title: selectedRecipe.title, category: selectedRecipe.category || 'Other', cook_time: selectedRecipe.cook_time || '', portions: selectedRecipe.portions || 4, image: selectedRecipe.image || '', ingredientsText: (selectedRecipe.ingredients || []).join('\n'), instructionsText: (selectedRecipe.instructions || []).join('\n') });
     setIsEditingRecipe(true);
   };
 
@@ -742,6 +829,12 @@ export default function PantryManager() {
     if (data) { setMealPlans(prev => [...prev, data as MealPlanItem]); setManualInputs(prev => ({ ...prev, [key]: '' })); setManualInputsQty(prev => ({ ...prev, [key]: 1 })); }
   };
   
+  const saveRecipeToMealPlan = async (date: string, mealType: string, recipeId: string) => {
+    if (!recipeId) return;
+    const { data } = await supabase.from('meal_plan').insert([{ date, meal_type: mealType, recipe_id: recipeId, portions: 1, user_id: userId }]).select('*, recipes(title, image, cook_time, category)').single();
+    if (data) { setMealPlans(prev => [...prev, data as MealPlanItem]); }
+  };
+
   const deleteMealPlan = async (id: string) => { setMealPlans(prev => prev.filter(m => m.id !== id)); await supabase.from('meal_plan').delete().eq('id', id).eq('user_id', userId); };
 
   const handleAddShoppingItem = async (e: React.FormEvent) => {
@@ -781,7 +874,6 @@ export default function PantryManager() {
     (recipeCategoryFilter === 'All' || r.category === recipeCategoryFilter)
   );
   
-  // HIDING 0 QUANTITY ITEMS FROM MAIN PANTRY GRID
   const visiblePantryItems = items.filter(i => i.quantity > 0);
   const groupedItems = visiblePantryItems.reduce((acc, item) => {
     acc[item.category] = acc[item.category] || []; acc[item.category].push(item); return acc;
@@ -808,7 +900,7 @@ export default function PantryManager() {
 
   const addMissingRecipeIngredients = async (recipe: Recipe, currentMultiplier: number) => {
     setLoading(true);
-    const rawMissing = recipe.ingredients.map(ing => scaleAndConvertIngredient(ing, currentMultiplier, measurementSystem)).filter(scaledIng => getIngredientStatus(scaledIng, items).status !== 'in_stock');
+    const rawMissing = (recipe.ingredients || []).map(ing => scaleAndConvertIngredient(ing, currentMultiplier, measurementSystem)).filter(scaledIng => getIngredientStatus(scaledIng, items).status !== 'in_stock');
     if (rawMissing.length === 0) { showToast('You already have all ingredients!'); setLoading(false); return; }
     
     for (const rawIng of rawMissing) {
@@ -845,7 +937,6 @@ export default function PantryManager() {
       
       {/* Hidden Global Elements */}
       <datalist id="common-units">{COMMON_UNITS.map(u => <option key={u} value={u} />)}</datalist>
-      <input type="file" accept="image/*" capture="environment" ref={fileInputRef} className="hidden" onChange={handleScanReceipt} />
 
       {/* --- GLOBAL TOAST NOTIFICATION --- */}
       {toast && (
@@ -1278,7 +1369,13 @@ export default function PantryManager() {
                         <button onClick={() => setShowTrackNewInput(false)} className="text-sm font-bold text-black/40 hover:text-black">✕ Close</button>
                       </div>
                       <form onSubmit={(e) => { addNewTrackedItem(e); setShowTrackNewInput(false); }} className="flex flex-col sm:flex-row gap-2 relative z-0 hover:z-10">
-                        <input type="text" placeholder="New item name..." value={newTrackName} onChange={handleNewTrackNameChange} className="w-full sm:flex-1 px-4 py-3 rounded-xl text-sm focus:outline-none bg-white border border-black/20 text-black shadow-sm" required />
+                        <FoodAutocomplete 
+                          value={newTrackName} 
+                          onChange={(val) => { setNewTrackName(val); handleNewTrackNameChange({ target: { value: val } } as any); }}
+                          onSelect={(val) => { setNewTrackName(val); handleNewTrackNameChange({ target: { value: val } } as any); }}
+                          placeholder="New item name..."
+                          className="w-full sm:flex-1 px-4 py-3 rounded-xl text-sm focus:outline-none bg-white border border-black/20 text-black shadow-sm"
+                        />
                         <div className="flex gap-2 w-full sm:w-auto">
                           <CustomSelect 
                             value={newTrackCategory} 
@@ -1459,7 +1556,7 @@ export default function PantryManager() {
 
                       <h3 className="text-sm font-semibold uppercase tracking-wider text-black/80 mt-2">Ingredients {multiplier !== 1 && <span className="text-emerald-700 normal-case font-medium ml-2">(Scaled {multiplier}x)</span>}</h3>
                       <div className="space-y-0">
-                        {selectedRecipe.ingredients.map((ing, i) => {
+                        {(selectedRecipe.ingredients || []).map((ing, i) => {
                           const scaledIng = scaleAndConvertIngredient(ing, multiplier, measurementSystem);
                           const statusObj = getIngredientStatus(scaledIng, items);
                           return (
@@ -1480,7 +1577,7 @@ export default function PantryManager() {
                   {recipeDetailTab === 'instructions' && (
                     <div className="space-y-5 animate-in fade-in">
                       <h3 className="text-sm font-semibold uppercase tracking-wider text-black/80">Method & Instructions</h3>
-                      {selectedRecipe.instructions?.length ? selectedRecipe.instructions.map((step, idx) => {
+                      {(selectedRecipe.instructions || []).length ? (selectedRecipe.instructions || []).map((step, idx) => {
                         if (step.includes('For full cooking instructions, visit')) return null;
                         return (
                           <div key={idx} className="p-4 rounded-2xl space-y-1.5 bg-white border border-black/10 shadow-sm">
@@ -1629,7 +1726,14 @@ export default function PantryManager() {
                         <button type="button" onClick={() => setShowShoppingInput(false)} className="text-sm font-bold text-black/40 hover:text-black">✕ Close</button>
                       </div>
                       <div className="flex gap-2 w-full relative z-0 hover:z-10">
-                        <input type="text" value={shoppingInputName} onChange={(e) => setShoppingInputName(e.target.value)} placeholder="Type product name..." className="flex-1 min-w-0 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black placeholder:text-black/50 shadow-sm" autoFocus required />
+                        <FoodAutocomplete 
+                          value={shoppingInputName} 
+                          onChange={setShoppingInputName} 
+                          onSelect={setShoppingInputName}
+                          placeholder="Type product name..."
+                          className="w-full px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm"
+                          autoFocus
+                        />
                         <input type="number" step="any" min="0.01" value={shoppingInputQty} onChange={(e) => setShoppingInputQty(e.target.value)} className="w-16 md:w-20 px-2 py-3 rounded-2xl text-center text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm" />
                         <CustomSelect 
                           value={shoppingInputUnit} 
@@ -1708,7 +1812,13 @@ export default function PantryManager() {
                         <button type="button" onClick={() => setShowPantryInput(false)} className="text-sm font-bold text-black/40 hover:text-black">✕ Close</button>
                       </div>
                       <div className="flex flex-col sm:flex-row gap-3">
-                        <input type="text" placeholder="Item name (e.g. Crisp Lettuce)" value={name} onChange={handleNameChange} className="w-full sm:flex-1 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black placeholder:text-black/50 shadow-sm" required />
+                        <FoodAutocomplete 
+                          value={name} 
+                          onChange={(val) => { useStateName(val); handleNameChange({ target: { value: val } } as any); }}
+                          onSelect={(val) => { useStateName(val); handleNameChange({ target: { value: val } } as any); }}
+                          placeholder="Item name (e.g. Crisp Lettuce)"
+                          className="w-full sm:flex-1 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm"
+                        />
                         <CustomSelect 
                           value={category} 
                           onChange={(v) => { setCategory(v); setIsManualCategory(true); }} 
@@ -1954,7 +2064,7 @@ export default function PantryManager() {
                                           </div>
                                           <button 
                                             onClick={(e) => { e.stopPropagation(); deleteMealPlan(meal.id); }} 
-                                            className="text-black/30 hover:text-red-600 font-bold p-2 text-xs opacity-0 group-hover:opacity-100 transition z-10 rounded-full hover:bg-white shadow-sm"
+                                            className="w-8 h-8 shrink-0 flex items-center justify-center text-black/30 hover:text-red-600 bg-white/50 hover:bg-red-50 font-bold rounded-lg transition ml-2 shadow-sm border border-black/5"
                                           >
                                             ✕
                                           </button>
