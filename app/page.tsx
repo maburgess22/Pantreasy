@@ -7,6 +7,24 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
 
+// IMPORT OUR CUSTOM UI COMPONENTS & HELPERS
+import FoodAutocomplete from '@/components/ui/FoodAutocomplete';
+import CustomSelect from '@/components/ui/CustomSelect';
+import TopHeader from '@/components/TopHeader';
+import BottomNav from '@/components/BottomNav';
+import AccountSettingsModal from '@/components/modals/AccountSettingsModal';
+import { 
+  toBaseUnit, 
+  fromBaseUnit, 
+  scaleAndConvertIngredient, 
+  cleanIngredientName, 
+  getStandardGroceryItem, 
+  getAisle, 
+  compressImage, 
+  normalizeName, 
+  getNext7Days 
+} from '@/utils/helpers';
+
 interface PantryItem {
   id: string;
   name: string;
@@ -51,288 +69,22 @@ interface MealPlanItem {
   user_id?: string;
 }
 
-const COMMON_UNITS = ['pcs', 'kg', 'g', 'lbs', 'oz', 'ml', 'l', 'cups', 'tbsp', 'tsp', 'cans', 'packs', 'dash', 'pinch', 'cloves'];
+const CATEGORIES = [
+  { name: 'Produce' }, { name: 'Dairy & Eggs' }, { name: 'Meat & Seafood' },
+  { name: 'Pantry Staples' }, { name: 'Bakery' }, { name: 'Frozen' },
+  { name: 'Snacks' }, { name: 'Beverages' }, { name: 'Other' }
+];
 
+const COMMON_UNITS = ['pcs', 'kg', 'g', 'lbs', 'oz', 'ml', 'l', 'cups', 'tbsp', 'tsp', 'cans', 'packs', 'dash', 'pinch', 'cloves'];
 const DEFAULT_CATEGORIES = ['Produce', 'Dairy & Eggs', 'Meat & Seafood', 'Pantry Staples', 'Bakery', 'Frozen', 'Snacks', 'Beverages', 'Other'];
 
 /* ==========================================================================
-   2. API CONNECTIONS & CUSTOM UI COMPONENTS
-   ========================================================================== */
-
-// Open Food Facts API Search (Text & Category)
-const searchFoodFacts = async (query: string) => {
-  if (!query || query.trim().length < 2) return [];
-  try {
-    const res = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query.trim())}&search_simple=1&action=process&fields=product_name,generic_name,categories&json=1&page_size=10`);
-    const data = await res.json();
-    if (data.products) {
-      const uniqueMap = new Map<string, string>();
-      data.products.forEach((p: any) => {
-        const name = p.product_name || p.generic_name;
-        if (!name) return;
-        const properName = name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
-        if (!uniqueMap.has(properName)) {
-           let cat = 'Other';
-           if (p.categories) {
-              cat = p.categories.split(',')[0].trim();
-           }
-           uniqueMap.set(properName, cat);
-        }
-      });
-      return Array.from(uniqueMap.entries()).map(([name, category]) => ({ name, category })).slice(0, 5);
-    }
-  } catch (e) {
-    console.error("FoodFacts API Error:", e);
-  }
-  return [];
-};
-
-// Autocomplete Component
-function FoodAutocomplete({ value, onChange, onSelect, placeholder, className, autoFocus = false }: { value: string, onChange: (val: string) => void, onSelect: (name: string, category: string) => void, placeholder: string, className: string, autoFocus?: boolean }) {
-  const [suggestions, setSuggestions] = useState<{name: string, category: string}[]>([]);
-  const [isOpen, setIsOpen] = useState(false);
-  const [isSearching, setIsSearching] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) setIsOpen(false);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  useEffect(() => {
-    const timer = setTimeout(async () => {
-      if (value && value.length >= 2 && isOpen) {
-        setIsSearching(true);
-        const results = await searchFoodFacts(value);
-        setSuggestions(results);
-        setIsSearching(false);
-      } else {
-        setSuggestions([]);
-      }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [value, isOpen]);
-
-  return (
-    <div className="relative flex-1 min-w-0" ref={ref}>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => { onChange(e.target.value); setIsOpen(true); }}
-        placeholder={placeholder}
-        className={className}
-        required
-        autoFocus={autoFocus}
-        onFocus={() => { if (value && value.length >= 2) setIsOpen(true); }}
-      />
-      {isOpen && (suggestions.length > 0 || isSearching) && (
-        <div className="absolute top-full left-0 mt-2 w-full bg-white text-black border border-black/10 rounded-2xl shadow-2xl z-[100] overflow-hidden flex flex-col max-h-48">
-          {isSearching && suggestions.length === 0 ? (
-            <div className="px-4 py-3 text-sm italic text-black/50">Searching food database...</div>
-          ) : (
-            suggestions.map((sug, i) => (
-              <button
-                key={i}
-                type="button"
-                onClick={() => { onSelect(sug.name, sug.category); setIsOpen(false); }}
-                className="px-4 py-3 text-left hover:bg-black/5 transition border-b border-black/5 last:border-0 truncate flex flex-col"
-              >
-                <span className="text-sm font-medium">{sug.name}</span>
-                {sug.category !== 'Other' && <span className="text-[10px] text-black/40 uppercase font-bold">{sug.category}</span>}
-              </button>
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CustomSelect({ value, options, onChange, placeholder = "Select...", className = "", menuClassName = "" }: { value: string, options: {label: string, value: string}[], onChange: (val: string) => void, placeholder?: string, className?: string, menuClassName?: string }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) setIsOpen(false);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  const selectedLabel = options.find(o => o.value === value)?.label || placeholder;
-
-  return (
-    <div className={`relative ${className}`} ref={ref}>
-      <div onClick={() => setIsOpen(!isOpen)} className="w-full h-full flex items-center justify-between cursor-pointer focus:outline-none select-none px-3 py-2">
-        <span className="truncate capitalize text-black text-sm">{selectedLabel}</span>
-        <span className="text-[10px] ml-2 opacity-50 text-black">▼</span>
-      </div>
-      {isOpen && (
-        <div className={`absolute top-full left-0 mt-2 min-w-full w-max max-h-48 overflow-y-auto bg-[#1A1A1A] text-white rounded-2xl shadow-2xl z-[100] border border-white/10 flex flex-col ${menuClassName}`}>
-          {options.length === 0 ? (
-            <div className="px-5 py-3 text-sm text-white/50 italic">No options</div>
-          ) : (
-            options.map(opt => (
-              <button type="button" key={opt.value} onClick={(e) => { e.preventDefault(); onChange(opt.value); setIsOpen(false); }} className="px-5 py-3 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5 last:border-0 capitalize">
-                {opt.label}
-              </button>
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ==========================================================================
-   3. HELPER FUNCTIONS & UNIT CONVERSION
-   ========================================================================== */
-function toBaseUnit(qty: number, unit: string) {
-  const u = (unit || '').toLowerCase();
-  if (u === 'kg') return { qty: qty * 1000, base: 'g' };
-  if (u === 'l') return { qty: qty * 1000, base: 'ml' };
-  if (u === 'lbs') return { qty: qty * 16, base: 'oz' };
-  return { qty, base: u || 'pcs' };
-}
-
-function fromBaseUnit(qty: number, base: string) {
-  if (base === 'g' && qty >= 1000) return { qty: qty / 1000, unit: 'kg' };
-  if (base === 'ml' && qty >= 1000) return { qty: qty / 1000, unit: 'l' };
-  if (base === 'oz' && qty >= 16) return { qty: qty / 16, unit: 'lbs' };
-  return { qty, unit: base };
-}
-
-function scaleAndConvertIngredient(ingredient: string, multiplier: number, targetSystem: 'metric' | 'imperial'): string {
-  let result = ingredient || '';
-  if (multiplier !== 1) {
-    result = result.replace(/^([\d.]+)/, (match) => {
-      return (parseFloat(match) * multiplier).toFixed(2).replace(/\.?0+$/, ''); 
-    });
-  }
-
-  const regex = /\b([\d.]+)\s*(g|kg|ml|l|oz|lbs|fl\s*oz|cup|cups|tbsp|tsp)\b/gi;
-  result = result.replace(regex, (match, numStr, unit) => {
-    let num = parseFloat(numStr);
-    let lowerUnit = unit.toLowerCase();
-    if (targetSystem === 'imperial') {
-      if (lowerUnit === 'g') { num *= 0.035274; lowerUnit = 'oz'; }
-      else if (lowerUnit === 'kg') { num *= 2.20462; lowerUnit = 'lbs'; }
-      else if (lowerUnit === 'ml') { num *= 0.033814; lowerUnit = 'fl oz'; }
-      else if (lowerUnit === 'l') { num *= 4.22675; lowerUnit = 'cups'; }
-    } else if (targetSystem === 'metric') {
-      if (lowerUnit === 'oz') { num *= 28.3495; lowerUnit = 'g'; }
-      else if (lowerUnit === 'lbs') { num *= 0.453592; lowerUnit = 'kg'; }
-      else if (lowerUnit === 'fl oz') { num *= 29.5735; lowerUnit = 'ml'; }
-      else if (lowerUnit === 'cup' || lowerUnit === 'cups') { num *= 236.588; lowerUnit = 'ml'; }
-      if (lowerUnit === 'ml' && num >= 1000) { num /= 1000; lowerUnit = 'l'; }
-      if (lowerUnit === 'g' && num >= 1000) { num /= 1000; lowerUnit = 'kg'; }
-    }
-    return `${num % 1 === 0 ? num.toString() : num.toFixed(1).replace(/\.0$/, '')} ${lowerUnit}`;
-  });
-  return result;
-}
-
-function cleanIngredientName(rawName: string): string {
-  if (!rawName) return '';
-  let clean = rawName.split(',')[0]; 
-  clean = clean.replace(/\(.*?\)/g, ''); 
-  const descriptors = /\b(finely|roughly|chopped|diced|sliced|minced|peeled|crushed|grated|large|medium|small|fresh|dried|to serve|can|cans|tin|tins|jar|jars)\b/gi;
-  clean = clean.replace(descriptors, '');
-  return clean.replace(/\s+/g, ' ').trim();
-}
-
-function getStandardGroceryItem(ingredient: string): string {
-  const match = ingredient.match(/^([\d.]+)?\s*(?:\b(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)\b)?\s*(.*)$/i);
-  if (!match) return ingredient;
-
-  let qty = parseFloat(match[1]) || 0;
-  let unit = (match[2] || '').toLowerCase();
-  let name = (match[3] || '').trim();
-  const lowerName = name.toLowerCase();
-
-  const staples = ['oil', 'vinegar', 'sauce', 'paste', 'mustard', 'mayo', 'ketchup', 'salt', 'pepper', 'spice', 'powder', 'extract', 'sugar', 'flour', 'honey', 'syrup', 'jam', 'butter', 'garlic', 'ginger', 'cinnamon', 'cumin', 'paprika', 'oregano', 'basil', 'thyme', 'chili', 'chilli', 'seeds', 'flaxseeds'];
-  if (staples.some(s => lowerName.includes(s))) return name.charAt(0).toUpperCase() + name.slice(1);
-
-  const liquids = ['milk', 'cream', 'broth', 'stock', 'water', 'juice'];
-  if (liquids.some(l => lowerName.includes(l))) {
-    let mlQty = qty;
-    if (unit === 'l') mlQty = qty * 1000;
-    else if (unit === 'cups') mlQty = qty * 250;
-    else if (unit === 'tbsp') mlQty = qty * 15;
-    else if (unit === 'tsp') mlQty = qty * 5;
-    
-    if (mlQty > 0) {
-      if (mlQty <= 250) return `250ml ${name}`;
-      if (mlQty <= 500) return `500ml ${name}`;
-      if (mlQty <= 1000) return `1L ${name}`;
-      return `${Math.ceil(mlQty / 1000)}L ${name}`;
-    }
-    return name;
-  }
-
-  const dryGoods = ['pasta', 'rice', 'oats', 'lentils', 'beans', 'quinoa', 'couscous'];
-  if (dryGoods.some(d => lowerName.includes(d))) {
-     let gQty = qty;
-     if (unit === 'kg') gQty = qty * 1000;
-     else if (unit === 'cups') gQty = qty * 200;
-     else if (unit === 'oz') gQty = qty * 28;
-     else if (unit === 'lbs') gQty = qty * 450;
-
-     if (gQty > 0) {
-        if (gQty <= 500) return `500g ${name}`;
-        return `${Math.ceil(gQty / 1000)}kg ${name}`;
-     }
-     return name;
-  }
-
-  return ingredient;
-}
-
-const compressImage = (file: File, maxWidth = 1080): Promise<File> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = (event) => {
-      const img = new Image();
-      img.src = event.target?.result as string;
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const scale = Math.min(maxWidth / img.width, 1);
-        canvas.width = img.width * scale;
-        canvas.height = img.height * scale;
-        const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob((blob) => {
-          if (blob) resolve(new File([blob], file.name, { type: 'image/jpeg' }));
-          else reject(new Error('Canvas is empty'));
-        }, 'image/jpeg', 0.8);
-      };
-    };
-    reader.onerror = error => reject(error);
-  });
-};
-
-const normalizeName = (name: string) => {
-  let w = (name || '').toLowerCase().trim();
-  if (w.endsWith('ies')) return w.slice(0, -3) + 'y';
-  if (w.endsWith('oes')) return w.slice(0, -2);
-  if (w.endsWith('es') && /(sh|ch|ss|x|z)$/.test(w.slice(0,-2))) return w.slice(0, -2);
-  if (w.endsWith('s') && !w.endsWith('ss')) return w.slice(0, -1);
-  return w;
-};
-
-const getNext7Days = () => Array.from({ length: 7 }).map((_, i) => { const d = new Date(); d.setDate(d.getDate() + i); return d.toISOString().split('T')[0]; });
-
-/* ==========================================================================
-   4. MAIN COMPONENT & STATE MANAGEMENT
+   2. MAIN COMPONENT & STATE MANAGEMENT
    ========================================================================== */
 export default function PantryManager() {
   const supabase = createClient();
   const router = useRouter();
+  const [isMounted, setIsMounted] = useState(false);
 
   // App & User State
   const [activeTab, setActiveTab] = useState<'dashboard' | 'pantry' | 'recipes' | 'shopping' | 'planner' | 'lowstock'>('dashboard');
@@ -349,7 +101,7 @@ export default function PantryManager() {
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
 
-  // 3-Dot Menus & Modals
+  // 3-Dot Menus Bottom Sheets
   const [pantryActionMenu, setPantryActionMenu] = useState<{isOpen: boolean, item: PantryItem | null}>({isOpen: false, item: null});
   const [recipeActionMenu, setRecipeActionMenu] = useState<{isOpen: boolean, recipe: Recipe | null}>({isOpen: false, recipe: null});
   const [editingPantryItem, setEditingPantryItem] = useState<PantryItem | null>(null);
@@ -377,6 +129,7 @@ export default function PantryManager() {
   const [category, setCategory] = useState('Produce');
   const [quantity, setQuantity] = useState('1');
   const [unit, setUnit] = useState('pcs');
+  const [isManualCategory, setIsManualCategory] = useState(false);
 
   const [showAddShoppingMenu, setShowAddShoppingMenu] = useState(false);
   const [showShoppingInput, setShowShoppingInput] = useState(false);
@@ -391,7 +144,6 @@ export default function PantryManager() {
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
 
-  // Barcode Scanner State
   const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
 
   const [collapsedDays, setCollapsedDays] = useState<Record<string, boolean>>({});
@@ -428,16 +180,16 @@ export default function PantryManager() {
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
 
-  // DYNAMIC CATEGORIES FOR PANTRY
   const dynamicCategories = Array.from(new Set([
     ...DEFAULT_CATEGORIES,
-    ...items.map(i => i.category)
+    ...(items || []).map(i => i?.category)
   ])).filter(Boolean);
 
   /* ==========================================================================
-     DATA FETCHING & EVENT LISTENERS
+     3. DATA FETCHING & EVENT LISTENERS
      ========================================================================== */
   useEffect(() => {
+    setIsMounted(true);
     const loadData = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { router.push('/login'); return; }
@@ -516,7 +268,69 @@ export default function PantryManager() {
   };
 
   /* ==========================================================================
-     MERGING / ACCUMULATION ENGINES
+     4. BARCODE SCANNING INTEGRATION
+     ========================================================================== */
+  useEffect(() => {
+    let html5QrCode: any;
+    if (showBarcodeScanner) {
+      import('html5-qrcode').then(({ Html5Qrcode }) => {
+        html5QrCode = new Html5Qrcode("barcode-reader");
+        html5QrCode.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 250, height: 150 } },
+          async (decodedText: string) => {
+            try { await html5QrCode.stop(); html5QrCode.clear(); } catch(e) {}
+            setShowBarcodeScanner(false);
+            await handleBarcodeScanned(decodedText);
+          },
+          (err: any) => { }
+        ).catch((err: any) => {
+           showToast("Camera access denied or unavailable.");
+           setShowBarcodeScanner(false);
+        });
+      }).catch(err => {
+         showToast("Barcode scanner library failed to load.");
+         setShowBarcodeScanner(false);
+      });
+    }
+    return () => {
+      if (html5QrCode && html5QrCode.isScanning) {
+        html5QrCode.stop().then(() => html5QrCode.clear()).catch((e: any) => console.log(e));
+      }
+    };
+  }, [showBarcodeScanner]);
+
+  const handleBarcodeScanned = async (barcode: string) => {
+    setLoading(true);
+    showToast('Barcode recognized! Fetching details...');
+    try {
+      const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${barcode}.json?fields=product_name,generic_name,brands,quantity,categories_tags`);
+      const data = await res.json();
+      if (data.status === 1 && data.product) {
+        const p = data.product;
+        const itemName = p.product_name || p.generic_name || 'Unknown Item';
+        const brand = p.brands ? `${p.brands.split(',')[0]} ` : '';
+        const fullName = `${brand}${itemName}`.trim().charAt(0).toUpperCase() + `${brand}${itemName}`.trim().slice(1).toLowerCase();
+        useStateName(fullName);
+        setCategory(getAisle(fullName));
+        if (p.quantity) {
+           const match = p.quantity.match(/^([\d.]+)\s*([a-zA-Z]+)/);
+           if (match) { setQuantity(match[1]); setUnit(match[2].toLowerCase()); }
+        }
+        setShowPantryInput(true);
+        showToast('Item loaded! Please review and save.');
+      } else {
+        showToast('Product not found in database. Try typing manually.');
+        setShowPantryInput(true);
+      }
+    } catch (e) {
+      showToast('Error looking up barcode.');
+    }
+    setLoading(false);
+  };
+
+  /* ==========================================================================
+     5. MERGING / ACCUMULATION ENGINES
      ========================================================================== */
   const addOrMergePantryItem = async (newItem: { name: string, category: string, quantity: number, unit: string, track_low_stock: boolean, low_stock_threshold: number }) => {
     const existing = items.find(i => normalizeName(i.name) === normalizeName(newItem.name));
@@ -562,7 +376,7 @@ export default function PantryManager() {
   };
 
   /* ==========================================================================
-     VOICE INPUT PARSING
+     6. VOICE INPUT PARSING
      ========================================================================== */
   const toggleListening = () => {
     if (isListening) {
@@ -664,8 +478,22 @@ export default function PantryManager() {
   };
 
   /* ==========================================================================
-     CRUD HANDLERS
+     7. CRUD HANDLERS
      ========================================================================== */
+  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement> | {target: {value: string}}) => {
+    const val = e.target.value; useStateName(val);
+    if (!isManualCategory && val.length > 2) {
+      setCategory(getAisle(val));
+    }
+  };
+
+  const handleNewTrackNameChange = (e: React.ChangeEvent<HTMLInputElement> | {target: {value: string}}) => {
+    const val = e.target.value; setNewTrackName(val);
+    if (val.length > 2) {
+      setNewTrackCategory(getAisle(val));
+    }
+  };
+
   const addItem = async (e: React.FormEvent) => {
     e.preventDefault(); if (!name.trim()) return; setLoading(true);
     await addOrMergePantryItem({ name: name.trim(), category, quantity: parseFloat(quantity) || 1, unit, track_low_stock: false, low_stock_threshold: 1 });
@@ -680,7 +508,7 @@ export default function PantryManager() {
       const res = await fetch('/api/scan-receipt', { method: 'POST', body: formData }); 
       const data = await res.json();
       if (data.items && data.items.length > 0) setScannedItems(data.items); 
-      else showToast(data.message || 'Scanner API didn\'t find any items. Check your backend configuration or try a clearer photo!');
+      else showToast(data.message || 'Scanner API didn\'t find any items.');
     } catch { showToast('Failed to read receipt. Image may be too large or backend error.'); }
     if (fileInputRef.current) fileInputRef.current.value = ''; setIsScanning(false);
   };
@@ -755,6 +583,26 @@ export default function PantryManager() {
        showToast('Tracking added!');
     }
     setNewTrackName(''); setLoading(false); setShowTrackNewInput(false);
+  };
+
+  const handleImportRecipe = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!importUrl) return;
+    setIsImporting(true);
+    try {
+      const res = await fetch('/api/scrape-recipe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: importUrl }) });
+      const data = await res.json();
+      if (res.ok && data.title) {
+        const { data: insertedData, error } = await supabase.from('recipes').insert([{ ...data, portions: 4, user_id: userId }]).select().single();
+        if (error) throw error;
+        if (insertedData) { setRecipes(prev => [insertedData, ...prev]); showToast('Recipe imported!'); setShowImportInput(false); }
+      } else {
+        showToast(data.error || 'Could not extract a recipe from that URL.');
+      }
+    } catch {
+      showToast('Failed to import recipe.');
+    }
+    setImportUrl(''); setIsImporting(false);
   };
 
   const saveManualRecipe = async () => {
@@ -852,7 +700,7 @@ export default function PantryManager() {
   };
 
   /* ==========================================================================
-     COMPUTED DATA FOR RENDERING
+     8. COMPUTED DATA FOR RENDERING
      ========================================================================== */
   const trackedItemsList = items.filter(i => i.track_low_stock);
   const untrackedItemsList = items.filter(i => !i.track_low_stock);
@@ -866,7 +714,6 @@ export default function PantryManager() {
     (recipeCategoryFilter === 'All' || r?.category === recipeCategoryFilter)
   );
   
-  // HIDING 0 QUANTITY ITEMS FROM MAIN PANTRY GRID
   const visiblePantryItems = items.filter(i => i.quantity > 0);
   const groupedItems = visiblePantryItems.reduce((acc, item) => {
     acc[item.category] = acc[item.category] || []; acc[item.category].push(item); return acc;
@@ -902,10 +749,8 @@ export default function PantryManager() {
       let qty = parseFloat(match?.[1] || '1') || 1;
       let unit = (match?.[2] || 'pcs').toLowerCase();
       let rawName = match?.[3] || rawIng;
-      
       let cleanName = cleanIngredientName(rawName);
       const standard = getStandardGroceryItem(`${qty} ${unit} ${cleanName}`);
-      
       const stdMatch = standard.match(/^([\d.]+)?\s*(?:\b(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)\b)?\s*(.*)$/i);
       let finalQty = parseFloat(stdMatch?.[1] || '1') || 1;
       let finalUnit = (stdMatch?.[2] || unit).toLowerCase();
@@ -923,8 +768,10 @@ export default function PantryManager() {
   const totalAllocated = Object.values(allocationsGrid).reduce((a, b) => a + b, 0);
   const remainingPortions = planTargetPortions - totalAllocated;
 
+  if (!isMounted) return null; // Hydration protection
+
   /* ==========================================================================
-     8. MAIN RENDER WRAPPER
+     9. RENDER JSX
      ========================================================================== */
   return (
     <main className="min-h-screen w-full overflow-x-hidden bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 pb-28 md:p-8 md:pb-8 font-montserrat">
@@ -940,6 +787,22 @@ export default function PantryManager() {
           </div>
         </div>
       )}
+
+      {/* --- EXTRACTED NAVIGATION & MODALS --- */}
+      <TopHeader activeTab={activeTab} handleTabChange={handleTabChange} setShowAccountModal={setShowAccountModal} />
+      
+      <AccountSettingsModal 
+        showModal={showAccountModal} 
+        setShowModal={setShowAccountModal} 
+        userEmail={userEmail} 
+        newEmail={newEmail} 
+        setNewEmail={setNewEmail} 
+        newPassword={newPassword} 
+        setNewPassword={setNewPassword} 
+        handleUpdateAccount={handleUpdateAccount} 
+        handleSignOut={handleSignOut} 
+        loading={loading} 
+      />
 
       {/* --- MODAL: BARCODE SCANNER --- */}
       {showBarcodeScanner && (
@@ -1043,6 +906,42 @@ export default function PantryManager() {
         </div>
       )}
 
+      {/* --- MODAL: SCANNED RECEIPT REVIEW --- */}
+      {scannedItems && scannedItems.length > 0 && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
+           <div className="bg-white rounded-[32px] w-full max-w-2xl p-6 md:p-8 flex flex-col max-h-[90vh] animate-in zoom-in-95">
+             <h2 className="text-2xl font-bold mb-4">Review Scanned Items</h2>
+             <div className="overflow-y-auto flex-1 space-y-3 pr-2">
+               {scannedItems.map((item, index) => (
+                  <div key={index} className="flex flex-col sm:flex-row gap-2 bg-black/5 p-3 rounded-2xl relative z-0 hover:z-10">
+                    <input value={item.name} onChange={e => updateScannedItem(index, 'name', e.target.value)} className="flex-1 px-3 py-2 rounded-xl focus:outline-none placeholder:text-black/50" placeholder="Item Name" />
+                    <div className="flex gap-2">
+                      <input type="number" step="any" value={item.quantity || 1} onChange={e => updateScannedItem(index, 'quantity', e.target.value)} className="w-16 px-2 py-2 rounded-xl text-center focus:outline-none" />
+                      <CustomSelect 
+                        value={item.unit || 'pcs'} 
+                        onChange={v => updateScannedItem(index, 'unit', v)} 
+                        options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
+                        className="w-24 bg-white rounded-xl"
+                      />
+                    </div>
+                    <CustomSelect 
+                      value={item.category || 'Other'} 
+                      onChange={v => updateScannedItem(index, 'category', v)} 
+                      options={CATEGORIES.map(c => ({label: c.name, value: c.name}))} 
+                      className="w-full sm:w-28 bg-white rounded-xl"
+                    />
+                    <button onClick={() => removeScannedItem(index)} className="px-3 py-2 bg-red-500/80 text-white rounded-xl font-bold hover:bg-red-500 transition">✕</button>
+                  </div>
+               ))}
+             </div>
+             <div className="flex gap-3 mt-6 pt-4 border-t border-black/10 shrink-0">
+                <button onClick={() => setScannedItems(null)} className="flex-1 py-3.5 rounded-2xl font-bold border border-black/20 text-black hover:bg-black/5 transition">Cancel</button>
+                <button onClick={commitScannedItems} disabled={loading} className="flex-1 py-3.5 rounded-2xl font-bold bg-black text-white hover:bg-black/80 transition shadow-sm">{loading ? 'Saving...' : 'Confirm & Add'}</button>
+             </div>
+           </div>
+        </div>
+      )}
+
       {/* --- MODAL: MEAL DISTRIBUTION PLANNER --- */}
       {showDistributionModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
@@ -1088,8 +987,8 @@ export default function PantryManager() {
                                   {existingMeals.length > 0 && (
                                     <div className="flex flex-col gap-1 w-full mb-1">
                                       {existingMeals.map(m => (
-                                        <span key={m.id} className="text-[9px] bg-amber-100 text-amber-800 px-1 py-0.5 rounded text-center leading-tight truncate w-full" title={`${m.recipe_id ? m.recipes?.title : m.manual_name} (${m.portions})`}>
-                                          {m.portions}x {m.recipe_id ? m.recipes?.title : m.manual_name}
+                                        <span key={m.id} className="text-[9px] bg-amber-100 text-amber-800 px-1 py-0.5 rounded text-center leading-tight truncate w-full" title={`${m.recipe_id ? (Array.isArray(m.recipes) ? m.recipes[0]?.title : m.recipes?.title) : m.manual_name} (${m.portions})`}>
+                                          {m.portions}x {m.recipe_id ? (Array.isArray(m.recipes) ? m.recipes[0]?.title : m.recipes?.title) : m.manual_name}
                                         </span>
                                       ))}
                                     </div>
@@ -1215,80 +1114,67 @@ export default function PantryManager() {
         </div>
       )}
 
-      {/* --- MODAL: ACCOUNT SETTINGS --- */}
-      {showAccountModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[90]">
-          <div className="bg-white rounded-[32px] p-8 md:p-10 shadow-2xl w-full max-w-md border border-black/10 animate-in fade-in zoom-in-95">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-bold">Account Settings</h2>
-              <button onClick={() => setShowAccountModal(false)} className="text-black/40 hover:text-black font-bold">✕</button>
+      {/* --- SCREENS THAT HIDE MAIN CONTENT --- */}
+      {showVoiceInputScreen && (
+        <div className="flex flex-col items-center justify-center min-h-[80vh]">
+          <div className="bg-[#6B705C] p-6 md:p-8 rounded-[32px] shadow-2xl w-full max-w-2xl flex flex-col gap-6 text-white border border-black/10 animate-in fade-in zoom-in-95">
+            <div className="text-center">
+              <h2 className="text-3xl font-bold mb-2">Voice Entry</h2>
+              <p className="text-white/80 text-sm">Say something like: "3 bananas and 200g of flour"</p>
             </div>
             
-            <div className="space-y-6">
-              <div>
-                <label className="text-xs font-bold uppercase tracking-wider text-black/50 block mb-1">Current Account</label>
-                <div className="px-4 py-3 bg-black/5 rounded-2xl font-medium text-black">{userEmail}</div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-sm font-semibold uppercase tracking-wider text-black/80">Change Email</label>
-                <input type="email" placeholder="New email address..." value={newEmail} onChange={e => setNewEmail(e.target.value)} className="w-full px-4 py-3 rounded-2xl bg-white border border-black/20 focus:outline-none focus:border-[#6B705C] shadow-sm" />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-sm font-semibold uppercase tracking-wider text-black/80">Change Password</label>
-                <input type="password" placeholder="New password..." value={newPassword} onChange={e => setNewPassword(e.target.value)} className="w-full px-4 py-3 rounded-2xl bg-white border border-black/20 focus:outline-none focus:border-[#6B705C] shadow-sm" />
-              </div>
-
-              <button onClick={handleUpdateAccount} disabled={loading || (!newEmail && !newPassword)} className="w-full py-3.5 bg-[#6B705C] text-white rounded-2xl font-bold shadow-sm hover:bg-[#5a5f4d] disabled:opacity-50 transition">
-                {loading ? 'Saving...' : 'Save Changes'}
+            <div className="flex justify-center mt-2">
+              <button 
+                onClick={toggleListening}
+                className={`px-8 py-4 rounded-2xl flex items-center justify-center gap-3 font-bold transition-all shadow-sm ${isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-black text-white hover:bg-black/80'}`}
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
+                {isListening ? 'Tap to Stop...' : 'Tap to Speak'}
               </button>
+            </div>
 
-              <div className="border-t border-black/10 pt-6 mt-4">
-                <button onClick={handleSignOut} className="w-full py-3.5 bg-red-50 text-red-800 border border-red-200 rounded-2xl font-bold hover:bg-red-100 transition">
-                  Sign Out
+            {voiceParsedItems.length > 0 && (
+              <div className="flex flex-col gap-3 mt-4">
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-white/80 border-b border-white/20 pb-2 mb-2">Review Items</h3>
+                {voiceParsedItems.map((item, index) => (
+                  <div key={item.id} className="flex flex-row items-center gap-2 bg-white/10 p-2 rounded-2xl w-full relative z-0 hover:z-10">
+                    <input value={item.name} onChange={e => updateVoiceItem(index, 'name', e.target.value)} className="flex-1 min-w-[80px] bg-white text-black px-2 py-2 rounded-xl text-sm focus:outline-none placeholder:text-black/50" placeholder="Item Name" />
+                    <input type="number" step="any" value={item.quantity} onChange={e => updateVoiceItem(index, 'quantity', e.target.value)} className="w-12 bg-white text-black px-1 py-2 rounded-xl text-sm text-center focus:outline-none" />
+                    <CustomSelect 
+                      value={item.unit} 
+                      onChange={v => updateVoiceItem(index, 'unit', v)} 
+                      options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
+                      className="w-[75px] bg-white rounded-xl"
+                    />
+                    {voiceContext === 'pantry' && (
+                      <CustomSelect 
+                        value={item.category || 'Other'} 
+                        onChange={v => updateVoiceItem(index, 'category', v)} 
+                        options={dynamicCategories.map(c => ({label: c, value: c}))} 
+                        className="w-24 hidden sm:block bg-white rounded-xl"
+                      />
+                    )}
+                    <button onClick={() => removeVoiceItem(index)} className="w-8 h-8 shrink-0 flex items-center justify-center bg-red-500/80 text-white rounded-xl font-bold hover:bg-red-500 transition">✕</button>
+                  </div>
+                ))}
+                <button onClick={commitVoiceItems} disabled={loading} className="w-full py-4 mt-4 bg-black text-white rounded-2xl font-bold hover:bg-black/80 shadow-sm transition">
+                  {loading ? 'Saving...' : `Confirm & Add to ${voiceContext === 'shopping' ? 'List' : 'Pantry'}`}
                 </button>
               </div>
+            )}
+
+            <div className="border-t border-white/20 pt-4 mt-2">
+              <button onClick={() => { setShowVoiceInputScreen(false); setVoiceParsedItems([]); setVoiceTranscript(''); }} className="w-full py-3 bg-transparent text-white font-bold hover:bg-white/10 rounded-2xl transition">
+                Cancel
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* --- STANDARD MAIN VIEWS --- */}
+      {/* --- DYNAMIC CONTENT ROUTING --- */}
       {!showVoiceInputScreen && (
-        <div className="max-w-6xl mx-auto space-y-8">
-          
-          {/* DESKTOP HEADER & NAVIGATION */}
-          <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-6 border-b border-black/10">
-            <div className="flex items-center justify-between w-full sm:w-auto">
-              <div className="flex items-center gap-3 md:gap-4">
-                <img src="/logo.png" alt="Pantreasy Logo" className="w-[72px] h-[72px] md:w-20 md:h-20 object-contain shrink-0 mix-blend-multiply" />
-                <div>
-                  <h1 className="text-4xl md:text-6xl font-mogena tracking-tight text-black mt-1">Pantreasy</h1>
-                  <p className="text-sm md:text-base text-black/70 mt-1 font-normal hidden md:block">Keep track of your ingredients & dinner plans</p>
-                </div>
-              </div>
-              
-              <button onClick={() => setShowAccountModal(true)} className="md:hidden text-black hover:opacity-70 transition p-2">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-              </button>
-            </div>
-            
-            <nav className="hidden md:flex flex-wrap items-center gap-1 p-1.5">
-              {[{ id: 'dashboard', label: 'Dashboard' }, { id: 'pantry', label: 'Pantry' }, { id: 'recipes', label: 'Recipes' }, { id: 'shopping', label: 'Shopping List' }, { id: 'planner', label: 'Planner' }].map((tab) => (
-                <button key={tab.id} onClick={() => handleTabChange(tab.id)} className={`px-4 py-2 rounded-xl text-sm transition ${activeTab === tab.id ? 'bg-black text-white font-medium' : 'text-black/80 hover:text-black font-normal'}`}>
-                  {tab.label}
-                </button>
-              ))}
-              <div className="w-px h-6 bg-black/20 mx-1"></div>
-              
-              <button onClick={() => setShowAccountModal(true)} className="px-3 py-2 text-black hover:opacity-70 transition flex items-center gap-2">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-              </button>
-            </nav>
-          </header>
-
-          {/* DYNAMIC CONTENT ROUTING */}
+        <div className="max-w-6xl mx-auto space-y-8 mt-6">
           {activeTab === 'lowstock' && !selectedRecipe ? (
             
             /* --- LOW STOCK SCREEN --- */
@@ -1597,28 +1483,30 @@ export default function PantryManager() {
                             <h3 className="text-sm font-bold uppercase tracking-wider text-[#6B705C] mb-3">{mealType}</h3>
                             {meals.length > 0 ? (
                               <div className="space-y-3">
-                                {meals.map(meal => (
+                                {meals.map(meal => {
+                                  const matchedRecipe = meal.recipe_id ? (recipes || []).find(r => r.id === meal.recipe_id) : null;
+                                  const title = matchedRecipe ? matchedRecipe.title : meal.manual_name || 'Manual Meal';
+                                  const img = matchedRecipe ? matchedRecipe.image : null;
+                                  
+                                  return (
                                   <div 
                                     key={meal.id} 
                                     onClick={() => {
-                                      if (meal.recipe_id) {
-                                        const matchedRecipe = (recipes || []).find(r => r.id === meal.recipe_id);
-                                        if (matchedRecipe) handleOpenRecipe(matchedRecipe);
-                                        else showToast('Recipe details are loading or unavailable.');
-                                      }
+                                      if (matchedRecipe) handleOpenRecipe(matchedRecipe);
+                                      else showToast('Recipe details are loading or unavailable.');
                                     }}
-                                    className={`flex items-center gap-3 bg-white p-3 rounded-2xl border border-black/5 transition ${meal.recipe_id ? 'cursor-pointer hover:shadow-md hover:border-black/20' : ''}`}
+                                    className={`flex items-center gap-3 bg-white p-3 rounded-2xl border border-black/5 transition ${matchedRecipe ? 'cursor-pointer hover:shadow-md hover:border-black/20' : ''}`}
                                   >
-                                    {meal.recipe_id && meal.recipes?.image ? (
-                                      <img src={meal.recipes.image} alt={meal.recipes.title} className="w-14 h-14 rounded-xl object-cover shrink-0 border border-black/5" />
+                                    {img ? (
+                                      <img src={img} alt={title} className="w-14 h-14 rounded-xl object-cover shrink-0 border border-black/5" />
                                     ) : (
                                       <div className="w-14 h-14 rounded-xl bg-[#6B705C]/10 flex items-center justify-center shrink-0 border border-black/5">
-                                        <span className="text-[10px] font-semibold text-black/40 text-center leading-tight">{meal.recipe_id ? 'No Img' : 'Manual'}</span>
+                                        <span className="text-[10px] font-semibold text-black/40 text-center leading-tight">{matchedRecipe ? 'No Img' : 'Manual'}</span>
                                       </div>
                                     )}
                                     <div className="flex-1 min-w-0">
-                                      <p className="font-bold text-sm text-black truncate">{meal.recipe_id ? meal.recipes?.title : meal.manual_name}</p>
-                                      <p className="text-xs font-medium text-black/60 mt-0.5">{meal.portions} portion{meal.portions > 1 ? 's' : ''}</p>
+                                      <p className="font-bold text-sm text-black truncate">{title}</p>
+                                      <p className="text-xs font-medium text-black/60 mt-0.5">{meal.portions || 1} portion{(meal.portions || 1) > 1 ? 's' : ''}</p>
                                     </div>
                                     <button 
                                       onClick={(e) => { e.stopPropagation(); deleteMealPlan(meal.id); }} 
@@ -1627,7 +1515,7 @@ export default function PantryManager() {
                                       ✕
                                     </button>
                                   </div>
-                                ))}
+                                )})}
                               </div>
                             ) : (
                               <div onClick={() => setRecipePickerTarget({ date: todayStr, mealType })} className="p-3 bg-white/50 rounded-2xl border border-dashed border-black/10 text-center cursor-pointer hover:bg-white hover:border-black/30 transition">
@@ -1829,17 +1717,19 @@ export default function PantryManager() {
                               <span className="text-sm font-semibold tracking-wider uppercase text-black">{groupCategory}</span>
                             </div>
                             <div className="space-y-2">
-                              {groupList.map((item) => (
-                                <div key={item.id} className="flex items-center justify-between p-3 rounded-[20px] transition bg-white border border-black/10 shadow-sm relative z-0 hover:z-10">
-                                  <div>
-                                    <h3 className="font-semibold text-base capitalize text-black leading-tight mb-1">{item.name}</h3>
-                                    <p className="text-sm text-black/70 font-normal">{item.quantity} {item.unit}</p>
+                              {groupList.map((item) => {
+                                return (
+                                  <div key={item.id} className="flex items-center justify-between p-3 rounded-[20px] transition bg-white border border-black/10 shadow-sm relative z-0 hover:z-10">
+                                    <div>
+                                      <h3 className="font-semibold text-base capitalize text-black leading-tight mb-1">{item.name}</h3>
+                                      <p className="text-sm text-black/70 font-normal">{item.quantity} {item.unit}</p>
+                                    </div>
+                                    <button onClick={() => setPantryActionMenu({isOpen: true, item})} className="p-2 hover:bg-black/5 rounded-full text-black/40 hover:text-black transition shrink-0">
+                                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
+                                    </button>
                                   </div>
-                                  <button onClick={() => setPantryActionMenu({isOpen: true, item})} className="p-2 hover:bg-black/5 rounded-full text-black/40 hover:text-black transition shrink-0">
-                                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
-                                  </button>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           </div>
                         );
@@ -2014,7 +1904,7 @@ export default function PantryManager() {
                                           </div>
                                           <button 
                                             onClick={(e) => { e.stopPropagation(); deleteMealPlan(meal.id); }} 
-                                            className="text-black/30 hover:text-red-600 font-bold p-2 text-xs opacity-0 group-hover:opacity-100 transition z-10 rounded-full hover:bg-white shadow-sm"
+                                            className="w-8 h-8 shrink-0 flex items-center justify-center text-black/30 hover:text-red-600 font-bold p-2 text-xs opacity-0 group-hover:opacity-100 transition z-10 rounded-full hover:bg-white shadow-sm"
                                           >
                                             ✕
                                           </button>
@@ -2050,27 +1940,9 @@ export default function PantryManager() {
         </div>
       )}
 
-      {/* --- MOBILE BOTTOM NAVIGATION BAR --- */}
-      {!showVoiceInputScreen && (
-        <div className="md:hidden fixed bottom-0 inset-x-0 bg-white/90 backdrop-blur-md border-t border-black/10 px-6 pt-3 pb-6 flex justify-between items-center z-40 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
-          {[
-            { id: 'dashboard', label: 'Home', svg: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /> },
-            { id: 'pantry', label: 'Pantry', svg: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /> },
-            { id: 'recipes', label: 'Recipes', svg: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /> },
-            { id: 'shopping', label: 'List', svg: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" /> },
-            { id: 'planner', label: 'Plan', svg: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /> }
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => handleTabChange(tab.id)}
-              className={`flex flex-col items-center gap-1 transition ${activeTab === tab.id ? 'text-[#6B705C] scale-110' : 'text-black/40 hover:text-black/70'}`}
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">{tab.svg}</svg>
-              <span className="text-[10px] font-bold tracking-wide">{tab.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
+      {/* --- EXTRACTED MOBILE BOTTOM NAVIGATION BAR --- */}
+      <BottomNav activeTab={activeTab} handleTabChange={handleTabChange} showVoiceInputScreen={showVoiceInputScreen} />
+
     </main>
   );
 }
