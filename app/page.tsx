@@ -51,32 +51,35 @@ interface MealPlanItem {
   user_id?: string;
 }
 
-const CATEGORIES = [
-  { name: 'Produce' }, { name: 'Dairy & Eggs' }, { name: 'Meat & Seafood' },
-  { name: 'Pantry Staples' }, { name: 'Bakery' }, { name: 'Frozen' },
-  { name: 'Snacks' }, { name: 'Beverages' }, { name: 'Other' }
-];
-
 const COMMON_UNITS = ['pcs', 'kg', 'g', 'lbs', 'oz', 'ml', 'l', 'cups', 'tbsp', 'tsp', 'cans', 'packs', 'dash', 'pinch', 'cloves'];
+
+const DEFAULT_CATEGORIES = ['Produce', 'Dairy & Eggs', 'Meat & Seafood', 'Pantry Staples', 'Bakery', 'Frozen', 'Snacks', 'Beverages', 'Other'];
 
 /* ==========================================================================
    2. API CONNECTIONS & CUSTOM UI COMPONENTS
    ========================================================================== */
 
-// Open Food Facts API Search (Text)
+// Open Food Facts API Search (Text & Category)
 const searchFoodFacts = async (query: string) => {
   if (!query || query.trim().length < 2) return [];
   try {
-    const res = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query.trim())}&search_simple=1&action=process&fields=product_name,generic_name&json=1&page_size=8`);
+    const res = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query.trim())}&search_simple=1&action=process&fields=product_name,generic_name,categories&json=1&page_size=10`);
     const data = await res.json();
     if (data.products) {
-      const uniqueNames = Array.from(new Set(
-        data.products
-          .map((p: any) => p.product_name || p.generic_name)
-          .filter(Boolean)
-          .map((name: string) => name.charAt(0).toUpperCase() + name.slice(1).toLowerCase())
-      ));
-      return uniqueNames.slice(0, 5) as string[];
+      const uniqueMap = new Map<string, string>();
+      data.products.forEach((p: any) => {
+        const name = p.product_name || p.generic_name;
+        if (!name) return;
+        const properName = name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
+        if (!uniqueMap.has(properName)) {
+           let cat = 'Other';
+           if (p.categories) {
+              cat = p.categories.split(',')[0].trim();
+           }
+           uniqueMap.set(properName, cat);
+        }
+      });
+      return Array.from(uniqueMap.entries()).map(([name, category]) => ({ name, category })).slice(0, 5);
     }
   } catch (e) {
     console.error("FoodFacts API Error:", e);
@@ -85,8 +88,8 @@ const searchFoodFacts = async (query: string) => {
 };
 
 // Autocomplete Component
-function FoodAutocomplete({ value, onChange, onSelect, placeholder, className, autoFocus = false }: { value: string, onChange: (val: string) => void, onSelect: (val: string) => void, placeholder: string, className: string, autoFocus?: boolean }) {
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+function FoodAutocomplete({ value, onChange, onSelect, placeholder, className, autoFocus = false }: { value: string, onChange: (val: string) => void, onSelect: (name: string, category: string) => void, placeholder: string, className: string, autoFocus?: boolean }) {
+  const [suggestions, setSuggestions] = useState<{name: string, category: string}[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -134,10 +137,11 @@ function FoodAutocomplete({ value, onChange, onSelect, placeholder, className, a
               <button
                 key={i}
                 type="button"
-                onClick={() => { onSelect(sug); setIsOpen(false); }}
-                className="px-4 py-3 text-left text-sm font-medium hover:bg-black/5 transition border-b border-black/5 last:border-0 truncate"
+                onClick={() => { onSelect(sug.name, sug.category); setIsOpen(false); }}
+                className="px-4 py-3 text-left hover:bg-black/5 transition border-b border-black/5 last:border-0 truncate flex flex-col"
               >
-                {sug}
+                <span className="text-sm font-medium">{sug.name}</span>
+                {sug.category !== 'Other' && <span className="text-[10px] text-black/40 uppercase font-bold">{sug.category}</span>}
               </button>
             ))
           )}
@@ -288,20 +292,6 @@ function getStandardGroceryItem(ingredient: string): string {
   return ingredient;
 }
 
-function getAisle(name: string): string {
-  const n = (name || '').toLowerCase();
-  if (n.includes('apple') || n.includes('banana') || n.includes('lettuce') || n.includes('tomato') || n.includes('lemon') || n.includes('onion') || n.includes('garlic') || n.includes('potato') || n.includes('carrot') || n.includes('berry') || n.includes('fruit') || n.includes('veg')) return 'Produce';
-  if (n.includes('milk') || n.includes('cheese') || n.includes('egg') || n.includes('butter') || n.includes('yogurt') || n.includes('cream')) return 'Dairy & Chilled';
-  if (n.includes('chicken') || n.includes('beef') || n.includes('pork') || n.includes('fish') || n.includes('salmon') || n.includes('steak') || n.includes('bacon') || n.includes('meat') || n.includes('sausage')) return 'Meat & Seafood';
-  if (n.includes('bread') || n.includes('bagel') || n.includes('muffin') || n.includes('croissant') || n.includes('roll') || n.includes('bun') || n.includes('wrap')) return 'Bakery';
-  if (n.includes('ice cream') || n.includes('pizza') || n.includes('frozen') || n.includes('peas')) return 'Frozen';
-  if (n.includes('water') || n.includes('juice') || n.includes('soda') || n.includes('beer') || n.includes('wine') || n.includes('coffee') || n.includes('tea') || n.includes('drink')) return 'Beverages';
-  if (n.includes('chips') || n.includes('crisps') || n.includes('popcorn') || n.includes('chocolate') || n.includes('candy') || n.includes('cookie') || n.includes('snack')) return 'Snacks';
-  if (n.includes('pasta') || n.includes('rice') || n.includes('bean') || n.includes('sauce') || n.includes('oil') || n.includes('vinegar') || n.includes('spice') || n.includes('flour') || n.includes('sugar') || n.includes('can') || n.includes('noodle') || n.includes('curry') || n.includes('seeds') || n.includes('extract')) return 'World Foods & Pantry';
-  if (n.includes('soap') || n.includes('paper') || n.includes('clean') || n.includes('foil') || n.includes('trash') || n.includes('bag') || n.includes('wash')) return 'Household';
-  return 'Other';
-}
-
 const compressImage = (file: File, maxWidth = 1080): Promise<File> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -359,9 +349,10 @@ export default function PantryManager() {
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
 
-  // 3-Dot Menus Bottom Sheets
+  // 3-Dot Menus & Modals
   const [pantryActionMenu, setPantryActionMenu] = useState<{isOpen: boolean, item: PantryItem | null}>({isOpen: false, item: null});
   const [recipeActionMenu, setRecipeActionMenu] = useState<{isOpen: boolean, recipe: Recipe | null}>({isOpen: false, recipe: null});
+  const [editingPantryItem, setEditingPantryItem] = useState<PantryItem | null>(null);
 
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [recipeViewMode, setRecipeViewMode] = useState<'grid' | 'list'>('grid');
@@ -386,7 +377,6 @@ export default function PantryManager() {
   const [category, setCategory] = useState('Produce');
   const [quantity, setQuantity] = useState('1');
   const [unit, setUnit] = useState('pcs');
-  const [isManualCategory, setIsManualCategory] = useState(false);
 
   const [showAddShoppingMenu, setShowAddShoppingMenu] = useState(false);
   const [showShoppingInput, setShowShoppingInput] = useState(false);
@@ -420,7 +410,6 @@ export default function PantryManager() {
   const pantryDropdownRef = useRef<HTMLDivElement>(null);
   const lowStockDropdownRef = useRef<HTMLDivElement>(null);
 
-  const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editCategory, setEditCategory] = useState('');
   const [editQuantity, setEditQuantity] = useState('');
@@ -438,6 +427,12 @@ export default function PantryManager() {
   const todayStr = new Date().toISOString().split('T')[0];
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
+
+  // DYNAMIC CATEGORIES FOR PANTRY
+  const dynamicCategories = Array.from(new Set([
+    ...DEFAULT_CATEGORIES,
+    ...items.map(i => i.category)
+  ])).filter(Boolean);
 
   /* ==========================================================================
      DATA FETCHING & EVENT LISTENERS
@@ -516,76 +511,6 @@ export default function PantryManager() {
       const { error } = await supabase.auth.updateUser(updates);
       if (error) showToast(error.message);
       else { showToast("Account updated!"); setNewEmail(''); setNewPassword(''); setShowAccountModal(false); if (newEmail) setUserEmail(newEmail); }
-    }
-    setLoading(false);
-  };
-
-  /* ==========================================================================
-     BARCODE SCANNING INTEGRATION
-     ========================================================================== */
-  useEffect(() => {
-    let html5QrCode: any;
-    
-    if (showBarcodeScanner) {
-      import('html5-qrcode').then(({ Html5Qrcode }) => {
-        html5QrCode = new Html5Qrcode("barcode-reader");
-        html5QrCode.start(
-          { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 250, height: 150 } },
-          async (decodedText: string) => {
-            try { await html5QrCode.stop(); html5QrCode.clear(); } catch(e) {}
-            setShowBarcodeScanner(false);
-            await handleBarcodeScanned(decodedText);
-          },
-          (err: any) => { /* ignore normal scanning errors */ }
-        ).catch((err: any) => {
-           showToast("Camera access denied or unavailable.");
-           setShowBarcodeScanner(false);
-        });
-      }).catch(err => {
-         showToast("Barcode scanner library failed to load.");
-         setShowBarcodeScanner(false);
-      });
-    }
-
-    return () => {
-      if (html5QrCode && html5QrCode.isScanning) {
-        html5QrCode.stop().then(() => html5QrCode.clear()).catch((e: any) => console.log(e));
-      }
-    };
-  }, [showBarcodeScanner]);
-
-  const handleBarcodeScanned = async (barcode: string) => {
-    setLoading(true);
-    showToast('Barcode recognized! Fetching details...');
-    try {
-      const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${barcode}.json?fields=product_name,generic_name,brands,quantity,categories_tags`);
-      const data = await res.json();
-      
-      if (data.status === 1 && data.product) {
-        const p = data.product;
-        const itemName = p.product_name || p.generic_name || 'Unknown Item';
-        const brand = p.brands ? `${p.brands.split(',')[0]} ` : '';
-        const fullName = `${brand}${itemName}`.trim().charAt(0).toUpperCase() + `${brand}${itemName}`.trim().slice(1).toLowerCase();
-        
-        useStateName(fullName);
-        setCategory(getAisle(fullName));
-        
-        if (p.quantity) {
-           const match = p.quantity.match(/^([\d.]+)\s*([a-zA-Z]+)/);
-           if (match) {
-              setQuantity(match[1]);
-              setUnit(match[2].toLowerCase());
-           }
-        }
-        setShowPantryInput(true);
-        showToast('Item loaded! Please review and save.');
-      } else {
-        showToast('Product not found in database. Try typing manually.');
-        setShowPantryInput(true);
-      }
-    } catch (e) {
-      showToast('Error looking up barcode.');
     }
     setLoading(false);
   };
@@ -694,10 +619,13 @@ export default function PantryManager() {
       }
 
       let standardizedName = parsedName.charAt(0).toUpperCase() + parsedName.slice(1);
+      let predictedCategory = 'Other';
+      
       try {
         const dbMatches = await searchFoodFacts(parsedName);
         if (dbMatches && dbMatches.length > 0) {
-          standardizedName = dbMatches[0];
+          standardizedName = dbMatches[0].name;
+          predictedCategory = dbMatches[0].category;
         }
       } catch (err) {}
 
@@ -706,7 +634,7 @@ export default function PantryManager() {
         if (standardizedName.toLowerCase().includes('flour') || standardizedName.toLowerCase().includes('sugar') || standardizedName.toLowerCase().includes('rice')) unit = 'g';
       }
 
-      let predictedCategory = getAisle(standardizedName);
+      if (predictedCategory === 'Other') predictedCategory = getAisle(standardizedName);
 
       return { id: Date.now() + idx, name: standardizedName.trim(), quantity: qty, unit, category: predictedCategory };
     });
@@ -738,20 +666,6 @@ export default function PantryManager() {
   /* ==========================================================================
      CRUD HANDLERS
      ========================================================================== */
-  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement> | {target: {value: string}}) => {
-    const val = e.target.value; useStateName(val);
-    if (!isManualCategory && val.length > 2) {
-      setCategory(getAisle(val));
-    }
-  };
-
-  const handleNewTrackNameChange = (e: React.ChangeEvent<HTMLInputElement> | {target: {value: string}}) => {
-    const val = e.target.value; setNewTrackName(val);
-    if (val.length > 2) {
-      setNewTrackCategory(getAisle(val));
-    }
-  };
-
   const addItem = async (e: React.FormEvent) => {
     e.preventDefault(); if (!name.trim()) return; setLoading(true);
     await addOrMergePantryItem({ name: name.trim(), category, quantity: parseFloat(quantity) || 1, unit, track_low_stock: false, low_stock_threshold: 1 });
@@ -766,7 +680,7 @@ export default function PantryManager() {
       const res = await fetch('/api/scan-receipt', { method: 'POST', body: formData }); 
       const data = await res.json();
       if (data.items && data.items.length > 0) setScannedItems(data.items); 
-      else showToast(data.message || 'Scanner API didn\'t find any items.');
+      else showToast(data.message || 'Scanner API didn\'t find any items. Check your backend configuration or try a clearer photo!');
     } catch { showToast('Failed to read receipt. Image may be too large or backend error.'); }
     if (fileInputRef.current) fileInputRef.current.value = ''; setIsScanning(false);
   };
@@ -787,8 +701,17 @@ export default function PantryManager() {
 
   const deleteItem = async (id: string) => { setItems(prev => prev.filter(item => item.id !== id)); await supabase.from('pantry_items').delete().eq('id', id).eq('user_id', userId); showToast('Item deleted.'); };
   
+  const adjustQuantity = async (item: PantryItem, delta: number) => {
+    const newQty = Math.max(0, Number((item.quantity + delta).toFixed(2)));
+    setItems(prev => prev.map(i => i.id === item.id ? { ...i, quantity: newQty } : i));
+    await supabase.from('pantry_items').update({ quantity: newQty }).eq('id', item.id).eq('user_id', userId);
+    if (pantryActionMenu.item && pantryActionMenu.item.id === item.id) {
+       setPantryActionMenu({ isOpen: true, item: { ...pantryActionMenu.item, quantity: newQty } });
+    }
+  };
+
   const startEditing = (item: PantryItem) => { 
-    setEditingId(item.id); 
+    setEditingPantryItem(item);
     setEditName(item.name); 
     setEditCategory(item.category); 
     setEditQuantity(item.quantity.toString()); 
@@ -799,7 +722,8 @@ export default function PantryManager() {
     const updatedItem = { name: editName.trim(), category: editCategory, quantity: parseFloat(editQuantity) || 0, unit: editUnit };
     if (!updatedItem.name) return showToast("Item name cannot be empty.");
     setItems(prev => prev.map(item => item.id === id ? { ...item, ...updatedItem } : item));
-    setEditingId(null); await supabase.from('pantry_items').update(updatedItem).eq('id', id).eq('user_id', userId);
+    setEditingPantryItem(null); 
+    await supabase.from('pantry_items').update(updatedItem).eq('id', id).eq('user_id', userId);
   };
 
   const enableTrackingForId = async (id: string) => {
@@ -1019,7 +943,7 @@ export default function PantryManager() {
 
       {/* --- MODAL: BARCODE SCANNER --- */}
       {showBarcodeScanner && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[120] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/90 z-[120] flex flex-col items-center justify-center p-4">
           <div className="bg-[#6B705C] p-6 md:p-8 rounded-[32px] shadow-2xl w-full max-w-sm flex flex-col items-center gap-6 text-white border border-black/10 animate-in fade-in zoom-in-95">
              <div className="text-center">
                 <h2 className="text-3xl font-bold mb-2">Scan Barcode</h2>
@@ -1037,12 +961,71 @@ export default function PantryManager() {
       {pantryActionMenu.isOpen && pantryActionMenu.item && (
         <div className="fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 transition-opacity" onClick={() => setPantryActionMenu({isOpen: false, item: null})}>
            <div className="bg-white w-full sm:max-w-sm rounded-t-[32px] sm:rounded-[32px] p-6 pb-10 sm:pb-6 shadow-2xl animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-0 sm:zoom-in-95" onClick={e => e.stopPropagation()}>
-              <h3 className="font-bold text-xl mb-4 text-center">{pantryActionMenu.item.name}</h3>
+              <h3 className="font-bold text-xl mb-6 text-center border-b border-black/10 pb-4">{pantryActionMenu.item.name}</h3>
+              
+              <div className="bg-black/5 rounded-2xl p-4 mb-4 flex items-center justify-between shadow-sm">
+                 <span className="font-semibold text-xs uppercase tracking-wider text-black/60">Amount</span>
+                 <div className="flex items-center gap-3">
+                    <button onClick={() => adjustQuantity(pantryActionMenu.item!, -1)} className="w-8 h-8 rounded-lg bg-white shadow-sm font-bold flex items-center justify-center hover:bg-black/5">-</button>
+                    <span className="font-bold min-w-[3rem] text-center text-sm">{pantryActionMenu.item.quantity} {pantryActionMenu.item.unit}</span>
+                    <button onClick={() => adjustQuantity(pantryActionMenu.item!, 1)} className="w-8 h-8 rounded-lg bg-white shadow-sm font-bold flex items-center justify-center hover:bg-black/5">+</button>
+                 </div>
+              </div>
+
               <div className="flex flex-col gap-2">
-                 <button onClick={() => { startEditing(pantryActionMenu.item!); setPantryActionMenu({isOpen: false, item: null}); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition">Edit Details</button>
-                 <button onClick={() => { deleteItem(pantryActionMenu.item!.id); setPantryActionMenu({isOpen: false, item: null}); }} className="w-full py-4 bg-red-50 text-red-600 hover:bg-red-100 rounded-2xl font-bold transition mt-2">Remove Item</button>
+                 <button onClick={() => { startEditing(pantryActionMenu.item!); setPantryActionMenu({isOpen: false, item: null}); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Edit Details</button>
+                 <button onClick={() => { deleteItem(pantryActionMenu.item!.id); setPantryActionMenu({isOpen: false, item: null}); }} className="w-full py-4 bg-red-50 text-red-600 hover:bg-red-100 rounded-2xl font-bold transition mt-2 shadow-sm">Remove Item</button>
               </div>
            </div>
+        </div>
+      )}
+
+      {/* --- MODAL: EDIT PANTRY ITEM DETAILS --- */}
+      {editingPantryItem && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4 transition-opacity">
+          <div className="bg-white rounded-[32px] p-6 md:p-8 w-full max-w-md shadow-2xl flex flex-col gap-4 animate-in zoom-in-95">
+             <div className="flex justify-between items-center mb-2 border-b border-black/10 pb-4 shrink-0">
+               <h2 className="text-2xl font-bold text-black">Edit Item</h2>
+               <button onClick={() => setEditingPantryItem(null)} className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-black font-bold">✕</button>
+             </div>
+             
+             <div className="space-y-4 mt-2 overflow-y-auto pr-1 flex-1">
+               <div className="space-y-1.5 relative z-20">
+                 <label className="text-xs font-bold uppercase tracking-wider text-black/60">Item Name</label>
+                 <input type="text" value={editName} onChange={e => setEditName(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium" />
+               </div>
+               
+               <div className="space-y-1.5 relative z-10">
+                 <label className="text-xs font-bold uppercase tracking-wider text-black/60">Category</label>
+                 <CustomSelect 
+                    value={editCategory} 
+                    onChange={setEditCategory} 
+                    options={dynamicCategories.map(c => ({label: c, value: c}))} 
+                    className="w-full bg-black/5 rounded-xl border border-transparent" 
+                 />
+               </div>
+               
+               <div className="flex gap-4 relative z-0">
+                 <div className="space-y-1.5 flex-1">
+                   <label className="text-xs font-bold uppercase tracking-wider text-black/60">Quantity</label>
+                   <input type="number" step="any" min="0" value={editQuantity} onChange={e => setEditQuantity(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium text-center" />
+                 </div>
+                 <div className="space-y-1.5 flex-1">
+                   <label className="text-xs font-bold uppercase tracking-wider text-black/60">Unit</label>
+                   <CustomSelect 
+                      value={editUnit} 
+                      onChange={setEditUnit} 
+                      options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
+                      className="w-full bg-black/5 rounded-xl border border-transparent" 
+                   />
+                 </div>
+               </div>
+             </div>
+             
+             <div className="pt-2 shrink-0">
+                <button onClick={() => saveEdit(editingPantryItem.id)} className="w-full py-4 bg-black text-white rounded-2xl font-bold hover:bg-black/80 shadow-sm transition">Save Changes</button>
+             </div>
+          </div>
         </div>
       )}
 
@@ -1056,42 +1039,6 @@ export default function PantryManager() {
                  <button onClick={() => { handleTabChange('planner'); setRecipeActionMenu({isOpen: false, recipe: null}); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition">Add to Planner</button>
                  <button onClick={() => { deleteRecipe(recipeActionMenu.recipe!.id); setRecipeActionMenu({isOpen: false, recipe: null}); }} className="w-full py-4 bg-red-50 text-red-600 hover:bg-red-100 rounded-2xl font-bold transition mt-2">Delete Recipe</button>
               </div>
-           </div>
-        </div>
-      )}
-
-      {/* --- MODAL: SCANNED RECEIPT REVIEW --- */}
-      {scannedItems && scannedItems.length > 0 && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
-           <div className="bg-white rounded-[32px] w-full max-w-2xl p-6 md:p-8 flex flex-col max-h-[90vh] animate-in zoom-in-95">
-             <h2 className="text-2xl font-bold mb-4">Review Scanned Items</h2>
-             <div className="overflow-y-auto flex-1 space-y-3 pr-2">
-               {scannedItems.map((item, index) => (
-                  <div key={index} className="flex flex-col sm:flex-row gap-2 bg-black/5 p-3 rounded-2xl relative z-0 hover:z-10">
-                    <input value={item.name} onChange={e => updateScannedItem(index, 'name', e.target.value)} className="flex-1 px-3 py-2 rounded-xl focus:outline-none placeholder:text-black/50" placeholder="Item Name" />
-                    <div className="flex gap-2">
-                      <input type="number" step="any" value={item.quantity || 1} onChange={e => updateScannedItem(index, 'quantity', e.target.value)} className="w-16 px-2 py-2 rounded-xl text-center focus:outline-none" />
-                      <CustomSelect 
-                        value={item.unit || 'pcs'} 
-                        onChange={v => updateScannedItem(index, 'unit', v)} 
-                        options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
-                        className="w-24 bg-white rounded-xl"
-                      />
-                    </div>
-                    <CustomSelect 
-                      value={item.category || 'Other'} 
-                      onChange={v => updateScannedItem(index, 'category', v)} 
-                      options={CATEGORIES.map(c => ({label: c.name, value: c.name}))} 
-                      className="w-full sm:w-28 bg-white rounded-xl"
-                    />
-                    <button onClick={() => removeScannedItem(index)} className="px-3 py-2 bg-red-500/80 text-white rounded-xl font-bold hover:bg-red-500 transition">✕</button>
-                  </div>
-               ))}
-             </div>
-             <div className="flex gap-3 mt-6 pt-4 border-t border-black/10 shrink-0">
-                <button onClick={() => setScannedItems(null)} className="flex-1 py-3.5 rounded-2xl font-bold border border-black/20 text-black hover:bg-black/5 transition">Cancel</button>
-                <button onClick={commitScannedItems} disabled={loading} className="flex-1 py-3.5 rounded-2xl font-bold bg-black text-white hover:bg-black/80 transition shadow-sm">{loading ? 'Saving...' : 'Confirm & Add'}</button>
-             </div>
            </div>
         </div>
       )}
@@ -1190,15 +1137,20 @@ export default function PantryManager() {
                   <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Title</label>
                   <input type="text" value={manualRecipe.title} onChange={e => setManualRecipe({...manualRecipe, title: e.target.value})} className="w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm" placeholder="e.g. Grandma's Lasagna" />
                 </div>
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 relative z-10">
                   <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Category</label>
-                  <input type="text" value={manualRecipe.category} onChange={e => setManualRecipe({...manualRecipe, category: e.target.value})} className="w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm" placeholder="e.g. Main Dish" />
+                  <CustomSelect 
+                    value={manualRecipe.category} 
+                    onChange={v => setManualRecipe({...manualRecipe, category: v})} 
+                    options={uniqueRecipeCategories.map(c => ({label: c, value: c}))} 
+                    className="w-full bg-white rounded-xl border border-black/20 shadow-sm" 
+                  />
                 </div>
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 relative z-0">
                   <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Cook Time</label>
                   <input type="text" value={manualRecipe.cook_time} onChange={e => setManualRecipe({...manualRecipe, cook_time: e.target.value})} className="w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm" placeholder="e.g. 45 mins" />
                 </div>
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 relative z-0">
                   <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Portions</label>
                   <input type="number" value={manualRecipe.portions} onChange={e => setManualRecipe({...manualRecipe, portions: parseInt(e.target.value) || 1})} className="w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm" />
                 </div>
@@ -1302,64 +1254,6 @@ export default function PantryManager() {
         </div>
       )}
 
-      {/* --- SCREENS THAT HIDE MAIN CONTENT --- */}
-      {showVoiceInputScreen && (
-        <div className="flex flex-col items-center justify-center min-h-[80vh]">
-          <div className="bg-[#6B705C] p-6 md:p-8 rounded-[32px] shadow-2xl w-full max-w-2xl flex flex-col gap-6 text-white border border-black/10 animate-in fade-in zoom-in-95">
-            <div className="text-center">
-              <h2 className="text-3xl font-bold mb-2">Voice Entry</h2>
-              <p className="text-white/80 text-sm">Say something like: "3 bananas and 200g of flour"</p>
-            </div>
-            
-            <div className="flex justify-center mt-2">
-              <button 
-                onClick={toggleListening}
-                className={`px-8 py-4 rounded-2xl flex items-center justify-center gap-3 font-bold transition-all shadow-sm ${isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-black text-white hover:bg-black/80'}`}
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
-                {isListening ? 'Tap to Stop...' : 'Tap to Speak'}
-              </button>
-            </div>
-
-            {voiceParsedItems.length > 0 && (
-              <div className="flex flex-col gap-3 mt-4">
-                <h3 className="text-sm font-semibold uppercase tracking-wider text-white/80 border-b border-white/20 pb-2 mb-2">Review Items</h3>
-                {voiceParsedItems.map((item, index) => (
-                  <div key={item.id} className="flex flex-row items-center gap-2 bg-white/10 p-2 rounded-2xl w-full relative z-0 hover:z-10">
-                    <input value={item.name} onChange={e => updateVoiceItem(index, 'name', e.target.value)} className="flex-1 min-w-[80px] bg-white text-black px-2 py-2 rounded-xl text-sm focus:outline-none placeholder:text-black/50" placeholder="Item Name" />
-                    <input type="number" step="any" value={item.quantity} onChange={e => updateVoiceItem(index, 'quantity', e.target.value)} className="w-12 bg-white text-black px-1 py-2 rounded-xl text-sm text-center focus:outline-none" />
-                    <CustomSelect 
-                      value={item.unit} 
-                      onChange={v => updateVoiceItem(index, 'unit', v)} 
-                      options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
-                      className="w-[75px] bg-white rounded-xl"
-                    />
-                    {voiceContext === 'pantry' && (
-                      <CustomSelect 
-                        value={item.category || 'Other'} 
-                        onChange={v => updateVoiceItem(index, 'category', v)} 
-                        options={CATEGORIES.map(c => ({label: c.name, value: c.name}))} 
-                        className="w-24 hidden sm:block bg-white rounded-xl"
-                      />
-                    )}
-                    <button onClick={() => removeVoiceItem(index)} className="w-8 h-8 shrink-0 flex items-center justify-center bg-red-500/80 text-white rounded-xl font-bold hover:bg-red-500 transition">✕</button>
-                  </div>
-                ))}
-                <button onClick={commitVoiceItems} disabled={loading} className="w-full py-4 mt-4 bg-black text-white rounded-2xl font-bold hover:bg-black/80 shadow-sm transition">
-                  {loading ? 'Saving...' : `Confirm & Add to ${voiceContext === 'shopping' ? 'List' : 'Pantry'}`}
-                </button>
-              </div>
-            )}
-
-            <div className="border-t border-white/20 pt-4 mt-2">
-              <button onClick={() => { setShowVoiceInputScreen(false); setVoiceParsedItems([]); setVoiceTranscript(''); }} className="w-full py-3 bg-transparent text-white font-bold hover:bg-white/10 rounded-2xl transition">
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* --- STANDARD MAIN VIEWS --- */}
       {!showVoiceInputScreen && (
         <div className="max-w-6xl mx-auto space-y-8">
@@ -1458,7 +1352,7 @@ export default function PantryManager() {
                         <FoodAutocomplete 
                           value={newTrackName} 
                           onChange={(val) => { setNewTrackName(val); handleNewTrackNameChange({ target: { value: val } } as any); }}
-                          onSelect={(val) => { setNewTrackName(val); handleNewTrackNameChange({ target: { value: val } } as any); }}
+                          onSelect={(val, cat) => { setNewTrackName(val); setNewTrackCategory(cat !== 'Other' ? cat : getAisle(val)); }}
                           placeholder="New item name..."
                           className="w-full sm:flex-1 px-4 py-3 rounded-xl text-sm focus:outline-none bg-white border border-black/20 text-black shadow-sm"
                         />
@@ -1466,7 +1360,7 @@ export default function PantryManager() {
                           <CustomSelect 
                             value={newTrackCategory} 
                             onChange={setNewTrackCategory} 
-                            options={CATEGORIES.map(c => ({label: c.name, value: c.name}))} 
+                            options={dynamicCategories.map(c => ({label: c, value: c}))} 
                             className="flex-1 sm:w-32 bg-white rounded-xl border border-black/20 shadow-sm"
                           />
                           <CustomSelect 
@@ -1542,23 +1436,22 @@ export default function PantryManager() {
                       <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Title</label>
                       <input type="text" value={editRecipeForm.title} onChange={e => setEditRecipeForm({...editRecipeForm, title: e.target.value})} className="w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm" />
                     </div>
-                    <div className="space-y-1.5">
-                      <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Recipe Image</label>
-                      <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, setEditRecipeForm)} className="w-full p-2 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-[#6B705C] file:text-white hover:file:bg-[#5a5f4d] cursor-pointer" />
-                    </div>
-                    <div className="space-y-1.5">
+                    <div className="space-y-1.5 relative z-10">
                       <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Category</label>
-                      <input type="text" value={editRecipeForm.category} onChange={e => setEditRecipeForm({...editRecipeForm, category: e.target.value})} className="w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm" />
+                      <CustomSelect 
+                        value={editRecipeForm.category} 
+                        onChange={v => setEditRecipeForm({...editRecipeForm, category: v})} 
+                        options={uniqueRecipeCategories.map(c => ({label: c, value: c}))} 
+                        className="w-full bg-white rounded-xl border border-black/20 shadow-sm" 
+                      />
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Cook Time</label>
-                        <input type="text" value={editRecipeForm.cook_time} onChange={e => setEditRecipeForm({...editRecipeForm, cook_time: e.target.value})} className="w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm" />
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Base Portions</label>
-                        <input type="number" value={editRecipeForm.portions} onChange={e => setEditRecipeForm({...editRecipeForm, portions: parseInt(e.target.value) || 1})} className="w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm" />
-                      </div>
+                    <div className="space-y-1.5 relative z-0">
+                      <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Cook Time</label>
+                      <input type="text" value={editRecipeForm.cook_time} onChange={e => setEditRecipeForm({...editRecipeForm, cook_time: e.target.value})} className="w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm" />
+                    </div>
+                    <div className="space-y-1.5 relative z-0">
+                      <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Base Portions</label>
+                      <input type="number" value={editRecipeForm.portions} onChange={e => setEditRecipeForm({...editRecipeForm, portions: parseInt(e.target.value) || 1})} className="w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm" />
                     </div>
                  </div>
 
@@ -1815,18 +1708,18 @@ export default function PantryManager() {
                         <FoodAutocomplete 
                           value={shoppingInputName} 
                           onChange={setShoppingInputName} 
-                          onSelect={setShoppingInputName}
+                          onSelect={(val, cat) => setShoppingInputName(val)}
                           placeholder="Type product name..."
                           className="w-full px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm"
                           autoFocus
                         />
-                        <div className="flex gap-2 w-full sm:w-auto">
+                        <div className="flex gap-2">
                           <input type="number" step="any" min="0.01" value={shoppingInputQty} onChange={(e) => setShoppingInputQty(e.target.value)} className="w-16 md:w-20 px-2 py-3 rounded-2xl text-center text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm" />
                           <CustomSelect 
                             value={shoppingInputUnit} 
                             onChange={setShoppingInputUnit} 
                             options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
-                            className="flex-1 sm:w-28 bg-white rounded-2xl border border-black/20 shadow-sm"
+                            className="w-24 md:w-28 bg-white rounded-2xl border border-black/20 shadow-sm"
                           />
                         </div>
                       </div>
@@ -1891,6 +1784,8 @@ export default function PantryManager() {
                     </div>
                   </div>
 
+                  {isScanning && <div className="text-center font-bold animate-pulse text-[#6B705C]">Reading Receipt...</div>}
+
                   {showPantryInput && (
                     <form onSubmit={addItem} className="flex flex-col gap-3 mb-8 animate-in fade-in slide-in-from-top-2 p-6 bg-[#6B705C]/10 border border-black/10 rounded-[28px] relative z-0 hover:z-10">
                       <div className="flex justify-between items-center mb-2">
@@ -1901,14 +1796,14 @@ export default function PantryManager() {
                         <FoodAutocomplete 
                           value={name} 
                           onChange={(val) => { useStateName(val); handleNameChange({ target: { value: val } } as any); }}
-                          onSelect={(val) => { useStateName(val); handleNameChange({ target: { value: val } } as any); }}
+                          onSelect={(val, cat) => { useStateName(val); setCategory(cat !== 'Other' ? cat : getAisle(val)); setIsManualCategory(true); }}
                           placeholder="Item name (e.g. Crisp Lettuce)"
                           className="w-full sm:flex-1 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm"
                         />
                         <CustomSelect 
                           value={category} 
                           onChange={(v) => { setCategory(v); setIsManualCategory(true); }} 
-                          options={CATEGORIES.map(c => ({label: c.name, value: c.name}))} 
+                          options={dynamicCategories.map(c => ({label: c, value: c}))} 
                           className="w-full sm:w-48 bg-white rounded-2xl border border-black/20 shadow-sm"
                         />
                         <div className="flex gap-2 w-full sm:w-auto">
@@ -1934,50 +1829,17 @@ export default function PantryManager() {
                               <span className="text-sm font-semibold tracking-wider uppercase text-black">{groupCategory}</span>
                             </div>
                             <div className="space-y-2">
-                              {groupList.map((item) => {
-                                const isEditing = editingId === item.id;
-                                return (
-                                  <div key={item.id} className="rounded-[20px] p-3 transition bg-white border border-black/10 shadow-sm relative z-0 hover:z-10">
-                                    {!isEditing ? (
-                                      <div className="flex items-center justify-between">
-                                        <div>
-                                          <h3 className="font-semibold text-base capitalize text-black leading-tight mb-1">{item.name}</h3>
-                                          <p className="text-sm text-black/70 font-normal">{item.quantity} {item.unit}</p>
-                                        </div>
-                                        <button onClick={() => setPantryActionMenu({isOpen: true, item})} className="p-2 hover:bg-black/5 rounded-full text-black/40 hover:text-black transition shrink-0">
-                                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
-                                        </button>
-                                      </div>
-                                    ) : (
-                                      <div className="space-y-3">
-                                        <div className="flex items-center justify-between">
-                                          <span className="text-sm font-semibold capitalize text-black">Edit Item</span>
-                                          <button onClick={() => setEditingId(null)} className="text-sm text-black/70 hover:text-black">Cancel</button>
-                                        </div>
-                                        <div className="flex flex-col gap-2">
-                                          <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full px-3 py-2 rounded-xl text-sm focus:outline-none bg-white border border-black/20 text-black" placeholder="Item name" />
-                                          <div className="flex gap-2">
-                                            <CustomSelect 
-                                              value={editCategory} 
-                                              onChange={setEditCategory} 
-                                              options={CATEGORIES.map(c => ({label: c.name, value: c.name}))} 
-                                              className="flex-1 bg-white rounded-xl border border-black/20"
-                                            />
-                                            <input type="number" step="any" min="0.01" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} className="w-16 px-2 py-2 rounded-xl text-center text-sm focus:outline-none bg-white border border-black/20 text-black" />
-                                            <CustomSelect 
-                                              value={editUnit} 
-                                              onChange={setEditUnit} 
-                                              options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
-                                              className="w-24 bg-white rounded-xl border border-black/20"
-                                            />
-                                          </div>
-                                          <button onClick={() => saveEdit(item.id)} className="w-full py-2.5 rounded-xl text-sm font-bold bg-black text-white mt-1 shadow-sm hover:bg-black/80 transition">Save Changes</button>
-                                        </div>
-                                      </div>
-                                    )}
+                              {groupList.map((item) => (
+                                <div key={item.id} className="flex items-center justify-between p-3 rounded-[20px] transition bg-white border border-black/10 shadow-sm relative z-0 hover:z-10">
+                                  <div>
+                                    <h3 className="font-semibold text-base capitalize text-black leading-tight mb-1">{item.name}</h3>
+                                    <p className="text-sm text-black/70 font-normal">{item.quantity} {item.unit}</p>
                                   </div>
-                                );
-                              })}
+                                  <button onClick={() => setPantryActionMenu({isOpen: true, item})} className="p-2 hover:bg-black/5 rounded-full text-black/40 hover:text-black transition shrink-0">
+                                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
+                                  </button>
+                                </div>
+                              ))}
                             </div>
                           </div>
                         );
@@ -2152,7 +2014,7 @@ export default function PantryManager() {
                                           </div>
                                           <button 
                                             onClick={(e) => { e.stopPropagation(); deleteMealPlan(meal.id); }} 
-                                            className="w-8 h-8 shrink-0 flex items-center justify-center text-black/30 hover:text-red-600 font-bold p-2 text-xs opacity-0 group-hover:opacity-100 transition z-10 rounded-full hover:bg-white shadow-sm"
+                                            className="text-black/30 hover:text-red-600 font-bold p-2 text-xs opacity-0 group-hover:opacity-100 transition z-10 rounded-full hover:bg-white shadow-sm"
                                           >
                                             ✕
                                           </button>
