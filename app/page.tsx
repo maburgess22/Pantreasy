@@ -65,9 +65,9 @@ const COMMON_UNITS = ['pcs', 'kg', 'g', 'lbs', 'oz', 'ml', 'l', 'cups', 'tbsp', 
 
 // Open Food Facts API Search
 const searchFoodFacts = async (query: string) => {
-  if (!query || query.length < 2) return [];
+  if (!query || query.trim().length < 2) return [];
   try {
-    const res = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&fields=product_name,generic_name&json=1&page_size=8`);
+    const res = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query.trim())}&search_simple=1&action=process&fields=product_name,generic_name&json=1&page_size=8`);
     const data = await res.json();
     if (data.products) {
       const uniqueNames = Array.from(new Set(
@@ -101,7 +101,7 @@ function FoodAutocomplete({ value, onChange, onSelect, placeholder, className, a
 
   useEffect(() => {
     const timer = setTimeout(async () => {
-      if (value.length >= 2 && isOpen) {
+      if (value && value.length >= 2 && isOpen) {
         setIsSearching(true);
         const results = await searchFoodFacts(value);
         setSuggestions(results);
@@ -123,12 +123,12 @@ function FoodAutocomplete({ value, onChange, onSelect, placeholder, className, a
         className={className}
         required
         autoFocus={autoFocus}
-        onFocus={() => { if (value.length >= 2) setIsOpen(true); }}
+        onFocus={() => { if (value && value.length >= 2) setIsOpen(true); }}
       />
       {isOpen && (suggestions.length > 0 || isSearching) && (
         <div className="absolute top-full left-0 mt-2 w-full bg-white text-black border border-black/10 rounded-2xl shadow-2xl z-[100] overflow-hidden flex flex-col max-h-48">
           {isSearching && suggestions.length === 0 ? (
-            <div className="px-4 py-3 text-sm italic text-black/50">Searching database...</div>
+            <div className="px-4 py-3 text-sm italic text-black/50">Searching food database...</div>
           ) : (
             suggestions.map((sug, i) => (
               <button
@@ -163,8 +163,8 @@ function CustomSelect({ value, options, onChange, placeholder = "Select...", cla
 
   return (
     <div className={`relative ${className}`} ref={ref}>
-      <div onClick={() => setIsOpen(!isOpen)} className="w-full h-full flex items-center justify-between cursor-pointer focus:outline-none select-none">
-        <span className="truncate capitalize text-black">{selectedLabel}</span>
+      <div onClick={() => setIsOpen(!isOpen)} className="w-full h-full flex items-center justify-between cursor-pointer focus:outline-none select-none px-3 py-2">
+        <span className="truncate capitalize text-black text-sm">{selectedLabel}</span>
         <span className="text-[10px] ml-2 opacity-50 text-black">▼</span>
       </div>
       {isOpen && (
@@ -188,11 +188,11 @@ function CustomSelect({ value, options, onChange, placeholder = "Select...", cla
    3. HELPER FUNCTIONS & UNIT CONVERSION
    ========================================================================== */
 function toBaseUnit(qty: number, unit: string) {
-  const u = unit.toLowerCase();
+  const u = (unit || '').toLowerCase();
   if (u === 'kg') return { qty: qty * 1000, base: 'g' };
   if (u === 'l') return { qty: qty * 1000, base: 'ml' };
   if (u === 'lbs') return { qty: qty * 16, base: 'oz' };
-  return { qty, base: u };
+  return { qty, base: u || 'pcs' };
 }
 
 function fromBaseUnit(qty: number, base: string) {
@@ -203,7 +203,7 @@ function fromBaseUnit(qty: number, base: string) {
 }
 
 function scaleAndConvertIngredient(ingredient: string, multiplier: number, targetSystem: 'metric' | 'imperial'): string {
-  let result = ingredient;
+  let result = ingredient || '';
   if (multiplier !== 1) {
     result = result.replace(/^([\d.]+)/, (match) => {
       return (parseFloat(match) * multiplier).toFixed(2).replace(/\.?0+$/, ''); 
@@ -233,6 +233,7 @@ function scaleAndConvertIngredient(ingredient: string, multiplier: number, targe
 }
 
 function cleanIngredientName(rawName: string): string {
+  if (!rawName) return '';
   let clean = rawName.split(',')[0]; 
   clean = clean.replace(/\(.*?\)/g, ''); 
   const descriptors = /\b(finely|roughly|chopped|diced|sliced|minced|peeled|crushed|grated|large|medium|small|fresh|dried|to serve|can|cans|tin|tins|jar|jars)\b/gi;
@@ -250,9 +251,7 @@ function getStandardGroceryItem(ingredient: string): string {
   const lowerName = name.toLowerCase();
 
   const staples = ['oil', 'vinegar', 'sauce', 'paste', 'mustard', 'mayo', 'ketchup', 'salt', 'pepper', 'spice', 'powder', 'extract', 'sugar', 'flour', 'honey', 'syrup', 'jam', 'butter', 'garlic', 'ginger', 'cinnamon', 'cumin', 'paprika', 'oregano', 'basil', 'thyme', 'chili', 'chilli', 'seeds', 'flaxseeds'];
-  if (staples.some(s => lowerName.includes(s))) {
-    return name.charAt(0).toUpperCase() + name.slice(1);
-  }
+  if (staples.some(s => lowerName.includes(s))) return name.charAt(0).toUpperCase() + name.slice(1);
 
   const liquids = ['milk', 'cream', 'broth', 'stock', 'water', 'juice'];
   if (liquids.some(l => lowerName.includes(l))) {
@@ -290,7 +289,7 @@ function getStandardGroceryItem(ingredient: string): string {
 }
 
 function getAisle(name: string): string {
-  const n = name.toLowerCase();
+  const n = (name || '').toLowerCase();
   if (n.includes('apple') || n.includes('banana') || n.includes('lettuce') || n.includes('tomato') || n.includes('lemon') || n.includes('onion') || n.includes('garlic') || n.includes('potato') || n.includes('carrot') || n.includes('berry') || n.includes('fruit') || n.includes('veg')) return 'Produce';
   if (n.includes('milk') || n.includes('cheese') || n.includes('egg') || n.includes('butter') || n.includes('yogurt') || n.includes('cream')) return 'Dairy & Chilled';
   if (n.includes('chicken') || n.includes('beef') || n.includes('pork') || n.includes('fish') || n.includes('salmon') || n.includes('steak') || n.includes('bacon') || n.includes('meat') || n.includes('sausage')) return 'Meat & Seafood';
@@ -328,7 +327,7 @@ const compressImage = (file: File, maxWidth = 1080): Promise<File> => {
 };
 
 const normalizeName = (name: string) => {
-  let w = name.toLowerCase().trim();
+  let w = (name || '').toLowerCase().trim();
   if (w.endsWith('ies')) return w.slice(0, -3) + 'y';
   if (w.endsWith('oes')) return w.slice(0, -2);
   if (w.endsWith('es') && /(sh|ch|ss|x|z)$/.test(w.slice(0,-2))) return w.slice(0, -2);
@@ -375,6 +374,11 @@ export default function PantryManager() {
   const [isEditingRecipe, setIsEditingRecipe] = useState(false);
   const [editRecipeForm, setEditRecipeForm] = useState({ title: '', category: '', cook_time: '', portions: 4, image: '', ingredientsText: '', instructionsText: '' });
   const [showManualAddRecipe, setShowManualAddRecipe] = useState(false);
+  const [manualRecipe, setManualRecipe] = useState({ title: '', category: 'Main Dish', cook_time: '30 mins', portions: 4, ingredientsText: '', instructionsText: '', image: '' });
+  const [showImportInput, setShowImportInput] = useState(false);
+  const [importUrl, setImportUrl] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
+  const [showAddRecipeMenu, setShowAddRecipeMenu] = useState(false);
 
   const [showAddPantryMenu, setShowAddPantryMenu] = useState(false);
   const [showPantryInput, setShowPantryInput] = useState(false);
@@ -526,7 +530,6 @@ export default function PantryManager() {
       if (existingBase.base === newBase.base || existing.quantity === 0) {
         const combinedBaseQty = existing.quantity === 0 ? newBase.qty : existingBase.qty + newBase.qty;
         const combinedBaseUnit = existing.quantity === 0 ? newBase.base : existingBase.base;
-
         const final = fromBaseUnit(combinedBaseQty, combinedBaseUnit);
         
         await supabase.from('pantry_items').update({ quantity: final.qty, unit: final.unit, track_low_stock: newItem.track_low_stock || existing.track_low_stock }).eq('id', existing.id).eq('user_id', userId);
@@ -560,7 +563,7 @@ export default function PantryManager() {
   };
 
   /* ==========================================================================
-     VOICE INPUT PARSING
+     ADVANCED VOICE INPUT PARSING WITH OPEN FOOD FACTS API
      ========================================================================== */
   const toggleListening = () => {
     if (isListening) {
@@ -593,14 +596,15 @@ export default function PantryManager() {
     if (!isListening && voiceTranscript.trim() && voiceParsedItems.length === 0) parseVoiceInput(voiceTranscript);
   }, [isListening, voiceTranscript]);
 
-  const parseVoiceInput = (textToParse: string) => {
+  const parseVoiceInput = async (textToParse: string) => {
     if (!textToParse.trim()) return;
     const numberMap: Record<string, string> = { 'one': '1', 'two': '2', 'three': '3', 'four': '4', 'five': '5', 'six': '6', 'seven': '7', 'eight': '8', 'nine': '9', 'ten': '10', 'a': '1', 'an': '1' };
     let cleanText = textToParse.toLowerCase();
     Object.keys(numberMap).forEach(word => { cleanText = cleanText.replace(new RegExp(`\\b${word}\\b`, 'g'), numberMap[word]); });
     
     const rawItems = cleanText.split(/\s+and\s+|,|\s+plus\s+/i).map(s => s.trim()).filter(Boolean);
-    const parsed = rawItems.map((itemStr, idx) => {
+    
+    const parsedPromises = rawItems.map(async (itemStr, idx) => {
       let cleanedItemStr = itemStr.replace(/\b(of|some)\b/g, '').replace(/\s+/g, ' ').trim();
       const regex = /^([\d.]+)?\s*(?:\b(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|grams|kilograms|liters|milliliters|cloves)\b)?\s*(.*)$/i;
       const match = cleanedItemStr.match(regex);
@@ -614,18 +618,38 @@ export default function PantryManager() {
         }
         if (match[3]) parsedName = match[3];
       }
-      if (unit === 'pcs') {
-        if (parsedName.includes('milk') || parsedName.includes('water')) unit = 'ml';
-        if (parsedName.includes('flour') || parsedName.includes('sugar') || parsedName.includes('rice')) unit = 'g';
+
+      // Query Open Food Facts database to get the clean canonical product name
+      let standardizedName = parsedName.charAt(0).toUpperCase() + parsedName.slice(1);
+      try {
+        const dbMatches = await searchFoodFacts(parsedName);
+        if (dbMatches && dbMatches.length > 0) {
+          standardizedName = dbMatches[0];
+        }
+      } catch (err) {
+        console.error("Database matching error:", err);
       }
-      parsedName = parsedName.charAt(0).toUpperCase() + parsedName.slice(1);
+
+      if (unit === 'pcs') {
+        if (standardizedName.toLowerCase().includes('milk') || standardizedName.toLowerCase().includes('water')) unit = 'ml';
+        if (standardizedName.toLowerCase().includes('flour') || standardizedName.toLowerCase().includes('sugar') || standardizedName.toLowerCase().includes('rice')) unit = 'g';
+      }
 
       let predictedCategory = 'Produce';
-      const aisle = getAisle(parsedName);
-      if (aisle.includes('Dairy')) predictedCategory = 'Dairy & Eggs'; else if (aisle.includes('Meat')) predictedCategory = 'Meat & Seafood'; else if (aisle.includes('Bakery')) predictedCategory = 'Bakery'; else if (aisle.includes('Frozen')) predictedCategory = 'Frozen'; else if (aisle.includes('Beverages')) predictedCategory = 'Beverages'; else if (aisle.includes('Snacks')) predictedCategory = 'Snacks'; else if (aisle.includes('World') || aisle.includes('Pantry')) predictedCategory = 'Pantry Staples'; else predictedCategory = 'Other';
+      const aisle = getAisle(standardizedName);
+      if (aisle.includes('Dairy')) predictedCategory = 'Dairy & Eggs'; 
+      else if (aisle.includes('Meat')) predictedCategory = 'Meat & Seafood'; 
+      else if (aisle.includes('Bakery')) predictedCategory = 'Bakery'; 
+      else if (aisle.includes('Frozen')) predictedCategory = 'Frozen'; 
+      else if (aisle.includes('Beverages')) predictedCategory = 'Beverages'; 
+      else if (aisle.includes('Snacks')) predictedCategory = 'Snacks'; 
+      else if (aisle.includes('World') || aisle.includes('Pantry')) predictedCategory = 'Pantry Staples'; 
+      else predictedCategory = 'Other';
 
-      return { id: Date.now() + idx, name: parsedName.trim(), quantity: qty, unit, category: predictedCategory };
+      return { id: Date.now() + idx, name: standardizedName.trim(), quantity: qty, unit, category: predictedCategory };
     });
+
+    const parsed = await Promise.all(parsedPromises);
     setVoiceParsedItems(parsed);
   };
 
@@ -650,7 +674,7 @@ export default function PantryManager() {
   };
 
   /* ==========================================================================
-     CRUD HANDLERS (Pantry, Recipes, Shopping, Meal Planner)
+     CRUD HANDLERS
      ========================================================================== */
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement> | {target: {value: string}}) => {
     const val = e.target.value; useStateName(val);
@@ -686,7 +710,7 @@ export default function PantryManager() {
       const res = await fetch('/api/scan-receipt', { method: 'POST', body: formData }); 
       const data = await res.json();
       if (data.items && data.items.length > 0) setScannedItems(data.items); 
-      else showToast(data.message || 'Scanner API didn\'t find any items. Check your backend configuration or try a clearer photo!');
+      else showToast(data.message || 'Scanner API didn\'t find any items.');
     } catch { showToast('Failed to read receipt. Image may be too large or backend error.'); }
     if (fileInputRef.current) fileInputRef.current.value = ''; setIsScanning(false);
   };
@@ -745,8 +769,8 @@ export default function PantryManager() {
   const addNewTrackedItem = async (e: React.FormEvent) => {
     e.preventDefault(); if (!newTrackName.trim()) return; setLoading(true);
     const existing = items.find(i => 
-      i.name.toLowerCase().trim() === newTrackName.toLowerCase().trim() || 
-      normalizeName(i.name) === normalizeName(newTrackName)
+      (i.name || '').toLowerCase().trim() === newTrackName.toLowerCase().trim() || 
+      normalizeName(i.name || '') === normalizeName(newTrackName)
     );
     if (existing) {
        await supabase.from('pantry_items').update({ track_low_stock: true, low_stock_threshold: 1 }).eq('id', existing.id).eq('user_id', userId);
@@ -757,6 +781,31 @@ export default function PantryManager() {
        showToast('Tracking added!');
     }
     setNewTrackName(''); setLoading(false); 
+  };
+
+  const handleImportRecipe = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!importUrl) return;
+    setIsImporting(true);
+    try {
+      const res = await fetch('/api/scrape-recipe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: importUrl }) });
+      const data = await res.json();
+      if (res.ok && data.title) {
+        const { data: insertedData, error } = await supabase.from('recipes').insert([{ ...data, portions: 4, user_id: userId }]).select().single();
+        if (error) throw error;
+        if (insertedData) { setRecipes(prev => [insertedData, ...prev]); showToast('Recipe imported!'); setShowImportInput(false); }
+      } else {
+        showToast(data.error || 'Could not extract a recipe from that URL.');
+      }
+    } catch {
+      showToast('Failed to import recipe.');
+    }
+    setImportUrl(''); setIsImporting(false);
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setFormState: Function) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const reader = new FileReader(); reader.onloadend = () => { setFormState((prev: any) => ({ ...prev, image: reader.result as string })); }; reader.readAsDataURL(file);
   };
 
   const saveManualRecipe = async () => {
@@ -771,7 +820,7 @@ export default function PantryManager() {
 
   const startEditingRecipe = () => {
     if (!selectedRecipe) return;
-    setEditRecipeForm({ title: selectedRecipe.title, category: selectedRecipe.category || 'Other', cook_time: selectedRecipe.cook_time || '', portions: selectedRecipe.portions || 4, image: selectedRecipe.image || '', ingredientsText: (selectedRecipe.ingredients || []).join('\n'), instructionsText: (selectedRecipe.instructions || []).join('\n') });
+    setEditRecipeForm({ title: selectedRecipe.title || '', category: selectedRecipe.category || 'Other', cook_time: selectedRecipe.cook_time || '', portions: selectedRecipe.portions || 4, image: selectedRecipe.image || '', ingredientsText: (selectedRecipe.ingredients || []).join('\n'), instructionsText: (selectedRecipe.instructions || []).join('\n') });
     setIsEditingRecipe(true);
   };
 
@@ -866,12 +915,12 @@ export default function PantryManager() {
   const untrackedItemsList = items.filter(i => !i.track_low_stock);
   const lowStockItems = trackedItemsList.filter(i => i.quantity <= (i.low_stock_threshold || 1));
   const todaysMeals = mealPlans.filter(m => m.date === todayStr);
-  const uniqueRecipeCategories = ['All', ...Array.from(new Set(recipes.map(r => r.category).filter(Boolean)))];
+  const uniqueRecipeCategories = ['All', ...Array.from(new Set((recipes || []).map(r => r?.category).filter(Boolean)))];
   const hasCheckedShoppingItems = shoppingList.some(item => item.checked);
   
-  const filteredRecipes = recipes.filter(r => 
-    r.title.toLowerCase().includes(recipeSearchQuery.toLowerCase()) && 
-    (recipeCategoryFilter === 'All' || r.category === recipeCategoryFilter)
+  const filteredRecipes = (recipes || []).filter(r => 
+    (r?.title || '').toLowerCase().includes(recipeSearchQuery.toLowerCase()) && 
+    (recipeCategoryFilter === 'All' || r?.category === recipeCategoryFilter)
   );
   
   const visiblePantryItems = items.filter(i => i.quantity > 0);
@@ -885,7 +934,8 @@ export default function PantryManager() {
   }, {} as Record<string, ShoppingItem[]>);
 
   const getIngredientStatus = (ingredient: string, pantry: PantryItem[]) => {
-    const lowerIng = ingredient.toLowerCase(); const match = pantry.find(p => lowerIng.includes(p.name.toLowerCase()));
+    const lowerIng = (ingredient || '').toLowerCase(); 
+    const match = (pantry || []).find(p => lowerIng.includes((p.name || '').toLowerCase()));
     if (!match) return { status: 'missing', requiredText: '1', availableText: '0' };
     if (match.quantity <= 0) return { status: 'insufficient', requiredText: '1', availableText: '0' };
     return { status: 'in_stock', requiredText: '1', availableText: `${match.quantity} ${match.unit}` };
@@ -937,6 +987,7 @@ export default function PantryManager() {
       
       {/* Hidden Global Elements */}
       <datalist id="common-units">{COMMON_UNITS.map(u => <option key={u} value={u} />)}</datalist>
+      <input type="file" accept="image/*" capture="environment" ref={fileInputRef} className="hidden" onChange={handleScanReceipt} />
 
       {/* --- GLOBAL TOAST NOTIFICATION --- */}
       {toast && (
@@ -1159,7 +1210,7 @@ export default function PantryManager() {
               <button onClick={() => setRecipePickerTarget(null)} className="text-black/50 hover:text-black font-bold text-xl">✕</button>
             </div>
             <div className="overflow-y-auto flex flex-col gap-3 pr-2 flex-1">
-              {recipes.length === 0 ? <p className="text-sm text-black/50 text-center py-4">No saved recipes found.</p> : recipes.map(r => (
+              {(recipes || []).length === 0 ? <p className="text-sm text-black/50 text-center py-4">No saved recipes found.</p> : (recipes || []).map(r => (
                 <div key={r.id} onClick={() => handlePickRecipeForPlanner(r)} className="flex items-center gap-4 p-3 rounded-[24px] bg-white border border-black/10 shadow-sm cursor-pointer hover:shadow-md transition">
                   {r.image ? (
                     <img src={r.image} alt={r.title} className="w-16 h-16 rounded-[16px] object-cover shrink-0" />
@@ -1558,15 +1609,12 @@ export default function PantryManager() {
                       <div className="space-y-0">
                         {(selectedRecipe.ingredients || []).map((ing, i) => {
                           const scaledIng = scaleAndConvertIngredient(ing, multiplier, measurementSystem);
-                          const statusObj = getIngredientStatus(scaledIng, items);
                           return (
-                            <div key={i} className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 text-sm p-3 rounded-xl bg-white border border-black/10 text-black font-medium shadow-sm">
-                              <span>{scaledIng}</span>
-                              <div className="shrink-0">
-                                {statusObj.status === 'in_stock' && <span className="text-[10px] px-2.5 py-1 bg-[#6B705C] text-white rounded-full font-bold uppercase tracking-wider shadow-sm">In Pantry ({statusObj.availableText})</span>}
-                                {statusObj.status === 'insufficient' && <span className="text-[10px] px-2.5 py-1 border border-[#6B705C]/50 text-[#6B705C] rounded-full font-bold uppercase tracking-wider">Low Stock</span>}
-                                {statusObj.status === 'missing' && <span className="text-[10px] px-2.5 py-1 bg-black text-white rounded-full font-bold uppercase tracking-wider shadow-sm">Missing</span>}
+                            <div key={i} className="flex items-center gap-3 py-2.5 border-b border-black/5 last:border-0 px-2 group">
+                              <div className="w-8 h-8 rounded-full bg-[#6B705C]/10 flex items-center justify-center shrink-0">
+                                <span className="text-[10px]">🍽️</span>
                               </div>
+                              <span className="text-sm text-black font-medium">{scaledIng}</span>
                             </div>
                           );
                         })}
@@ -1623,7 +1671,7 @@ export default function PantryManager() {
                                     key={meal.id} 
                                     onClick={() => {
                                       if (meal.recipe_id) {
-                                        const matchedRecipe = recipes.find(r => r.id === meal.recipe_id);
+                                        const matchedRecipe = (recipes || []).find(r => r.id === meal.recipe_id);
                                         if (matchedRecipe) handleOpenRecipe(matchedRecipe);
                                         else showToast('Recipe details are loading or unavailable.');
                                       }
@@ -1725,7 +1773,7 @@ export default function PantryManager() {
                         <h3 className="text-sm font-bold uppercase tracking-wider text-[#6B705C]">Add Manually</h3>
                         <button type="button" onClick={() => setShowShoppingInput(false)} className="text-sm font-bold text-black/40 hover:text-black">✕ Close</button>
                       </div>
-                      <div className="flex gap-2 w-full relative z-0 hover:z-10">
+                      <div className="flex flex-col sm:flex-row gap-2 w-full relative z-0 hover:z-10">
                         <FoodAutocomplete 
                           value={shoppingInputName} 
                           onChange={setShoppingInputName} 
@@ -1734,13 +1782,15 @@ export default function PantryManager() {
                           className="w-full px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm"
                           autoFocus
                         />
-                        <input type="number" step="any" min="0.01" value={shoppingInputQty} onChange={(e) => setShoppingInputQty(e.target.value)} className="w-16 md:w-20 px-2 py-3 rounded-2xl text-center text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm" />
-                        <CustomSelect 
-                          value={shoppingInputUnit} 
-                          onChange={setShoppingInputUnit} 
-                          options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
-                          className="w-24 md:w-28 bg-white rounded-2xl border border-black/20 shadow-sm"
-                        />
+                        <div className="flex gap-2">
+                          <input type="number" step="any" min="0.01" value={shoppingInputQty} onChange={(e) => setShoppingInputQty(e.target.value)} className="w-16 md:w-20 px-2 py-3 rounded-2xl text-center text-base focus:outline-none bg-white border border-black/20 text-black shadow-sm" />
+                          <CustomSelect 
+                            value={shoppingInputUnit} 
+                            onChange={setShoppingInputUnit} 
+                            options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
+                            className="w-24 md:w-28 bg-white rounded-2xl border border-black/20 shadow-sm"
+                          />
+                        </div>
                       </div>
                       <button type="submit" className="w-full px-6 py-3 font-medium rounded-2xl bg-black text-white hover:bg-black/80 shadow-sm mt-2">Add Item</button>
                     </form>
@@ -1956,7 +2006,9 @@ export default function PantryManager() {
                     {showImportInput && (
                       <form onSubmit={handleImportRecipe} className="flex flex-col sm:flex-row gap-3 pt-2">
                         <input type="url" placeholder="Paste recipe URL (e.g. foodnetwork.com/...)" value={importUrl} onChange={(e) => setImportUrl(e.target.value)} className="flex-1 min-w-0 px-4 py-3 rounded-2xl text-base focus:outline-none bg-white border border-black/20 text-black placeholder:text-black/50 shadow-sm" required />
-                        <button type="submit" disabled={isImporting} className="px-8 font-medium py-3.5 rounded-2xl transition text-base shadow-md active:scale-95 disabled:opacity-50 bg-black text-white hover:bg-black/80 shrink-0">Import</button>
+                        <button type="submit" disabled={isImporting} className="px-8 font-medium py-3.5 rounded-2xl transition text-base shadow-md active:scale-95 disabled:opacity-50 bg-black text-white hover:bg-black/80 shrink-0">
+                          {isImporting ? 'Importing...' : 'Import'}
+                        </button>
                       </form>
                     )}
                   </div>
@@ -2043,7 +2095,7 @@ export default function PantryManager() {
                                           key={meal.id} 
                                           onClick={() => {
                                             if (meal.recipe_id) {
-                                              const matchedRecipe = recipes.find(r => r.id === meal.recipe_id);
+                                              const matchedRecipe = (recipes || []).find(r => r.id === meal.recipe_id);
                                               if (matchedRecipe) handleOpenRecipe(matchedRecipe);
                                             }
                                           }}
@@ -2064,7 +2116,7 @@ export default function PantryManager() {
                                           </div>
                                           <button 
                                             onClick={(e) => { e.stopPropagation(); deleteMealPlan(meal.id); }} 
-                                            className="w-8 h-8 shrink-0 flex items-center justify-center text-black/30 hover:text-red-600 bg-white/50 hover:bg-red-50 font-bold rounded-lg transition ml-2 shadow-sm border border-black/5"
+                                            className="w-8 h-8 shrink-0 flex items-center justify-center text-black/30 hover:text-red-600 font-bold p-2 text-xs opacity-0 group-hover:opacity-100 transition z-10 rounded-full hover:bg-white shadow-sm"
                                           >
                                             ✕
                                           </button>
