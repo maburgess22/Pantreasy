@@ -1,7 +1,5 @@
-// components/tabs/PantryTab.tsx
 import React from 'react';
 import { PantryItem } from '@/utils/types';
-import FoodAutocomplete from '@/components/ui/FoodAutocomplete';
 import CustomSelect from '@/components/ui/CustomSelect';
 
 interface PantryTabProps {
@@ -35,7 +33,7 @@ interface PantryTabProps {
 }
 
 export default function PantryTab({
-  pantryDropdownRef, showAddPantryMenu, setShowAddPantryMenu, showPantryInput, setShowPantryInput,
+  showAddPantryMenu, setShowAddPantryMenu, showPantryInput, setShowPantryInput,
   name, useStateName, handleNameChange, category, setCategory, setIsManualCategory, dynamicCategories,
   quantity, setQuantity, unit, setUnit, COMMON_UNITS, loading, addItem, setShowBarcodeScanner,
   setVoiceContext, setShowVoiceInputScreen, isScanning, fileInputRef, groupedItems, setPantryActionMenu, showToast
@@ -62,31 +60,34 @@ export default function PantryTab({
         </div>
         
         <div className="flex flex-col gap-3 shrink-0 w-full md:w-48">
-          <div className="relative w-full" ref={pantryDropdownRef}>
-            <button onClick={() => setShowAddPantryMenu(!showAddPantryMenu)} className="relative w-full px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center border border-black/20">
-              <span>Add Item</span>
-              <span className="absolute right-4 text-[10px]">▼</span>
-            </button>
-            {showAddPantryMenu && (
-              <div className="absolute left-0 md:left-auto md:right-0 mt-2 w-full md:w-[240px] max-w-[90vw] bg-[#1A1A1A] rounded-2xl shadow-2xl border border-white/10 overflow-hidden z-[100] flex flex-col text-white">
-                <button onClick={() => { setShowPantryInput(true); setShowAddPantryMenu(false); }} className="px-5 py-4 text-center text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Type Item Name</button>
-                <button onClick={() => { fileInputRef.current?.click(); setShowAddPantryMenu(false); }} className="px-5 py-4 text-center text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Scan Receipt</button>
-                <button onClick={() => { setShowBarcodeScanner(true); setShowAddPantryMenu(false); }} className="px-5 py-4 text-center text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Scan Barcode</button>
-                <button onClick={() => { setVoiceContext('pantry'); setShowVoiceInputScreen(true); setShowAddPantryMenu(false); }} className="px-5 py-4 text-center text-sm font-semibold hover:bg-white/10 transition">Voice Input</button>
-              </div>
-            )}
-          </div>
+          <button onClick={() => setShowAddPantryMenu(true)} className="w-full px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center border border-black/20">
+            Add Item
+          </button>
           
-          <button onClick={handleExport} className="relative w-full px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center gap-2 border border-black/20">
+          <button onClick={handleExport} className="w-full px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center gap-2 border border-black/20">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-            <span>Export List</span>
+            Export List
           </button>
         </div>
       </div>
 
+      {/* NEW BOTTOM SHEET FOR ADD ITEM */}
+      {showAddPantryMenu && (
+        <div className="fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 transition-opacity" onClick={() => setShowAddPantryMenu(false)}>
+          <div className="bg-white w-full sm:max-w-sm rounded-t-[32px] sm:rounded-[32px] p-6 pb-10 sm:pb-6 shadow-2xl animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-0 sm:zoom-in-95" onClick={e => e.stopPropagation()}>
+             <h3 className="font-bold text-xl mb-6 text-center border-b border-black/10 pb-4">Add Pantry Item</h3>
+             <div className="flex flex-col gap-2">
+               <button onClick={() => { setShowPantryInput(true); setShowAddPantryMenu(false); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Type Item Name</button>
+               <button onClick={() => { fileInputRef.current?.click(); setShowAddPantryMenu(false); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Scan Receipt</button>
+               <button onClick={() => { setShowBarcodeScanner(true); setShowAddPantryMenu(false); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Scan Barcode</button>
+               <button onClick={() => { setVoiceContext('pantry'); setShowVoiceInputScreen(true); setShowAddPantryMenu(false); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Voice Input</button>
+             </div>
+          </div>
+        </div>
+      )}
+
       {isScanning && <div className="text-center font-bold animate-pulse text-[#6B705C]">Reading Receipt...</div>}
 
-      {/* NEW MODAL FOR ADDING ITEMS */}
       {showPantryInput && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4 transition-opacity">
           <div className="bg-white rounded-[32px] p-6 md:p-8 w-full max-w-md shadow-2xl flex flex-col gap-4 animate-in zoom-in-95">
@@ -98,12 +99,13 @@ export default function PantryTab({
             <form id="addPantryForm" onSubmit={addItem} className="space-y-4 mt-2 overflow-y-auto pr-1 flex-1">
               <div className="space-y-1.5 relative z-20">
                 <label className="text-xs font-bold uppercase tracking-wider text-black/60">Item Name</label>
-                <FoodAutocomplete 
-                  value={name} 
-                  onChange={(val) => { useStateName(val); handleNameChange({ target: { value: val } } as any); }}
-                  onSelect={(val, cat) => { useStateName(val); setCategory(cat !== 'Other' ? cat : val); setIsManualCategory(true); }}
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => { useStateName(e.target.value); handleNameChange(e); }}
                   placeholder="e.g. Crisp Lettuce"
                   className="w-full px-4 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium text-base"
+                  required
                   autoFocus
                 />
               </div>
@@ -118,6 +120,7 @@ export default function PantryTab({
                     value={unit} 
                     onChange={setUnit} 
                     options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
+                    placeholder="Unit"
                   />
                 </div>
               </div>

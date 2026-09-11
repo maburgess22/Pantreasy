@@ -1,4 +1,3 @@
-// components/tabs/RecipesTab.tsx
 import React from 'react';
 import { Recipe } from '@/utils/types';
 import CustomSelect from '@/components/ui/CustomSelect';
@@ -11,7 +10,6 @@ interface RecipesTabProps {
   uniqueRecipeCategories: string[];
   recipeViewMode: 'grid' | 'list';
   setRecipeViewMode: (val: 'grid' | 'list') => void;
-  recipeDropdownRef: React.RefObject<HTMLDivElement>;
   showAddRecipeMenu: boolean;
   setShowAddRecipeMenu: (val: boolean) => void;
   setShowManualAddRecipe: (val: boolean) => void;
@@ -28,7 +26,7 @@ interface RecipesTabProps {
 
 export default function RecipesTab({
   recipeSearchQuery, setRecipeSearchQuery, recipeCategoryFilter, setRecipeCategoryFilter,
-  uniqueRecipeCategories, recipeViewMode, setRecipeViewMode, recipeDropdownRef,
+  uniqueRecipeCategories, recipeViewMode, setRecipeViewMode,
   showAddRecipeMenu, setShowAddRecipeMenu, setShowManualAddRecipe, showImportInput,
   setShowImportInput, handleImportRecipe, importUrl, setImportUrl, isImporting,
   filteredRecipes, handleOpenRecipe, setRecipeActionMenu
@@ -47,12 +45,15 @@ export default function RecipesTab({
             />
           </div>
           <div className="flex gap-2 w-full sm:w-auto">
-            <CustomSelect 
-              value={recipeCategoryFilter} 
-              onChange={setRecipeCategoryFilter} 
-              options={uniqueRecipeCategories.map(c => ({label: c, value: c}))} 
-              className="flex-1 sm:w-48 bg-white rounded-2xl border border-black/20 shadow-sm text-black"
-            />
+            <div className="flex-1 sm:w-48">
+              <CustomSelect 
+                value={recipeCategoryFilter} 
+                onChange={setRecipeCategoryFilter} 
+                options={uniqueRecipeCategories.map(c => ({label: c, value: c}))} 
+                className="bg-white rounded-2xl border border-black/20 shadow-sm text-black"
+                placeholder="Category"
+              />
+            </div>
             
             <div className="flex bg-white rounded-2xl p-1 shadow-sm border border-black/20 shrink-0">
               <button onClick={() => setRecipeViewMode('grid')} className={`px-3 flex items-center justify-center rounded-xl transition ${recipeViewMode === 'grid' ? 'bg-[#6B705C] text-white' : 'text-black/40 hover:text-black'}`}>
@@ -68,18 +69,22 @@ export default function RecipesTab({
         <div className="w-full h-px bg-white/20 my-2"></div>
 
         <div className="flex justify-end relative z-10">
-          <div className="relative w-full md:w-56" ref={recipeDropdownRef}>
-            <button onClick={() => setShowAddRecipeMenu(!showAddRecipeMenu)} className="relative w-full px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center border border-black/20">
-              <span>Add Recipe</span>
-              <span className="absolute right-4 text-[10px]">▼</span>
-            </button>
-            {showAddRecipeMenu && (
-              <div className="absolute left-0 md:left-auto md:right-0 mt-2 w-full md:w-[240px] max-w-[90vw] bg-[#1A1A1A] rounded-2xl shadow-2xl border border-white/10 overflow-hidden z-[100] flex flex-col text-white">
-                <button onClick={() => { setShowManualAddRecipe(true); setShowAddRecipeMenu(false); setShowImportInput(false); }} className="px-5 py-4 text-center text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Create New Recipe</button>
-                <button onClick={() => { setShowImportInput(true); setShowAddRecipeMenu(false); }} className="px-5 py-4 text-center text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Add using Recipe URL</button>
+          <button onClick={() => setShowAddRecipeMenu(true)} className="w-full md:w-56 px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center border border-black/20">
+            Add Recipe
+          </button>
+          
+          {/* NEW BOTTOM SHEET FOR ADD RECIPE */}
+          {showAddRecipeMenu && (
+            <div className="fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 transition-opacity" onClick={() => setShowAddRecipeMenu(false)}>
+              <div className="bg-white w-full sm:max-w-sm rounded-t-[32px] sm:rounded-[32px] p-6 pb-10 sm:pb-6 shadow-2xl animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-0 sm:zoom-in-95" onClick={e => e.stopPropagation()}>
+                 <h3 className="font-bold text-xl mb-6 text-center border-b border-black/10 pb-4">Add Recipe</h3>
+                 <div className="flex flex-col gap-2">
+                   <button onClick={() => { setShowManualAddRecipe(true); setShowAddRecipeMenu(false); setShowImportInput(false); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Create New Recipe</button>
+                   <button onClick={() => { setShowImportInput(true); setShowAddRecipeMenu(false); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Add using Recipe URL</button>
+                 </div>
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
         
         {showImportInput && (

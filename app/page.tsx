@@ -10,11 +10,9 @@ import { createClient } from '@/utils/supabase/client';
 import { PantryItem, Recipe, ShoppingItem, MealPlanItem } from '@/utils/types';
 import { 
   toBaseUnit, fromBaseUnit, scaleAndConvertIngredient, cleanIngredientName, 
-  getStandardGroceryItem, getAisle, compressImage, normalizeName, getNext7Days,
-  searchFoodFacts
+  getStandardGroceryItem, getAisle, compressImage, normalizeName, getNext7Days 
 } from '@/utils/helpers';
 
-import FoodAutocomplete from '@/components/ui/FoodAutocomplete'; 
 import CustomSelect from '@/components/ui/CustomSelect';
 import TopHeader from '@/components/TopHeader';
 import BottomNav from '@/components/BottomNav';
@@ -29,9 +27,6 @@ import LowStockTab from '@/components/tabs/LowStockTab';
 const COMMON_UNITS = ['pcs', 'kg', 'g', 'lbs', 'oz', 'ml', 'l', 'cups', 'tbsp', 'tsp', 'cans', 'packs', 'dash', 'pinch', 'cloves'];
 const DEFAULT_CATEGORIES = ['Produce', 'Dairy & Eggs', 'Meat & Seafood', 'Pantry Staples', 'Bakery', 'Frozen', 'Snacks', 'Beverages', 'Other'];
 
-/* ==========================================================================
-   2. MAIN COMPONENT & STATE MANAGEMENT
-   ========================================================================== */
 export default function PantryManager() {
   const supabase = createClient();
   const router = useRouter();
@@ -42,7 +37,6 @@ export default function PantryManager() {
   const [userId, setUserId] = useState<string>('');
   const [userEmail, setUserEmail] = useState('');
   const [userName, setUserName] = useState('');
-  
   const [items, setItems] = useState<PantryItem[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [shoppingList, setShoppingList] = useState<ShoppingItem[]>([]);
@@ -97,7 +91,6 @@ export default function PantryManager() {
   const recognitionRef = useRef<any>(null);
 
   const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
-
   const [collapsedDays, setCollapsedDays] = useState<Record<string, boolean>>({});
   const [showDistributionModal, setShowDistributionModal] = useState(false);
   const [recipePickerTarget, setRecipePickerTarget] = useState<{date: string, mealType: string} | null>(null);
@@ -112,10 +105,8 @@ export default function PantryManager() {
   const recipeDropdownRef = useRef<HTMLDivElement>(null);
   const shoppingDropdownRef = useRef<HTMLDivElement>(null);
   const pantryDropdownRef = useRef<HTMLDivElement>(null);
-  const lowStockDropdownRef = useRef<HTMLDivElement>(null);
 
   const [editName, setEditName] = useState('');
-  const [editCategory, setEditCategory] = useState('');
   const [editQuantity, setEditQuantity] = useState('');
   const [editUnit, setEditUnit] = useState('');
   
@@ -129,21 +120,11 @@ export default function PantryManager() {
 
   const next7Days = getNext7Days();
   const todayStr = new Date().toISOString().split('T')[0];
-
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
+  const dynamicCategories = Array.from(new Set([...DEFAULT_CATEGORIES, ...(items || []).map(i => i?.category)])).filter(Boolean);
 
-  const dynamicCategories = Array.from(new Set([
-    ...DEFAULT_CATEGORIES,
-    ...(items || []).map(i => i?.category)
-  ])).filter(Boolean);
-
-  /* ==========================================================================
-     3. DATA FETCHING & EVENT LISTENERS
-     ========================================================================== */
   useEffect(() => {
     setIsMounted(true);
-    
-    // Memory for Recipe View Mode
     const savedMode = localStorage.getItem('recipeViewMode');
     if (savedMode === 'list' || savedMode === 'grid') setRecipeViewMode(savedMode);
 
@@ -157,30 +138,16 @@ export default function PantryManager() {
 
       const { data: pData } = await supabase.from('pantry_items').select('*').eq('user_id', uid).order('created_at', { ascending: false });
       if (pData) setItems(pData);
-      
       const { data: rData } = await supabase.from('recipes').select('*').eq('user_id', uid).order('created_at', { ascending: false });
       if (rData) setRecipes(rData);
-      
       const { data: sData } = await supabase.from('shopping_list').select('*').eq('user_id', uid).order('created_at', { ascending: false });
       if (sData) setShoppingList(sData);
-
       const today = new Date().toISOString().split('T')[0];
       const { data: mData } = await supabase.from('meal_plan').select('*, recipes(title, image, cook_time, category)').eq('user_id', uid).gte('date', today).order('date', { ascending: true });
       if (mData) setMealPlans(mData as MealPlanItem[]);
     };
     loadData();
   }, [router, supabase.auth]);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (recipeDropdownRef.current && !recipeDropdownRef.current.contains(event.target as Node)) setShowAddRecipeMenu(false);
-      if (shoppingDropdownRef.current && !shoppingDropdownRef.current.contains(event.target as Node)) setShowAddShoppingMenu(false);
-      if (pantryDropdownRef.current && !pantryDropdownRef.current.contains(event.target as Node)) setShowAddPantryMenu(false);
-      if (lowStockDropdownRef.current && !lowStockDropdownRef.current.contains(event.target as Node)) setShowAddTrackMenu(false);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
 
   useEffect(() => {
     window.history.replaceState({ tab: 'dashboard', type: 'tab' }, '', window.location.pathname);
@@ -195,36 +162,18 @@ export default function PantryManager() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  const handleTabChange = (tab: string) => {
-    window.history.pushState({ tab, type: 'tab' }, '', `#${tab}`);
-    setActiveTab(tab as any); setSelectedRecipe(null);
-  };
-
-  const handleOpenRecipe = (recipe: Recipe) => {
-    window.history.pushState({ tab: activeTab, recipe, type: 'recipe' }, '', `#recipe-${recipe.id}`);
-    setSelectedRecipe(recipe); setTargetPortions(recipe.portions || 4); setIsEditingRecipe(false); setRecipeDetailTab('ingredients'); window.scrollTo(0, 0);
-  };
-
-  const handleOpenLowStock = () => { 
-    window.history.pushState({ tab: 'lowstock', type: 'tab' }, '', `#lowstock`); 
-    setActiveTab('lowstock'); 
-    setSelectedRecipe(null);
-  };
-
+  const handleTabChange = (tab: string) => { window.history.pushState({ tab, type: 'tab' }, '', `#${tab}`); setActiveTab(tab as any); setSelectedRecipe(null); };
+  const handleOpenRecipe = (recipe: Recipe) => { window.history.pushState({ tab: activeTab, recipe, type: 'recipe' }, '', `#recipe-${recipe.id}`); setSelectedRecipe(recipe); setTargetPortions(recipe.portions || 4); setIsEditingRecipe(false); setRecipeDetailTab('ingredients'); window.scrollTo(0, 0); };
+  const handleOpenLowStock = () => { window.history.pushState({ tab: 'lowstock', type: 'tab' }, '', `#lowstock`); setActiveTab('lowstock'); setSelectedRecipe(null); };
   const handleBackNavigation = () => window.history.back();
   const handleSignOut = async () => { await supabase.auth.signOut(); router.push('/login'); };
 
-  // Helper for Memory View Mode
-  const handleSetRecipeViewMode = (mode: 'grid' | 'list') => {
-    setRecipeViewMode(mode);
-    localStorage.setItem('recipeViewMode', mode);
-  };
+  const handleSetRecipeViewMode = (mode: 'grid' | 'list') => { setRecipeViewMode(mode); localStorage.setItem('recipeViewMode', mode); };
 
   const handleUpdateAccount = async () => {
     setLoading(true); const updates: any = {};
     if (newEmail) updates.email = newEmail; if (newPassword) updates.password = newPassword;
     if (userName) updates.data = { full_name: userName };
-
     if (Object.keys(updates).length > 0) {
       const { error } = await supabase.auth.updateUser(updates);
       if (error) showToast(error.message);
@@ -234,85 +183,45 @@ export default function PantryManager() {
   };
 
   const handleDeleteAccount = async () => {
-    const confirmDelete = window.confirm("Are you sure you want to delete your account? This action is permanent and cannot be undone.");
-    if (!confirmDelete) return;
-    setLoading(true);
-    showToast("Account deletion request submitted.");
-    await supabase.auth.signOut();
-    router.push('/login');
-    setLoading(false);
+    if (!window.confirm("Are you sure you want to delete your account? This action is permanent and cannot be undone.")) return;
+    setLoading(true); showToast("Account deletion request submitted."); await supabase.auth.signOut(); router.push('/login'); setLoading(false);
   };
 
-  /* ==========================================================================
-     4. BARCODE SCANNING INTEGRATION
-     ========================================================================== */
   useEffect(() => {
     let html5QrCode: any;
     if (showBarcodeScanner) {
       import('html5-qrcode').then(({ Html5Qrcode }) => {
         html5QrCode = new Html5Qrcode("barcode-reader");
-        html5QrCode.start(
-          { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 250, height: 150 } },
-          async (decodedText: string) => {
-            try { await html5QrCode.stop(); html5QrCode.clear(); } catch(e) {}
-            setShowBarcodeScanner(false);
-            await handleBarcodeScanned(decodedText);
-          },
+        html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 150 } },
+          async (decodedText: string) => { try { await html5QrCode.stop(); html5QrCode.clear(); } catch(e) {} setShowBarcodeScanner(false); await handleBarcodeScanned(decodedText); },
           (err: any) => { }
-        ).catch((err: any) => {
-           showToast("Camera access denied or unavailable.");
-           setShowBarcodeScanner(false);
-        });
-      }).catch(err => {
-         showToast("Barcode scanner library failed to load.");
-         setShowBarcodeScanner(false);
-      });
+        ).catch((err: any) => { showToast("Camera access denied."); setShowBarcodeScanner(false); });
+      }).catch(err => { showToast("Scanner failed to load."); setShowBarcodeScanner(false); });
     }
-    return () => {
-      if (html5QrCode && html5QrCode.isScanning) {
-        html5QrCode.stop().then(() => html5QrCode.clear()).catch((e: any) => console.log(e));
-      }
-    };
+    return () => { if (html5QrCode && html5QrCode.isScanning) { html5QrCode.stop().then(() => html5QrCode.clear()).catch((e: any) => console.log(e)); } };
   }, [showBarcodeScanner]);
 
   const handleBarcodeScanned = async (barcode: string) => {
-    setLoading(true);
-    showToast('Barcode recognized! Fetching details...');
+    setLoading(true); showToast('Barcode recognized! Fetching details...');
     try {
       const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${barcode}.json?fields=product_name,generic_name,brands,quantity,categories_tags`);
       const data = await res.json();
       if (data.status === 1 && data.product) {
-        const p = data.product;
-        const itemName = p.product_name || p.generic_name || 'Unknown Item';
+        const p = data.product; const itemName = p.product_name || p.generic_name || 'Unknown Item';
         const brand = p.brands ? `${p.brands.split(',')[0]} ` : '';
         const fullName = `${brand}${itemName}`.trim().charAt(0).toUpperCase() + `${brand}${itemName}`.trim().slice(1).toLowerCase();
-        useStateName(fullName);
-        setCategory(getAisle(fullName));
-        if (p.quantity) {
-           const match = p.quantity.match(/^([\d.]+)\s*([a-zA-Z]+)/);
-           if (match) { setQuantity(match[1]); setUnit(match[2].toLowerCase()); }
-        }
-        setShowPantryInput(true);
-        showToast('Item loaded! Please review and save.');
-      } else {
-        showToast('Product not found in database. Try typing manually.');
-        setShowPantryInput(true);
-      }
-    } catch (e) {
-      showToast('Error looking up barcode.');
-    }
+        useStateName(fullName); setCategory(getAisle(fullName));
+        if (p.quantity) { const match = p.quantity.match(/^([\d.]+)\s*([a-zA-Z]+)/); if (match) { setQuantity(match[1]); setUnit(match[2].toLowerCase()); } }
+        setShowPantryInput(true); showToast('Item loaded! Please review and save.');
+      } else { showToast('Product not found in database. Try typing manually.'); setShowPantryInput(true); }
+    } catch (e) { showToast('Error looking up barcode.'); }
     setLoading(false);
   };
 
-  /* ==========================================================================
-     5. MERGING / ACCUMULATION ENGINES
-     ========================================================================== */
   const addOrMergePantryItem = async (newItem: { name: string, category: string, quantity: number, unit: string, track_low_stock: boolean, low_stock_threshold: number }) => {
     const existing = items.find(i => normalizeName(i.name) === normalizeName(newItem.name));
     if (existing) {
-      const existingBase = toBaseUnit(existing.quantity, existing.unit);
-      const newBase = toBaseUnit(newItem.quantity, newItem.unit);
+      const existingBase = toBaseUnit(existing.quantity, existing.unit); const newBase = toBaseUnit(newItem.quantity, newItem.unit);
       if (existingBase.base === newBase.base || existing.quantity === 0) {
         const combinedBaseQty = existing.quantity === 0 ? newBase.qty : existingBase.qty + newBase.qty;
         const combinedBaseUnit = existing.quantity === 0 ? newBase.base : existingBase.base;
@@ -329,11 +238,9 @@ export default function PantryManager() {
   const addOrMergeShoppingItem = async (newItem: { name: string, quantity: number, unit: string }) => {
     const existing = shoppingList.find(i => normalizeName(i.name) === normalizeName(newItem.name) && !i.checked);
     if (existing) {
-      const existingBase = toBaseUnit(existing.quantity || 1, existing.unit || 'pcs');
-      const newBase = toBaseUnit(newItem.quantity, newItem.unit);
+      const existingBase = toBaseUnit(existing.quantity || 1, existing.unit || 'pcs'); const newBase = toBaseUnit(newItem.quantity, newItem.unit);
       if (existingBase.base === newBase.base) {
-        const combinedBaseQty = existingBase.qty + newBase.qty;
-        const final = fromBaseUnit(combinedBaseQty, existingBase.base);
+        const combinedBaseQty = existingBase.qty + newBase.qty; const final = fromBaseUnit(combinedBaseQty, existingBase.base);
         await supabase.from('shopping_list').update({ quantity: final.qty, unit: final.unit }).eq('id', existing.id).eq('user_id', userId);
         setShoppingList(prev => prev.map(i => i.id === existing.id ? { ...i, quantity: final.qty, unit: final.unit } : i));
         return;
@@ -343,115 +250,59 @@ export default function PantryManager() {
     if (data) setShoppingList(prev => [data, ...prev]);
   };
 
-  /* ==========================================================================
-     6. VOICE INPUT PARSING
-     ========================================================================== */
   const toggleListening = () => {
-    if (isListening) {
-      if (recognitionRef.current) recognitionRef.current.stop();
-      setIsListening(false);
-      return;
-    }
+    if (isListening) { if (recognitionRef.current) recognitionRef.current.stop(); setIsListening(false); return; }
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) return showToast('Web Speech API not supported.');
     setVoiceTranscript(''); setVoiceParsedItems([]);
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
-    recognitionRef.current = recognition;
-    recognition.lang = 'en-US';
-    recognition.continuous = true;
-    recognition.interimResults = false;
+    const recognition = new SpeechRecognition(); recognitionRef.current = recognition; recognition.lang = 'en-US'; recognition.continuous = true; recognition.interimResults = false;
     recognition.onstart = () => setIsListening(true);
-    recognition.onresult = (event: any) => {
-      let fullText = '';
-      for (let i = 0; i < event.results.length; i++) fullText += event.results[i][0].transcript + ' ';
-      setVoiceTranscript(fullText.trim());
-    };
-    recognition.onend = () => setIsListening(false);
-    recognition.onerror = () => setIsListening(false);
-    recognition.start();
+    recognition.onresult = (event: any) => { let fullText = ''; for (let i = 0; i < event.results.length; i++) fullText += event.results[i][0].transcript + ' '; setVoiceTranscript(fullText.trim()); };
+    recognition.onend = () => setIsListening(false); recognition.onerror = () => setIsListening(false); recognition.start();
   };
 
-  useEffect(() => {
-    if (!isListening && voiceTranscript.trim() && voiceParsedItems.length === 0) parseVoiceInput(voiceTranscript);
-  }, [isListening, voiceTranscript]);
+  useEffect(() => { if (!isListening && voiceTranscript.trim() && voiceParsedItems.length === 0) parseVoiceInput(voiceTranscript); }, [isListening, voiceTranscript]);
 
   const parseVoiceInput = async (textToParse: string) => {
     if (!textToParse.trim()) return;
     const numberMap: Record<string, string> = { 'one': '1', 'two': '2', 'three': '3', 'four': '4', 'five': '5', 'six': '6', 'seven': '7', 'eight': '8', 'nine': '9', 'ten': '10', 'a': '1', 'an': '1' };
-    let cleanText = textToParse.toLowerCase();
-    Object.keys(numberMap).forEach(word => { cleanText = cleanText.replace(new RegExp(`\\b${word}\\b`, 'g'), numberMap[word]); });
+    let cleanText = textToParse.toLowerCase(); Object.keys(numberMap).forEach(word => { cleanText = cleanText.replace(new RegExp(`\\b${word}\\b`, 'g'), numberMap[word]); });
     const rawItems = cleanText.split(/\s+and\s+|,|\s+plus\s+/i).map(s => s.trim()).filter(Boolean);
     const parsedPromises = rawItems.map(async (itemStr, idx) => {
       let cleanedItemStr = itemStr.replace(/\b(of|some)\b/g, '').replace(/\s+/g, ' ').trim();
-      const regex = /^([\d.]+)?\s*(?:\b(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|grams|kilograms|liters|milliliters|cloves)\b)?\s*(.*)$/i;
-      const match = cleanedItemStr.match(regex);
+      const match = cleanedItemStr.match(/^([\d.]+)?\s*(?:\b(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|grams|kilograms|liters|milliliters|cloves)\b)?\s*(.*)$/i);
       let qty = 1; let unit = 'pcs'; let parsedName = cleanedItemStr;
       if (match) {
         if (match[1]) qty = parseFloat(match[1]);
-        if (match[2]) {
-          const rawUnit = match[2].toLowerCase();
-          if (rawUnit === 'grams') unit = 'g'; else if (rawUnit === 'kilograms') unit = 'kg'; else if (rawUnit === 'liters') unit = 'l'; else if (rawUnit === 'milliliters') unit = 'ml'; else unit = rawUnit;
-        }
+        if (match[2]) { const rawUnit = match[2].toLowerCase(); if (rawUnit === 'grams') unit = 'g'; else if (rawUnit === 'kilograms') unit = 'kg'; else if (rawUnit === 'liters') unit = 'l'; else if (rawUnit === 'milliliters') unit = 'ml'; else unit = rawUnit; }
         if (match[3]) parsedName = match[3];
       }
       let standardizedName = parsedName.charAt(0).toUpperCase() + parsedName.slice(1);
-      let predictedCategory = 'Other';
-      
-      try {
-        const dbMatches = await searchFoodFacts(parsedName);
-        if (dbMatches && dbMatches.length > 0) {
-          standardizedName = dbMatches[0].name;
-          predictedCategory = dbMatches[0].category;
-        }
-      } catch (err) {}
-
+      let predictedCategory = getAisle(standardizedName);
       if (unit === 'pcs') {
         if (standardizedName.toLowerCase().includes('milk') || standardizedName.toLowerCase().includes('water')) unit = 'ml';
         if (standardizedName.toLowerCase().includes('flour') || standardizedName.toLowerCase().includes('sugar') || standardizedName.toLowerCase().includes('rice')) unit = 'g';
       }
-      if (predictedCategory === 'Other') predictedCategory = getAisle(standardizedName);
       return { id: Date.now() + idx, name: standardizedName.trim(), quantity: qty, unit, category: predictedCategory };
     });
-    const parsed = await Promise.all(parsedPromises);
-    setVoiceParsedItems(parsed);
+    const parsed = await Promise.all(parsedPromises); setVoiceParsedItems(parsed);
   };
 
-  const updateVoiceItem = (index: number, field: string, value: string | number) => {
-    setVoiceParsedItems(prev => { const updated = [...prev]; updated[index] = { ...updated[index], [field]: value }; return updated; });
-  };
-
+  const updateVoiceItem = (index: number, field: string, value: string | number) => { setVoiceParsedItems(prev => { const updated = [...prev]; updated[index] = { ...updated[index], [field]: value }; return updated; }); };
   const removeVoiceItem = (index: number) => setVoiceParsedItems(prev => prev.filter((_, i) => i !== index));
 
   const commitVoiceItems = async () => {
-    if (voiceParsedItems.length === 0) return;
-    setLoading(true);
+    if (voiceParsedItems.length === 0) return; setLoading(true);
     for (const item of voiceParsedItems) {
-       if (voiceContext === 'shopping') {
-         await addOrMergeShoppingItem({ name: item.name, quantity: item.quantity, unit: item.unit });
-       } else {
-         await addOrMergePantryItem({ name: item.name, category: item.category || 'Other', quantity: item.quantity, unit: item.unit, track_low_stock: false, low_stock_threshold: 1 });
-       }
+       if (voiceContext === 'shopping') await addOrMergeShoppingItem({ name: item.name, quantity: item.quantity, unit: item.unit });
+       else await addOrMergePantryItem({ name: item.name, category: item.category || 'Other', quantity: item.quantity, unit: item.unit, track_low_stock: false, low_stock_threshold: 1 });
     }
     if (voiceContext === 'shopping') showToast('Items added to list!'); else showToast('Items added to pantry!');
     setVoiceParsedItems([]); setVoiceTranscript(''); setShowVoiceInputScreen(false); setLoading(false);
   };
 
-  /* ==========================================================================
-     7. CRUD HANDLERS
-     ========================================================================== */
-  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement> | {target: {value: string}}) => {
-    const val = e.target.value; useStateName(val);
-    if (!isManualCategory && val.length > 2) {
-      setCategory(getAisle(val));
-    }
-  };
-
-  const handleNewTrackNameChange = (e: React.ChangeEvent<HTMLInputElement> | {target: {value: string}}) => {
-    const val = e.target.value; setNewTrackName(val);
-    if (val.length > 2) {
-      setNewTrackCategory(getAisle(val));
-    }
-  };
+  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement> | {target: {value: string}}) => { const val = e.target.value; useStateName(val); if (!isManualCategory && val.length > 2) { setCategory(getAisle(val)); } };
+  const handleNewTrackNameChange = (e: React.ChangeEvent<HTMLInputElement> | {target: {value: string}}) => { const val = e.target.value; setNewTrackName(val); if (val.length > 2) { setNewTrackCategory(getAisle(val)); } };
 
   const addItem = async (e: React.FormEvent) => {
     e.preventDefault(); if (!name.trim()) return; setLoading(true);
@@ -462,210 +313,112 @@ export default function PantryManager() {
   const handleScanReceipt = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return; setIsScanning(true);
     try {
-      const compressedFile = await compressImage(file);
-      const formData = new FormData(); formData.append('receipt', compressedFile);
-      const res = await fetch('/api/scan-receipt', { method: 'POST', body: formData }); 
-      const data = await res.json();
-      if (data.items && data.items.length > 0) setScannedItems(data.items); 
-      else showToast(data.message || 'Scanner API didn\'t find any items.');
+      const compressedFile = await compressImage(file); const formData = new FormData(); formData.append('receipt', compressedFile);
+      const res = await fetch('/api/scan-receipt', { method: 'POST', body: formData }); const data = await res.json();
+      if (data.items && data.items.length > 0) setScannedItems(data.items); else showToast(data.message || 'Scanner API didn\'t find any items.');
     } catch { showToast('Failed to read receipt. Image may be too large or backend error.'); }
     if (fileInputRef.current) fileInputRef.current.value = ''; setIsScanning(false);
   };
 
-  const updateScannedItem = (index: number, field: string, value: string | number) => {
-    setScannedItems(prev => { if (!prev) return prev; const updated = [...prev]; updated[index] = { ...updated[index], [field]: value }; return updated; });
-  };
+  const updateScannedItem = (index: number, field: string, value: string | number) => { setScannedItems(prev => { if (!prev) return prev; const updated = [...prev]; updated[index] = { ...updated[index], [field]: value }; return updated; }); };
   const removeScannedItem = (index: number) => setScannedItems(prev => prev ? prev.filter((_, i) => i !== index) : prev);
 
   const commitScannedItems = async () => {
-    if (!scannedItems || scannedItems.length === 0) return setScannedItems(null);
-    setLoading(true);
-    for (const item of scannedItems) {
-      await addOrMergePantryItem({ name: item.name, category: item.category || 'Other', quantity: parseFloat(item.quantity) || 1, unit: item.unit || 'pcs', track_low_stock: false, low_stock_threshold: 1 });
-    }
+    if (!scannedItems || scannedItems.length === 0) return setScannedItems(null); setLoading(true);
+    for (const item of scannedItems) { await addOrMergePantryItem({ name: item.name, category: item.category || 'Other', quantity: parseFloat(item.quantity) || 1, unit: item.unit || 'pcs', track_low_stock: false, low_stock_threshold: 1 }); }
     showToast(`Added ${scannedItems.length} items to pantry!`); setScannedItems(null); setLoading(false);
   };
 
   const deleteItem = async (id: string) => { setItems(prev => prev.filter(item => item.id !== id)); await supabase.from('pantry_items').delete().eq('id', id).eq('user_id', userId); showToast('Item deleted.'); };
-  
   const adjustQuantity = async (item: PantryItem, delta: number) => {
-    const newQty = Math.max(0, Number((item.quantity + delta).toFixed(2)));
-    setItems(prev => prev.map(i => i.id === item.id ? { ...i, quantity: newQty } : i));
+    const newQty = Math.max(0, Number((item.quantity + delta).toFixed(2))); setItems(prev => prev.map(i => i.id === item.id ? { ...i, quantity: newQty } : i));
     await supabase.from('pantry_items').update({ quantity: newQty }).eq('id', item.id).eq('user_id', userId);
-    if (pantryActionMenu.item && pantryActionMenu.item.id === item.id) {
-       setPantryActionMenu({ isOpen: true, item: { ...pantryActionMenu.item, quantity: newQty } });
-    }
+    if (pantryActionMenu.item && pantryActionMenu.item.id === item.id) { setPantryActionMenu({ isOpen: true, item: { ...pantryActionMenu.item, quantity: newQty } }); }
   };
 
   const startEditing = (item: PantryItem) => { 
-    setEditingPantryItem(item);
+    setEditingPantryItem(item); 
     setEditName(item.name || ''); 
-    setEditCategory(item.category || 'Other'); 
     setEditQuantity(item.quantity != null ? item.quantity.toString() : '1'); 
     setEditUnit(item.unit || 'pcs'); 
   };
 
   const saveEdit = async (id: string) => {
-    const updatedItem = { name: (editName || '').trim(), category: editCategory, quantity: parseFloat(editQuantity) || 0, unit: editUnit };
+    const cleanCat = getAisle(editName.trim());
+    const updatedItem = { name: (editName || '').trim(), category: cleanCat, quantity: parseFloat(editQuantity) || 0, unit: editUnit };
     if (!updatedItem.name) return showToast("Item name cannot be empty.");
     setItems(prev => prev.map(item => item.id === id ? { ...item, ...updatedItem } : item));
     setEditingPantryItem(null); 
     await supabase.from('pantry_items').update(updatedItem).eq('id', id).eq('user_id', userId);
   };
 
-  const enableTrackingForId = async (id: string) => {
-    if (!id) return; setItems(prev => prev.map(i => i.id === id ? { ...i, track_low_stock: true, low_stock_threshold: 1 } : i));
-    await supabase.from('pantry_items').update({ track_low_stock: true, low_stock_threshold: 1 }).eq('id', id).eq('user_id', userId); setItemToTrackId('');
-  };
-
-  const disableTrackingForId = async (id: string) => {
-    setItems(prev => prev.map(i => i.id === id ? { ...i, track_low_stock: false } : i)); await supabase.from('pantry_items').update({ track_low_stock: false }).eq('id', id).eq('user_id', userId);
-  };
-
-  const updateLowStockThreshold = async (id: string, threshold: number) => {
-    const val = Math.max(0, threshold); setItems(prev => prev.map(i => i.id === id ? { ...i, low_stock_threshold: val } : i));
-    await supabase.from('pantry_items').update({ low_stock_threshold: val }).eq('id', id).eq('user_id', userId);
-  };
+  const enableTrackingForId = async (id: string) => { if (!id) return; setItems(prev => prev.map(i => i.id === id ? { ...i, track_low_stock: true, low_stock_threshold: 1 } : i)); await supabase.from('pantry_items').update({ track_low_stock: true, low_stock_threshold: 1 }).eq('id', id).eq('user_id', userId); setItemToTrackId(''); };
+  const disableTrackingForId = async (id: string) => { setItems(prev => prev.map(i => i.id === id ? { ...i, track_low_stock: false } : i)); await supabase.from('pantry_items').update({ track_low_stock: false }).eq('id', id).eq('user_id', userId); };
+  const updateLowStockThreshold = async (id: string, threshold: number) => { const val = Math.max(0, threshold); setItems(prev => prev.map(i => i.id === id ? { ...i, low_stock_threshold: val } : i)); await supabase.from('pantry_items').update({ low_stock_threshold: val }).eq('id', id).eq('user_id', userId); };
 
   const addNewTrackedItem = async (e: React.FormEvent) => {
     e.preventDefault(); if (!newTrackName.trim()) return; setLoading(true);
-    const existing = items.find(i => 
-      (i.name || '').toLowerCase().trim() === newTrackName.toLowerCase().trim() || 
-      normalizeName(i.name || '') === normalizeName(newTrackName)
-    );
+    const existing = items.find(i => (i.name || '').toLowerCase().trim() === newTrackName.toLowerCase().trim() || normalizeName(i.name || '') === normalizeName(newTrackName));
     if (existing) {
        await supabase.from('pantry_items').update({ track_low_stock: true, low_stock_threshold: 1 }).eq('id', existing.id).eq('user_id', userId);
-       setItems(prev => prev.map(i => i.id === existing.id ? { ...i, track_low_stock: true, low_stock_threshold: 1 } : i));
-       showToast(`Linked tracker to existing ${existing.name} in pantry!`);
+       setItems(prev => prev.map(i => i.id === existing.id ? { ...i, track_low_stock: true, low_stock_threshold: 1 } : i)); showToast(`Linked tracker to existing ${existing.name} in pantry!`);
     } else {
-       await addOrMergePantryItem({ name: newTrackName.trim(), category: newTrackCategory, quantity: 0, unit: newTrackUnit, track_low_stock: true, low_stock_threshold: 1 });
-       showToast('Tracking added!');
+       await addOrMergePantryItem({ name: newTrackName.trim(), category: newTrackCategory, quantity: 0, unit: newTrackUnit, track_low_stock: true, low_stock_threshold: 1 }); showToast('Tracking added!');
     }
     setNewTrackName(''); setLoading(false); setShowTrackNewInput(false);
   };
 
   const handleImportRecipe = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!importUrl) return;
-    setIsImporting(true);
+    e.preventDefault(); if (!importUrl) return; setIsImporting(true);
     try {
-      const res = await fetch('/api/scrape-recipe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: importUrl }) });
-      const data = await res.json();
+      const res = await fetch('/api/scrape-recipe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: importUrl }) }); const data = await res.json();
       if (res.ok && data.title) {
         const { data: insertedData, error } = await supabase.from('recipes').insert([{ ...data, portions: 4, user_id: userId }]).select().single();
-        if (error) throw error;
-        if (insertedData) { setRecipes(prev => [insertedData, ...prev]); showToast('Recipe imported!'); setShowImportInput(false); }
-      } else {
-        showToast(data.error || 'Could not extract a recipe from that URL.');
-      }
-    } catch {
-      showToast('Failed to import recipe.');
-    }
+        if (error) throw error; if (insertedData) { setRecipes(prev => [insertedData, ...prev]); showToast('Recipe imported!'); setShowImportInput(false); }
+      } else showToast(data.error || 'Could not extract a recipe from that URL.');
+    } catch { showToast('Failed to import recipe.'); }
     setImportUrl(''); setIsImporting(false);
-  };
-
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setFormState: Function) => {
-    const file = e.target.files?.[0]; if (!file) return;
-    const reader = new FileReader(); reader.onloadend = () => { setFormState((prev: any) => ({ ...prev, image: reader.result as string })); }; reader.readAsDataURL(file);
   };
 
   const saveManualRecipe = async () => {
     if (!manualRecipe.title.trim()) return showToast("Add a recipe title."); setLoading(true);
-    const cleanedIngredients = manualRecipe.ingredientsText.split('\n').map(i => i.trim()).filter(i => i !== '');
-    const cleanedInstructions = manualRecipe.instructionsText.split('\n').map(i => i.trim()).filter(i => i !== '');
+    const cleanedIngredients = manualRecipe.ingredientsText.split('\n').map(i => i.trim()).filter(i => i !== ''); const cleanedInstructions = manualRecipe.instructionsText.split('\n').map(i => i.trim()).filter(i => i !== '');
     const newRecipe = { title: manualRecipe.title.trim(), category: manualRecipe.category, cook_time: manualRecipe.cook_time, portions: manualRecipe.portions, image: manualRecipe.image, ingredients: cleanedIngredients, instructions: cleanedInstructions, user_id: userId };
     const { data, error } = await supabase.from('recipes').insert([newRecipe]).select().single();
     if (!error && data) { setRecipes(prev => [data, ...prev]); setShowManualAddRecipe(false); setManualRecipe({ title: '', category: 'Main Dish', cook_time: '30 mins', portions: 4, ingredientsText: '', instructionsText: '', image: '' }); showToast('Recipe created!'); } 
     setLoading(false);
   };
 
-  const startEditingRecipe = () => {
-    if (!selectedRecipe) return;
-    setEditRecipeForm({ title: selectedRecipe.title || '', category: selectedRecipe.category || 'Other', cook_time: selectedRecipe.cook_time || '', portions: selectedRecipe.portions || 4, image: selectedRecipe.image || '', ingredientsText: (selectedRecipe.ingredients || []).join('\n'), instructionsText: (selectedRecipe.instructions || []).join('\n') });
-    setIsEditingRecipe(true);
-  };
-
+  const startEditingRecipe = () => { if (!selectedRecipe) return; setEditRecipeForm({ title: selectedRecipe.title || '', category: selectedRecipe.category || 'Other', cook_time: selectedRecipe.cook_time || '', portions: selectedRecipe.portions || 4, image: selectedRecipe.image || '', ingredientsText: (selectedRecipe.ingredients || []).join('\n'), instructionsText: (selectedRecipe.instructions || []).join('\n') }); setIsEditingRecipe(true); };
   const saveEditedRecipe = async () => {
     if (!selectedRecipe || !editRecipeForm.title.trim()) return showToast("Recipe title cannot be empty."); setLoading(true);
-    const cleanedIngredients = editRecipeForm.ingredientsText.split('\n').map(i => i.trim()).filter(i => i !== '');
-    const cleanedInstructions = editRecipeForm.instructionsText.split('\n').map(i => i.trim()).filter(i => i !== '');
+    const cleanedIngredients = editRecipeForm.ingredientsText.split('\n').map(i => i.trim()).filter(i => i !== ''); const cleanedInstructions = editRecipeForm.instructionsText.split('\n').map(i => i.trim()).filter(i => i !== '');
     const updatedData = { title: editRecipeForm.title.trim(), category: editRecipeForm.category, cook_time: editRecipeForm.cook_time, portions: editRecipeForm.portions, image: editRecipeForm.image, ingredients: cleanedIngredients, instructions: cleanedInstructions };
     const { data, error } = await supabase.from('recipes').update(updatedData).eq('id', selectedRecipe.id).eq('user_id', userId).select().single();
-    if (!error && data) { setRecipes(prev => prev.map(r => r.id === data.id ? data : r)); setSelectedRecipe(data); setIsEditingRecipe(false); showToast('Recipe updated!'); }
-    setLoading(false);
+    if (!error && data) { setRecipes(prev => prev.map(r => r.id === data.id ? data : r)); setSelectedRecipe(data); setIsEditingRecipe(false); showToast('Recipe updated!'); } setLoading(false);
   };
 
-  const deleteRecipe = async (id: string, e?: React.MouseEvent) => { 
-    if (e) e.stopPropagation(); 
-    setRecipes(prev => prev.filter(r => r.id !== id)); 
-    await supabase.from('recipes').delete().eq('id', id).eq('user_id', userId); 
-    showToast('Recipe deleted.'); 
-  };
+  const deleteRecipe = async (id: string, e?: React.MouseEvent) => { if (e) e.stopPropagation(); setRecipes(prev => prev.filter(r => r.id !== id)); await supabase.from('recipes').delete().eq('id', id).eq('user_id', userId); showToast('Recipe deleted.'); };
 
   const startDistribution = () => { setPlanTargetPortions(targetPortions); setAllocationsGrid({}); setShowDistributionModal(true); };
-
-  const handlePickRecipeForPlanner = (recipe: Recipe) => {
-    if (!recipePickerTarget) return;
-    setSelectedRecipe(recipe);
-    setTargetPortions(recipe.portions || 4);
-    setPlanTargetPortions(recipe.portions || 4);
-    const key = `${recipePickerTarget.date}|${recipePickerTarget.mealType}`;
-    setAllocationsGrid({ [key]: 1 });
-    setRecipePickerTarget(null);
-    setShowDistributionModal(true);
-  };
-
-  const handleAllocate = (dateStr: string, mealType: string, delta: number) => {
-    const key = `${dateStr}|${mealType}`; const current = allocationsGrid[key] || 0;
-    if (delta > 0 && remainingPortions <= 0) return; if (delta < 0 && current <= 0) return;
-    setAllocationsGrid(prev => ({ ...prev, [key]: current + delta }));
-  };
+  const handlePickRecipeForPlanner = (recipe: Recipe) => { if (!recipePickerTarget) return; setSelectedRecipe(recipe); setTargetPortions(recipe.portions || 4); setPlanTargetPortions(recipe.portions || 4); const key = `${recipePickerTarget.date}|${recipePickerTarget.mealType}`; setAllocationsGrid({ [key]: 1 }); setRecipePickerTarget(null); setShowDistributionModal(true); };
+  const handleAllocate = (dateStr: string, mealType: string, delta: number) => { const key = `${dateStr}|${mealType}`; const current = allocationsGrid[key] || 0; if (delta > 0 && remainingPortions <= 0) return; if (delta < 0 && current <= 0) return; setAllocationsGrid(prev => ({ ...prev, [key]: current + delta })); };
 
   const saveMealPlan = async () => {
-    if (!selectedRecipe) return;
-    if (remainingPortions !== 0) return showToast(`Allocate exactly ${planTargetPortions} portions.`); setLoading(true);
+    if (!selectedRecipe) return; if (remainingPortions !== 0) return showToast(`Allocate exactly ${planTargetPortions} portions.`); setLoading(true);
     const inserts = Object.entries(allocationsGrid).filter(([_, qty]) => qty > 0).map(([key, qty]) => { const [date, meal_type] = key.split('|'); return { date, meal_type, recipe_id: selectedRecipe.id, portions: qty, user_id: userId }; });
     const { data } = await supabase.from('meal_plan').insert(inserts).select('*, recipes(title, image, cook_time, category)');
-    if (data) { setMealPlans(prev => [...prev, ...(data as MealPlanItem[])]); showToast('Meals added to planner!'); setShowDistributionModal(false); }
-    setLoading(false);
+    if (data) { setMealPlans(prev => [...prev, ...(data as MealPlanItem[])]); showToast('Meals added to planner!'); setShowDistributionModal(false); } setLoading(false);
   };
 
-  const saveManualMeal = async (date: string, mealType: string) => {
-    const key = `${date}-${mealType}`; 
-    const value = manualInputs[key];
-    const qty = manualInputsQty[key] || 1;
-    if (!value || !value.trim()) return;
-    const { data } = await supabase.from('meal_plan').insert([{ date, meal_type: mealType, manual_name: value.trim(), portions: qty, user_id: userId }]).select('*, recipes(title)').single();
-    if (data) { setMealPlans(prev => [...prev, data as MealPlanItem]); setManualInputs(prev => ({ ...prev, [key]: '' })); setManualInputsQty(prev => ({ ...prev, [key]: 1 })); }
-  };
-  
+  const saveManualMeal = async (date: string, mealType: string) => { const key = `${date}-${mealType}`; const value = manualInputs[key]; const qty = manualInputsQty[key] || 1; if (!value || !value.trim()) return; const { data } = await supabase.from('meal_plan').insert([{ date, meal_type: mealType, manual_name: value.trim(), portions: qty, user_id: userId }]).select('*, recipes(title)').single(); if (data) { setMealPlans(prev => [...prev, data as MealPlanItem]); setManualInputs(prev => ({ ...prev, [key]: '' })); setManualInputsQty(prev => ({ ...prev, [key]: 1 })); } };
   const deleteMealPlan = async (id: string) => { setMealPlans(prev => prev.filter(m => m.id !== id)); await supabase.from('meal_plan').delete().eq('id', id).eq('user_id', userId); };
 
-  const handleAddShoppingItem = async (e: React.FormEvent) => {
-    e.preventDefault(); if (!shoppingInputName.trim()) return;
-    await addOrMergeShoppingItem({ name: shoppingInputName.trim(), quantity: parseFloat(shoppingInputQty) || 1, unit: shoppingInputUnit });
-    setShoppingInputName(''); setShoppingInputQty('1'); setShoppingInputUnit('pcs'); setShowShoppingInput(false); showToast('Added to list!');
-  };
-
-  const toggleShoppingItem = async (id: string) => {
-    const item = shoppingList.find(i => i.id === id); if (!item) return;
-    setShoppingList(prev => prev.map(i => i.id === id ? { ...i, checked: !i.checked } : i));
-    await supabase.from('shopping_list').update({ checked: !item.checked }).eq('id', id).eq('user_id', userId);
-  };
-
+  const handleAddShoppingItem = async (e: React.FormEvent) => { e.preventDefault(); if (!shoppingInputName.trim()) return; await addOrMergeShoppingItem({ name: shoppingInputName.trim(), quantity: parseFloat(shoppingInputQty) || 1, unit: shoppingInputUnit }); setShoppingInputName(''); setShoppingInputQty('1'); setShoppingInputUnit('pcs'); setShowShoppingInput(false); showToast('Added to list!'); };
+  const toggleShoppingItem = async (id: string) => { const item = shoppingList.find(i => i.id === id); if (!item) return; setShoppingList(prev => prev.map(i => i.id === id ? { ...i, checked: !i.checked } : i)); await supabase.from('shopping_list').update({ checked: !item.checked }).eq('id', id).eq('user_id', userId); };
   const deleteShoppingItem = async (id: string) => { setShoppingList(prev => prev.filter(item => item.id !== id)); await supabase.from('shopping_list').delete().eq('id', id).eq('user_id', userId); };
+  const removeCheckedShoppingItems = async () => { const checkedIds = shoppingList.filter(item => item.checked).map(item => item.id); if (checkedIds.length === 0) return; setShoppingList(prev => prev.filter(item => !item.checked)); await supabase.from('shopping_list').delete().in('id', checkedIds).eq('user_id', userId); showToast('Checked items removed.'); };
 
-  const removeCheckedShoppingItems = async () => {
-    const checkedIds = shoppingList.filter(item => item.checked).map(item => item.id);
-    if (checkedIds.length === 0) return;
-    setShoppingList(prev => prev.filter(item => !item.checked));
-    await supabase.from('shopping_list').delete().in('id', checkedIds).eq('user_id', userId);
-    showToast('Checked items removed.');
-  };
-
-  /* ==========================================================================
-     8. COMPUTED DATA FOR RENDERING
-     ========================================================================== */
   const trackedItemsList = items.filter(i => i.track_low_stock);
   const untrackedItemsList = items.filter(i => !i.track_low_stock);
   const lowStockItems = trackedItemsList.filter(i => i.quantity <= (i.low_stock_threshold || 1));
@@ -673,59 +426,29 @@ export default function PantryManager() {
   const uniqueRecipeCategories = ['All', ...Array.from(new Set((recipes || []).map(r => r?.category).filter(Boolean)))];
   const hasCheckedShoppingItems = shoppingList.some(item => item.checked);
   
-  const filteredRecipes = (recipes || []).filter(r => 
-    (r?.title || '').toLowerCase().includes(recipeSearchQuery.toLowerCase()) && 
-    (recipeCategoryFilter === 'All' || r?.category === recipeCategoryFilter)
-  );
-  
+  const filteredRecipes = (recipes || []).filter(r => (r?.title || '').toLowerCase().includes(recipeSearchQuery.toLowerCase()) && (recipeCategoryFilter === 'All' || r?.category === recipeCategoryFilter));
   const visiblePantryItems = items.filter(i => i.quantity > 0);
-  const groupedItems = visiblePantryItems.reduce((acc, item) => {
-    acc[item.category] = acc[item.category] || []; acc[item.category].push(item); return acc;
-  }, {} as Record<string, PantryItem[]>);
+  const groupedItems = visiblePantryItems.reduce((acc, item) => { acc[item.category] = acc[item.category] || []; acc[item.category].push(item); return acc; }, {} as Record<string, PantryItem[]>);
+  const groupedShoppingList = shoppingList.reduce((acc, item) => { const aisle = getAisle(item.name); acc[aisle] = acc[aisle] || []; acc[aisle].push(item); return acc; }, {} as Record<string, ShoppingItem[]>);
 
-  const groupedShoppingList = shoppingList.reduce((acc, item) => {
-    const aisle = getAisle(item.name);
-    acc[aisle] = acc[aisle] || []; acc[aisle].push(item); return acc;
-  }, {} as Record<string, ShoppingItem[]>);
+  const getIngredientStatus = (ingredient: string, pantry: PantryItem[]) => { const lowerIng = (ingredient || '').toLowerCase(); const match = (pantry || []).find(p => lowerIng.includes((p.name || '').toLowerCase())); if (!match) return { status: 'missing', requiredText: '1', availableText: '0' }; if (match.quantity <= 0) return { status: 'insufficient', requiredText: '1', availableText: '0' }; return { status: 'in_stock', requiredText: '1', availableText: `${match.quantity} ${match.unit}` }; };
 
-  const getIngredientStatus = (ingredient: string, pantry: PantryItem[]) => {
-    const lowerIng = (ingredient || '').toLowerCase(); 
-    const match = (pantry || []).find(p => lowerIng.includes((p.name || '').toLowerCase()));
-    if (!match) return { status: 'missing', requiredText: '1', availableText: '0' };
-    if (match.quantity <= 0) return { status: 'insufficient', requiredText: '1', availableText: '0' };
-    return { status: 'in_stock', requiredText: '1', availableText: `${match.quantity} ${match.unit}` };
-  };
-
-  const addLowStockToShopping = async () => {
-    const newItems = lowStockItems.map(item => ({ name: `${item.name} (Restock)`, user_id: userId }));
-    if (newItems.length === 0) return;
-    const { data } = await supabase.from('shopping_list').insert(newItems).select();
-    if (data) { setShoppingList(prev => [...data, ...prev]); showToast('Added to shopping list!'); }
-  };
+  const addLowStockToShopping = async () => { const newItems = lowStockItems.map(item => ({ name: `${item.name} (Restock)`, user_id: userId })); if (newItems.length === 0) return; const { data } = await supabase.from('shopping_list').insert(newItems).select(); if (data) { setShoppingList(prev => [...data, ...prev]); showToast('Added to shopping list!'); } };
 
   const addMissingRecipeIngredients = async (recipe: Recipe, currentMultiplier: number) => {
     setLoading(true);
     const rawMissing = (recipe.ingredients || []).map(ing => scaleAndConvertIngredient(ing, currentMultiplier, measurementSystem)).filter(scaledIng => getIngredientStatus(scaledIng, items).status !== 'in_stock');
     if (rawMissing.length === 0) { showToast('You already have all ingredients!'); setLoading(false); return; }
-    
     for (const rawIng of rawMissing) {
       const match = rawIng.match(/^([\d.]+)?\s*(?:\b(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)\b)?\s*(.*)$/i);
-      let qty = parseFloat(match?.[1] || '1') || 1;
-      let unit = (match?.[2] || 'pcs').toLowerCase();
-      let rawName = match?.[3] || rawIng;
-      let cleanName = cleanIngredientName(rawName);
+      let qty = parseFloat(match?.[1] || '1') || 1; let unit = (match?.[2] || 'pcs').toLowerCase(); let rawName = match?.[3] || rawIng; let cleanName = cleanIngredientName(rawName);
       const standard = getStandardGroceryItem(`${qty} ${unit} ${cleanName}`);
       const stdMatch = standard.match(/^([\d.]+)?\s*(?:\b(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)\b)?\s*(.*)$/i);
-      let finalQty = parseFloat(stdMatch?.[1] || '1') || 1;
-      let finalUnit = (stdMatch?.[2] || unit).toLowerCase();
-      let finalName = stdMatch?.[3] || standard;
-
+      let finalQty = parseFloat(stdMatch?.[1] || '1') || 1; let finalUnit = (stdMatch?.[2] || unit).toLowerCase(); let finalName = stdMatch?.[3] || standard;
       if (!stdMatch?.[1]) { finalQty = 1; finalUnit = 'pcs'; finalName = standard; }
-
       await addOrMergeShoppingItem({ name: finalName, quantity: finalQty, unit: finalUnit });
     }
-    showToast('Missing ingredients added!');
-    setLoading(false);
+    showToast('Missing ingredients added!'); setLoading(false);
   };
 
   const multiplier = selectedRecipe ? (targetPortions / (selectedRecipe.portions || 4)) : 1;
@@ -734,13 +457,14 @@ export default function PantryManager() {
 
   if (!isMounted) return null; // Hydration protection
 
- /* ==========================================================================
+  /* ==========================================================================
      9. RENDER JSX
      ========================================================================== */
   return (
     <main className="min-h-screen w-full overflow-x-hidden bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 pb-28 md:p-8 md:pb-8 font-montserrat">
       
       <datalist id="common-units">{COMMON_UNITS.map(u => <option key={u} value={u} />)}</datalist>
+      <input type="file" accept="image/*" capture="environment" ref={fileInputRef} className="hidden" onChange={handleScanReceipt} />
 
       {/* --- GLOBAL TOAST NOTIFICATION --- */}
       {toast && (
@@ -796,20 +520,14 @@ export default function PantryManager() {
                   <div key={item.id} className="flex flex-row items-center gap-2 bg-white/10 p-2 rounded-2xl w-full relative z-0 hover:z-10">
                     <input value={item.name} onChange={e => updateVoiceItem(index, 'name', e.target.value)} className="flex-1 min-w-[80px] bg-white text-black px-2 py-2 rounded-xl text-sm focus:outline-none placeholder:text-black/50" placeholder="Item Name" />
                     <input type="number" step="any" value={item.quantity} onChange={e => updateVoiceItem(index, 'quantity', e.target.value)} className="w-12 bg-white text-black px-1 py-2 rounded-xl text-sm text-center focus:outline-none" />
-                    <CustomSelect 
-                      value={item.unit} 
-                      onChange={v => updateVoiceItem(index, 'unit', v)} 
-                      options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
-                      className="w-[75px] bg-white rounded-xl"
-                    />
-                    {voiceContext === 'pantry' && (
+                    <div className="w-[75px]">
                       <CustomSelect 
-                        value={item.category || 'Other'} 
-                        onChange={v => updateVoiceItem(index, 'category', v)} 
-                        options={dynamicCategories.map(c => ({label: c, value: c}))} 
-                        className="w-24 hidden sm:block bg-white rounded-xl"
+                        value={item.unit} 
+                        onChange={v => updateVoiceItem(index, 'unit', v)} 
+                        options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
+                        className="bg-white rounded-xl"
                       />
-                    )}
+                    </div>
                     <button onClick={() => removeVoiceItem(index)} className="w-8 h-8 shrink-0 flex items-center justify-center bg-red-500/80 text-white rounded-xl font-bold hover:bg-red-500 transition">✕</button>
                   </div>
                 ))}
@@ -874,12 +592,13 @@ export default function PantryManager() {
              <div className="space-y-4 mt-2 overflow-y-auto pr-1 flex-1">
                <div className="space-y-1.5 relative z-20">
                  <label className="text-xs font-bold uppercase tracking-wider text-black/60">Item Name</label>
-                 <FoodAutocomplete 
+                 <input
+                    type="text"
                     value={editName} 
-                    onChange={(val) => { setEditName(val); setEditCategory(getAisle(val)); }}
-                    onSelect={(val, cat) => { setEditName(val); setEditCategory(cat !== 'Other' ? cat : getAisle(val)); }}
+                    onChange={(e) => setEditName(e.target.value)}
                     placeholder="Item name"
                     className="w-full px-4 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium text-base"
+                    required
                   />
                </div>
                
@@ -929,9 +648,13 @@ export default function PantryManager() {
                     <input value={item.name} onChange={e => updateScannedItem(index, 'name', e.target.value)} className="flex-1 px-3 py-2 rounded-xl focus:outline-none placeholder:text-black/50" placeholder="Item Name" />
                     <div className="flex gap-2">
                       <input type="number" step="any" value={item.quantity || 1} onChange={e => updateScannedItem(index, 'quantity', e.target.value)} className="w-16 px-2 py-2 rounded-xl text-center focus:outline-none" />
-                      <CustomSelect value={item.unit || 'pcs'} onChange={v => updateScannedItem(index, 'unit', v)} options={COMMON_UNITS.map(u => ({label: u, value: u}))} className="w-24 bg-white rounded-xl" />
+                      <div className="w-24">
+                        <CustomSelect value={item.unit || 'pcs'} onChange={v => updateScannedItem(index, 'unit', v)} options={COMMON_UNITS.map(u => ({label: u, value: u}))} className="bg-white rounded-xl" />
+                      </div>
                     </div>
-                    <CustomSelect value={item.category || 'Other'} onChange={v => updateScannedItem(index, 'category', v)} options={dynamicCategories.map(c => ({label: c, value: c}))} className="w-full sm:w-28 bg-white rounded-xl" />
+                    <div className="w-full sm:w-32">
+                      <CustomSelect value={item.category || 'Other'} onChange={v => updateScannedItem(index, 'category', v)} options={dynamicCategories.map(c => ({label: c, value: c}))} className="bg-white rounded-xl" />
+                    </div>
                     <button onClick={() => removeScannedItem(index)} className="px-3 py-2 bg-red-500/80 text-white rounded-xl font-bold hover:bg-red-500 transition">✕</button>
                   </div>
                ))}
@@ -1160,22 +883,32 @@ export default function PantryManager() {
           {selectedRecipe && !isEditingRecipe && (
             <div className="space-y-6">
               
-              <div className="flex justify-between items-center">
-                <button onClick={handleBackNavigation} className="w-10 h-10 flex items-center justify-center bg-white border border-black/10 rounded-full text-black/70 hover:text-black hover:bg-black/5 hover:shadow-md transition">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
-                </button>
-                <button onClick={startEditingRecipe} className="w-10 h-10 flex items-center justify-center bg-white border border-black/10 rounded-full text-black/70 hover:text-black hover:bg-black/5 hover:shadow-md transition">
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
-                </button>
-              </div>
-              
-              <div className="bg-white rounded-[32px] overflow-hidden shadow-sm border border-black/10">
-                {selectedRecipe.image && <img src={selectedRecipe.image} alt={selectedRecipe.title} className="w-full h-64 md:h-96 object-cover" />}
+              <div className="bg-white rounded-[32px] overflow-hidden shadow-sm border border-black/10 relative">
+                
+                {/* NEW OVERLAY BUTTONS */}
+                <div className="absolute top-4 left-4 z-10">
+                  <button onClick={handleBackNavigation} className="w-11 h-11 flex items-center justify-center bg-white/90 backdrop-blur-md border border-black/10 rounded-full text-black hover:bg-white hover:shadow-md transition">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+                  </button>
+                </div>
+                
+                <div className="absolute top-4 right-4 z-10">
+                  <button onClick={startEditingRecipe} className="w-11 h-11 flex items-center justify-center bg-white/90 backdrop-blur-md border border-black/10 rounded-full text-black hover:bg-white hover:shadow-md transition">
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
+                  </button>
+                </div>
+
+                {selectedRecipe.image ? (
+                  <img src={selectedRecipe.image} alt={selectedRecipe.title} className="w-full h-64 md:h-96 object-cover" />
+                ) : (
+                  <div className="w-full h-24 bg-[#6B705C]/20" /> // spacer for buttons if no image
+                )}
+
                 <div className="bg-[#6B705C] text-white p-6 md:p-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                   <div className="flex-1">
                     <h2 className="text-4xl md:text-5xl font-bold leading-snug">{selectedRecipe.title}</h2>
                   </div>
-                  <div className="flex flex-col gap-3 shrink-0 w-full md:w-56">
+                  <div className="flex flex-col gap-3 shrink-0 w-full md:w-64">
                     <button onClick={startDistribution} className="w-full py-3 bg-black text-white rounded-xl text-sm font-medium hover:bg-black/80 transition shadow-sm text-center">Add to Meal Plan</button>
                     <button onClick={() => addMissingRecipeIngredients(selectedRecipe, multiplier)} className="w-full py-3 bg-black text-white rounded-xl text-sm font-medium hover:bg-black/80 transition shadow-sm text-center">Add Missing Items to Shopping List</button>
                   </div>
@@ -1190,7 +923,7 @@ export default function PantryManager() {
 
                   {recipeDetailTab === 'ingredients' && (
                     <div className="space-y-4 animate-in fade-in">
-                      <div className="flex flex-col gap-4 bg-black/5 p-4 rounded-2xl border border-black/5">
+                      <div className="flex flex-col sm:flex-row gap-4 bg-black/5 p-4 rounded-2xl border border-black/5">
                         <div className="flex items-center gap-4">
                           <span className="text-xs font-bold uppercase tracking-wider text-black/60 w-20">Portions:</span>
                           <div className="flex items-center gap-2 bg-white rounded-lg p-1 border border-black/10 shadow-sm text-black">
@@ -1237,7 +970,7 @@ export default function PantryManager() {
                             <p className="leading-relaxed text-black">{step}</p>
                           </div>
                         );
-                      }) : <p className="text-black/50 text-sm italic">No instructions saved. Click "Edit Recipe" to add them manually.</p>}
+                      }) : <p className="text-black/50 text-sm italic">No instructions saved. Click the 3 dots to edit.</p>}
                       {selectedRecipe.source_url && <a href={selectedRecipe.source_url} target="_blank" rel="noopener noreferrer" className="mt-4 px-6 py-4 bg-white border border-black/20 rounded-2xl text-black font-semibold text-center hover:bg-black/5 transition shadow-sm block">View Full Original Recipe</a>}
                     </div>
                   )}
