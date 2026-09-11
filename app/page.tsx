@@ -7,14 +7,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
 
-// IMPORT OUR SHARED TYPES & HELPERS
 import { PantryItem, Recipe, ShoppingItem, MealPlanItem } from '@/utils/types';
 import { 
   toBaseUnit, fromBaseUnit, scaleAndConvertIngredient, cleanIngredientName, 
   getStandardGroceryItem, getAisle, compressImage, normalizeName, getNext7Days 
 } from '@/utils/helpers';
 
-// IMPORT OUR CUSTOM UI & TABS
 import CustomSelect from '@/components/ui/CustomSelect';
 import TopHeader from '@/components/TopHeader';
 import BottomNav from '@/components/BottomNav';
@@ -25,12 +23,6 @@ import ShoppingTab from '@/components/tabs/ShoppingTab';
 import RecipesTab from '@/components/tabs/RecipesTab';
 import PlannerTab from '@/components/tabs/PlannerTab';
 import LowStockTab from '@/components/tabs/LowStockTab';
-
-const CATEGORIES = [
-  { name: 'Produce' }, { name: 'Dairy & Eggs' }, { name: 'Meat & Seafood' },
-  { name: 'Pantry Staples' }, { name: 'Bakery' }, { name: 'Frozen' },
-  { name: 'Snacks' }, { name: 'Beverages' }, { name: 'Other' }
-];
 
 const COMMON_UNITS = ['pcs', 'kg', 'g', 'lbs', 'oz', 'ml', 'l', 'cups', 'tbsp', 'tsp', 'cans', 'packs', 'dash', 'pinch', 'cloves'];
 const DEFAULT_CATEGORIES = ['Produce', 'Dairy & Eggs', 'Meat & Seafood', 'Pantry Staples', 'Bakery', 'Frozen', 'Snacks', 'Beverages', 'Other'];
@@ -47,6 +39,8 @@ export default function PantryManager() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'pantry' | 'recipes' | 'shopping' | 'planner' | 'lowstock'>('dashboard');
   const [userId, setUserId] = useState<string>('');
   const [userEmail, setUserEmail] = useState('');
+  const [userName, setUserName] = useState('');
+  
   const [items, setItems] = useState<PantryItem[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [shoppingList, setShoppingList] = useState<ShoppingItem[]>([]);
@@ -58,7 +52,6 @@ export default function PantryManager() {
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
 
-  // 3-Dot Menus Bottom Sheets
   const [pantryActionMenu, setPantryActionMenu] = useState<{isOpen: boolean, item: PantryItem | null}>({isOpen: false, item: null});
   const [recipeActionMenu, setRecipeActionMenu] = useState<{isOpen: boolean, recipe: Recipe | null}>({isOpen: false, recipe: null});
   const [editingPantryItem, setEditingPantryItem] = useState<PantryItem | null>(null);
@@ -153,6 +146,7 @@ export default function PantryManager() {
       const uid = session.user.id;
       setUserId(uid);
       setUserEmail(session.user.email || '');
+      setUserName(session.user.user_metadata?.full_name || '');
 
       const { data: pData } = await supabase.from('pantry_items').select('*').eq('user_id', uid).order('created_at', { ascending: false });
       if (pData) setItems(pData);
@@ -216,11 +210,23 @@ export default function PantryManager() {
   const handleUpdateAccount = async () => {
     setLoading(true); const updates: any = {};
     if (newEmail) updates.email = newEmail; if (newPassword) updates.password = newPassword;
+    if (userName) updates.data = { full_name: userName };
+
     if (Object.keys(updates).length > 0) {
       const { error } = await supabase.auth.updateUser(updates);
       if (error) showToast(error.message);
       else { showToast("Account updated!"); setNewEmail(''); setNewPassword(''); setShowAccountModal(false); if (newEmail) setUserEmail(newEmail); }
     }
+    setLoading(false);
+  };
+
+  const handleDeleteAccount = async () => {
+    const confirmDelete = window.confirm("Are you sure you want to delete your account? This action is permanent and cannot be undone.");
+    if (!confirmDelete) return;
+    setLoading(true);
+    showToast("Account deletion request submitted.");
+    await supabase.auth.signOut();
+    router.push('/login');
     setLoading(false);
   };
 
@@ -712,9 +718,7 @@ export default function PantryManager() {
   return (
     <main className="min-h-screen w-full overflow-x-hidden bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 pb-28 md:p-8 md:pb-8 font-montserrat">
       
-      {/* Hidden Global Elements */}
       <datalist id="common-units">{COMMON_UNITS.map(u => <option key={u} value={u} />)}</datalist>
-      <input type="file" accept="image/*" capture="environment" ref={fileInputRef} className="hidden" onChange={handleScanReceipt} />
 
       {/* --- GLOBAL TOAST NOTIFICATION --- */}
       {toast && (
@@ -732,12 +736,15 @@ export default function PantryManager() {
         showModal={showAccountModal} 
         setShowModal={setShowAccountModal} 
         userEmail={userEmail} 
+        userName={userName}
+        setUserName={setUserName}
         newEmail={newEmail} 
         setNewEmail={setNewEmail} 
         newPassword={newPassword} 
         setNewPassword={setNewPassword} 
         handleUpdateAccount={handleUpdateAccount} 
         handleSignOut={handleSignOut} 
+        handleDeleteAccount={handleDeleteAccount}
         loading={loading} 
       />
 
@@ -1062,7 +1069,12 @@ export default function PantryManager() {
 
           {selectedRecipe && !isEditingRecipe && (
             <div className="space-y-6">
-              <button onClick={handleBackNavigation} className="flex items-center gap-2 text-black/70 hover:text-black font-semibold transition">&larr; Back to Recipes</button>
+              
+              {/* REPLACED THE "BACK TO RECIPES" TEXT WITH A CLEAN ARROW ICON */}
+              <button onClick={handleBackNavigation} className="w-10 h-10 flex items-center justify-center bg-white border border-black/10 rounded-full text-black/70 hover:text-black hover:bg-black/5 hover:shadow-md transition">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+              </button>
+              
               <div className="bg-white rounded-[32px] overflow-hidden shadow-sm border border-black/10">
                 {selectedRecipe.image && <img src={selectedRecipe.image} alt={selectedRecipe.title} className="w-full h-64 md:h-96 object-cover" />}
                 <div className="bg-[#6B705C] text-white p-6 md:p-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
@@ -1165,7 +1177,7 @@ export default function PantryManager() {
               setShowBarcodeScanner={setShowBarcodeScanner} setVoiceContext={setVoiceContext} 
               setShowVoiceInputScreen={setShowVoiceInputScreen} isScanning={isScanning} 
               fileInputRef={fileInputRef} groupedItems={groupedItems} 
-              setPantryActionMenu={setPantryActionMenu} 
+              setPantryActionMenu={setPantryActionMenu} showToast={showToast}
             />
           )}
 
@@ -1181,7 +1193,7 @@ export default function PantryManager() {
               setShowVoiceInputScreen={setShowVoiceInputScreen} addLowStockToShopping={addLowStockToShopping} 
               lowStockItems={lowStockItems} hasCheckedShoppingItems={hasCheckedShoppingItems} 
               removeCheckedShoppingItems={removeCheckedShoppingItems} groupedShoppingList={groupedShoppingList} 
-              toggleShoppingItem={toggleShoppingItem} deleteShoppingItem={deleteShoppingItem} 
+              toggleShoppingItem={toggleShoppingItem} deleteShoppingItem={deleteShoppingItem} showToast={showToast}
             />
           )}
 
