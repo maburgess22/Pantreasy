@@ -41,15 +41,16 @@ export default function PantryTab({
   setVoiceContext, setShowVoiceInputScreen, isScanning, fileInputRef, groupedItems, setPantryActionMenu, showToast
 }: PantryTabProps) {
 
+  // Updated Export Logic for crisp line breaks
   const handleExport = () => {
     if (Object.keys(groupedItems).length === 0) return showToast('Pantry is empty!');
-    let text = '🛒 MY PANTRY INVENTORY\n\n';
+    const lines = ['🛒 MY PANTRY INVENTORY', ''];
     Object.entries(groupedItems).forEach(([cat, list]) => {
-      text += `[ ${cat.toUpperCase()} ]\n`;
-      list.forEach(item => { text += `• ${item.name} - ${item.quantity} ${item.unit}\n`; });
-      text += '\n';
+      lines.push(`[ ${cat.toUpperCase()} ]`);
+      list.forEach(item => { lines.push(`• ${item.name} - ${item.quantity} ${item.unit}`); });
+      lines.push('');
     });
-    navigator.clipboard.writeText(text.trim());
+    navigator.clipboard.writeText(lines.join('\n'));
     showToast('Pantry copied to clipboard!');
   };
 
@@ -60,13 +61,10 @@ export default function PantryTab({
           <h2 className="text-4xl md:text-5xl font-bold leading-snug">Pantry Inventory</h2>
           <p className="text-white/80 text-sm mt-2 font-medium">Keep track of your ingredients.</p>
         </div>
-        <div className="flex flex-col md:flex-row gap-3 shrink-0 w-full md:w-auto md:items-end">
-          <button onClick={handleExport} className="w-full md:w-auto px-5 py-2.5 bg-white/20 hover:bg-white/30 text-white rounded-xl text-sm font-bold transition shadow-sm border border-white/20 flex items-center justify-center gap-2">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-            Export
-          </button>
-          <div className="relative w-full md:w-auto" ref={pantryDropdownRef}>
-            <button onClick={() => setShowAddPantryMenu(!showAddPantryMenu)} className="w-full md:w-auto px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-between md:justify-center gap-2 border border-black/20">
+        
+        <div className="flex flex-col gap-3 shrink-0 w-full md:w-48">
+          <div className="relative w-full" ref={pantryDropdownRef}>
+            <button onClick={() => setShowAddPantryMenu(!showAddPantryMenu)} className="w-full px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-between md:justify-center gap-2 border border-black/20">
               Add Item ▾
             </button>
             {showAddPantryMenu && (
@@ -78,6 +76,11 @@ export default function PantryTab({
               </div>
             )}
           </div>
+          
+          <button onClick={handleExport} className="w-full px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center gap-2 border border-black/20">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+            Export List
+          </button>
         </div>
       </div>
 

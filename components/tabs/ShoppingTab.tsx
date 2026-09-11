@@ -39,15 +39,16 @@ export default function ShoppingTab({
   groupedShoppingList, toggleShoppingItem, deleteShoppingItem, showToast
 }: ShoppingTabProps) {
 
+  // Updated Export Logic for crisp line breaks
   const handleExport = () => {
     if (Object.keys(groupedShoppingList).length === 0) return showToast('Shopping list is empty!');
-    let text = '📋 MY SHOPPING LIST\n\n';
+    const lines = ['📋 MY SHOPPING LIST', ''];
     Object.entries(groupedShoppingList).forEach(([cat, list]) => {
-      text += `[ ${cat.toUpperCase()} ]\n`;
-      list.forEach(item => { text += `${item.checked ? '[x]' : '[ ]'} ${item.name} (${item.quantity} ${item.unit})\n`; });
-      text += '\n';
+      lines.push(`[ ${cat.toUpperCase()} ]`);
+      list.forEach(item => { lines.push(`${item.checked ? '[x]' : '[ ]'} ${item.name} (${item.quantity} ${item.unit})`); });
+      lines.push('');
     });
-    navigator.clipboard.writeText(text.trim());
+    navigator.clipboard.writeText(lines.join('\n'));
     showToast('Shopping list copied to clipboard!');
   };
 
@@ -59,25 +60,26 @@ export default function ShoppingTab({
           <p className="text-white/80 text-sm mt-2 font-medium">Keep track of what you need to buy.</p>
         </div>
         
-        <div className="flex flex-col gap-3 shrink-0 w-full md:w-auto md:items-end">
-          <div className="flex w-full md:w-auto gap-3">
-            <button onClick={handleExport} className="flex-1 md:flex-none px-4 py-2.5 bg-white/20 hover:bg-white/30 text-white rounded-xl text-sm font-bold transition shadow-sm border border-white/20 flex items-center justify-center gap-2">
-               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+        <div className="flex flex-col gap-3 shrink-0 w-full md:w-56">
+          <div className="relative w-full" ref={shoppingDropdownRef}>
+            <button onClick={() => setShowAddShoppingMenu(!showAddShoppingMenu)} className="w-full px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-between md:justify-center gap-2 border border-black/20">
+              Add Item ▾
             </button>
-            <div className="relative flex-1 md:flex-none" ref={shoppingDropdownRef}>
-              <button onClick={() => setShowAddShoppingMenu(!showAddShoppingMenu)} className="w-full px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-between md:justify-center gap-2 border border-black/20">
-                Add Item ▾
-              </button>
-              {showAddShoppingMenu && (
-                <div className="absolute left-0 md:left-auto md:right-0 mt-2 w-full md:w-[240px] max-w-[90vw] bg-[#1A1A1A] rounded-2xl shadow-2xl border border-white/10 overflow-hidden z-[100] flex flex-col text-white">
-                  <button onClick={() => { setShowShoppingInput(true); setShowAddShoppingMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Type Item Name</button>
-                  <button onClick={() => { setVoiceContext('shopping'); setShowVoiceInputScreen(true); setShowAddShoppingMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition">Voice Input</button>
-                </div>
-              )}
-            </div>
+            {showAddShoppingMenu && (
+              <div className="absolute left-0 md:left-auto md:right-0 mt-2 w-full md:w-[240px] max-w-[90vw] bg-[#1A1A1A] rounded-2xl shadow-2xl border border-white/10 overflow-hidden z-[100] flex flex-col text-white">
+                <button onClick={() => { setShowShoppingInput(true); setShowAddShoppingMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition border-b border-white/5">Type Item Name</button>
+                <button onClick={() => { setVoiceContext('shopping'); setShowVoiceInputScreen(true); setShowAddShoppingMenu(false); }} className="px-5 py-4 text-left text-sm font-semibold hover:bg-white/10 transition">Voice Input</button>
+              </div>
+            )}
           </div>
-          <button onClick={addLowStockToShopping} disabled={lowStockItems.length === 0} className="w-full md:w-auto px-5 py-2.5 bg-white text-black rounded-xl text-sm font-bold transition hover:bg-gray-100 disabled:opacity-50 shadow-sm border border-black/20 text-center">
-            Add Low Stock Alert Items
+
+          <button onClick={handleExport} className="w-full px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center gap-2 border border-black/20">
+             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+             Export List
+          </button>
+
+          <button onClick={addLowStockToShopping} disabled={lowStockItems.length === 0} className="w-full px-5 py-2.5 bg-white text-black rounded-xl text-sm font-bold transition hover:bg-gray-100 disabled:opacity-50 shadow-sm border border-black/20 text-center">
+            + Restock Alerts
           </button>
         </div>
       </div>
