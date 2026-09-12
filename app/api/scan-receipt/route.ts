@@ -1,92 +1,89 @@
-import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
+// app/api/scan-receipt/route.ts
 import { NextResponse } from 'next/server';
 
-export async function POST(req: Request) {
+export async function POST(request: Request) {
   try {
-    console.log("📥 Received receipt scan request...");
-    
-    const formData = await req.formData();
+    // 1. Grab the image file from the frontend request
+    const formData = await request.formData();
     const file = formData.get('receipt') as File;
     
     if (!file) {
-      console.log("❌ Error: No file uploaded");
-      return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
+      return NextResponse.json({ message: 'No receipt image found.' }, { status: 400 });
     }
 
-    console.log(`📄 File received: ${file.name} (${file.type})`);
-
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      console.log("❌ Error: Missing GEMINI_API_KEY in environment variables");
-      return NextResponse.json({ error: 'Missing API key' }, { status: 500 });
-    }
-
+    // 2. Convert the image file into a Base64 string so Gemini can read it
     const bytes = await file.arrayBuffer();
-    const base64Image = Buffer.from(bytes).toString('base64');
+    const buffer = Buffer.from(bytes);
+    const base64Image = buffer.toString('base64');
+    const mimeType = file.type || 'image/jpeg';
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-
-    const responseSchema = {
-      type: SchemaType.ARRAY,
-      description: "A list of grocery items extracted from the receipt.",
-      items: {
-        type: SchemaType.OBJECT,
-        properties: {
-          name: { type: SchemaType.STRING, description: "Clean product name" },
-          category: { 
-            type: SchemaType.STRING, 
-            enum: ["Produce", "Dairy & Eggs", "Meat & Seafood", "Pantry Staples", "Bakery", "Frozen", "Snacks", "Beverages", "Other"] 
-          },
-          quantity: { type: SchemaType.NUMBER },
-          unit: { type: SchemaType.STRING },
-        },
-        required: ["name", "category", "quantity", "unit"],
-      },
-    };
-
-    // FIXED: Changed gemini-3.6-flash to gemini-1.5-flash
-    const model = genAI.getGenerativeModel({ 
-      model: 'gemini-1.5-flash',
-      generationConfig: {
-        responseMimeType: "application/json",
-        responseSchema: responseSchema as any, 
-        temperature: 0.1, 
+    // 3. Define the strict instructions for the AI
+    const systemPrompt = `
+      You are an expert grocery receipt parser. 
+      Read the attached receipt image and extract the grocery items.
+      
+      RULES:
+      1. Convert messy store abbreviations into clean, standard grocery names (e.g. "KLLG CRNFLK 18OZ" -> "Corn Flakes", "ONION YEL MED" -> "Yellow Onion").
+      2. Group identical items together and sum their quantities.
+      3. Assign an appropriate unit ('pcs', 'kg', 'g', 'lbs', 'oz', 'ml', 'l', 'packs', 'cans').
+      4. Assign ONE of these exact categories: 'Produce', 'Dairy & Eggs', 'Meat & Seafood', 'Pantry Staples', 'Bakery', 'Frozen', 'Snacks', 'Beverages', 'Other'.
+      5. Skip non-grocery items like taxes, bags, or hardware.
+      
+      You must respond ONLY with a valid JSON object matching this exact format:
+      {
+        "items": [
+          {
+            "name": "Yellow Onion",
+            "quantity": 2,
+            "unit": "pcs",
+            "category": "Produce"
+          }
+        ]
       }
+    `;
+
+    // 4. Send the image and prompt directly to the Gemini API
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              { text: systemPrompt },
+              {
+                inlineData: {
+                  mimeType: mimeType,
+                  data: base64Image
+                }
+              }
+            ]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.1, // Keep it low so the AI is factual, not creative
+          responseMimeType: "application/json" // Forces perfect JSON output
+        }
+      })
     });
 
-    const prompt = `You are a highly accurate grocery receipt transcription AI. 
-    Analyze this receipt image. 
-    Extract ONLY the purchased food and grocery items. 
-    Ignore taxes, subtotals, discounts, store information, and non-grocery items.
-    Translate abbreviated store receipt jargon into normal, readable grocery names.
-    If the image is too blurry, not a receipt, or you are completely uncertain, return an empty array [].`;
-
-    console.log("🤖 Sending image to Gemini AI...");
-    const result = await model.generateContent([
-      prompt,
-      { inlineData: { data: base64Image, mimeType: file.type } }
-    ]);
-
-    const text = result.response.text();
-    console.log("✨ Raw Gemini Response:", text);
-
-    let items = JSON.parse(text);
-
-    // Sometimes Gemini wraps arrays in an object like { "items": [...] } despite the schema. Let's catch that!
-    if (!Array.isArray(items) && items.items && Array.isArray(items.items)) {
-       items = items.items;
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("Gemini Error:", errorText);
+      return NextResponse.json({ message: 'Failed to communicate with AI scanner.' }, { status: 500 });
     }
 
-    if (!Array.isArray(items) || items.length === 0) {
-      console.log("⚠️ Result was empty or not an array after parsing.");
-      return NextResponse.json({ items: [], message: "No clear grocery items could be read from this receipt." });
-    }
-
-    console.log(`✅ Successfully parsed ${items.length} items!`);
-    return NextResponse.json({ items });
+    // 5. Extract and return the clean data!
+    const aiData = await response.json();
+    const rawContent = aiData.candidates[0].content.parts[0].text;
     
+    const parsedData = JSON.parse(rawContent);
+    return NextResponse.json(parsedData, { status: 200 });
+
   } catch (error: any) {
-    console.error("❌ Receipt Scan Error:", error.message || error);
-    return NextResponse.json({ error: 'Failed to process receipt image', details: error.message }, { status: 500 });
+    console.error("Receipt processing error:", error);
+    return NextResponse.json({ message: 'Failed to process receipt.', error: error.message }, { status: 500 });
   }
 }
