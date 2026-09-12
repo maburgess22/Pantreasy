@@ -9,7 +9,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Please enter a valid URL' }, { status: 400 });
     }
 
-    // Upgraded headers to mimic a real human user coming from Google search
     const response = await fetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -44,7 +43,7 @@ export async function POST(req: Request) {
     let image = '';
     let ingredients: string[] = [];
     
-    // 🛑 We hardcode the instructions here and NEVER scrape them!
+    // We hardcode the instructions here and NEVER scrape them!
     let instructions: string[] = [`For full cooking instructions, visit the original recipe here: ${url}`];
 
     // Helper to extract image URL from various schema formats
@@ -98,8 +97,6 @@ export async function POST(req: Request) {
             if (Array.isArray(recipeObj.recipeIngredient)) {
               ingredients = recipeObj.recipeIngredient.map((i: string) => i.trim()).filter(Boolean);
             }
-            
-            // NOTICE: All the messy instruction-parsing code that used to be here has been deleted!
             break;
           }
         }
@@ -130,7 +127,57 @@ export async function POST(req: Request) {
       });
     }
 
-    // NOTICE: The fallback instruction-parsing code that used to be here has also been deleted!
+    // --- NEW: GEMINI INGREDIENT CLEANING ---
+    if (ingredients.length > 0 && process.env.GEMINI_API_KEY) {
+      try {
+        const systemPrompt = `
+          You are a strict recipe ingredient parser. I will give you a JSON array of messy, verbose recipe ingredients.
+          Your ONLY job is to extract the core item name, the numeric amount, and the unit.
+          
+          RULES:
+          1. Format EVERY line exactly like this: "Item Name - Amount Unit" (e.g., "Chili Powder - 0.5 tsp" or "Olive Oil - 1 tbsp").
+          2. Strip out all cooking instructions, alternate measurements, preparation steps (e.g. "chopped", "diced"), and fluffy adjectives.
+          3. Convert fractions like "½" to decimals like "0.5".
+          4. If an ingredient has no amount, assume "1 pcs" (e.g. "Salt" -> "Salt - 1 pcs").
+          
+          You MUST return a JSON object with a single key called "cleaned_ingredients" containing an array of strings.
+          Example: { "cleaned_ingredients": ["Chili Powder - 0.5 tsp", "Chicken Breast - 2 pcs"] }
+        `;
+
+        const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  { text: systemPrompt },
+                  { text: JSON.stringify(ingredients) }
+                ]
+              }
+            ],
+            generationConfig: {
+              temperature: 0.1,
+              responseMimeType: "application/json"
+            }
+          })
+        });
+
+        if (geminiResponse.ok) {
+          const aiData = await geminiResponse.json();
+          const rawContent = aiData.candidates[0].content.parts[0].text;
+          const parsedData = JSON.parse(rawContent);
+          
+          if (parsedData.cleaned_ingredients && Array.isArray(parsedData.cleaned_ingredients) && parsedData.cleaned_ingredients.length > 0) {
+            ingredients = parsedData.cleaned_ingredients;
+          }
+        } else {
+          console.error("Gemini Recipe Cleaning Failed:", await geminiResponse.text());
+        }
+      } catch (err) {
+        console.error("Gemini Processing Error:", err);
+      }
+    }
 
     return NextResponse.json({
       title: title || 'Imported Recipe',
@@ -138,7 +185,7 @@ export async function POST(req: Request) {
       category,
       image,
       ingredients,
-      instructions, // This now safely passes our single hardcoded link string
+      instructions,
       source_url: url,
     });
   } catch (err: any) {

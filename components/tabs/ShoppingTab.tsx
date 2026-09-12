@@ -1,4 +1,3 @@
-// components/tabs/ShoppingTab.tsx
 import React from 'react';
 import { ShoppingItem, PantryItem } from '@/utils/types';
 import CustomSelect from '@/components/ui/CustomSelect';
@@ -43,7 +42,7 @@ export default function ShoppingTab({
     const lines = ['📋 MY SHOPPING LIST', ''];
     Object.entries(groupedShoppingList).forEach(([cat, list]) => {
       lines.push(`[ ${cat.toUpperCase()} ]`);
-      list.forEach(item => { lines.push(`${item.checked ? '[x]' : '[ ]'} ${item.name} (${item.quantity} ${item.unit})`); });
+      list.forEach(item => { lines.push(`${item.checked ? '[x]' : '[ ]'} ${item.name} - ${item.quantity} ${item.unit}`); });
       lines.push('');
     });
     navigator.clipboard.writeText(lines.join('\r\n'));
@@ -154,8 +153,8 @@ export default function ShoppingTab({
                   <div key={item.id} className={`flex items-center justify-between p-3 rounded-xl border border-black/10 transition ${item.checked ? 'bg-black/5 opacity-60' : 'bg-white shadow-sm'}`}>
                     <label className="flex items-center gap-3 cursor-pointer flex-1">
                       <input type="checkbox" checked={item.checked} onChange={() => toggleShoppingItem(item.id)} className="w-5 h-5 accent-black rounded cursor-pointer shrink-0" />
-                      <span className={`font-medium ${item.checked ? 'line-through text-black/50' : ''}`}>
-                        {item.name} <span className="text-xs font-normal text-black/60 ml-1">({item.quantity || 1} {item.unit || 'pcs'})</span>
+                      <span className={`font-medium capitalize ${item.checked ? 'line-through text-black/50' : ''}`}>
+                        {item.name} <span className="text-black/60 font-normal normal-case whitespace-nowrap ml-1">- {item.quantity || 1} {item.unit || 'pcs'}</span>
                       </span>
                     </label>
                     <button onClick={() => deleteShoppingItem(item.id)} className="text-black/40 hover:text-red-600 font-bold px-2 text-sm shrink-0">✕</button>

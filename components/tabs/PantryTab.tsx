@@ -71,7 +71,6 @@ export default function PantryTab({
         </div>
       </div>
 
-      {/* NEW BOTTOM SHEET FOR ADD ITEM */}
       {showAddPantryMenu && (
         <div className="fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 transition-opacity" onClick={() => setShowAddPantryMenu(false)}>
           <div className="bg-white w-full sm:max-w-sm rounded-t-[32px] sm:rounded-[32px] p-6 pb-10 sm:pb-6 shadow-2xl animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-0 sm:zoom-in-95" onClick={e => e.stopPropagation()}>
@@ -147,8 +146,9 @@ export default function PantryTab({
                   {groupList.map((item) => (
                     <div key={item.id} className="flex items-center justify-between p-3 rounded-[20px] transition bg-white border border-black/10 shadow-sm relative z-0 hover:z-10">
                       <div>
-                        <h3 className="font-semibold text-base capitalize text-black leading-tight mb-1">{item.name}</h3>
-                        <p className="text-sm text-black/70 font-normal">{item.quantity} {item.unit}</p>
+                        <h3 className="font-semibold text-base capitalize text-black leading-tight mb-1 flex items-center gap-1.5 flex-wrap">
+                          {item.name} <span className="text-sm font-normal text-black/60 normal-case whitespace-nowrap">- {item.quantity} {item.unit}</span>
+                        </h3>
                       </div>
                       <button onClick={() => setPantryActionMenu({isOpen: true, item})} className="p-2 hover:bg-black/5 rounded-full text-black/40 hover:text-black transition shrink-0">
                         <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
