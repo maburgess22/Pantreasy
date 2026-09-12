@@ -1,8 +1,5 @@
 'use client';
 
-/* ==========================================================================
-   1. IMPORTS, TYPES & CONSTANTS
-   ========================================================================== */
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
@@ -10,7 +7,7 @@ import { createClient } from '@/utils/supabase/client';
 import { PantryItem, Recipe, ShoppingItem, MealPlanItem } from '@/utils/types';
 import { 
   toBaseUnit, fromBaseUnit, scaleAndConvertIngredient, cleanIngredientName, 
-  getStandardGroceryItem, getAisle, compressImage, normalizeName, getNext7Days 
+  getStandardGroceryItem, getAisle, compressImage, normalizeName, getNext7Days
 } from '@/utils/helpers';
 
 import CustomSelect from '@/components/ui/CustomSelect';
@@ -32,11 +29,11 @@ export default function PantryManager() {
   const router = useRouter();
   const [isMounted, setIsMounted] = useState(false);
 
-  // App & User State
   const [activeTab, setActiveTab] = useState<'dashboard' | 'pantry' | 'recipes' | 'shopping' | 'planner' | 'lowstock'>('dashboard');
   const [userId, setUserId] = useState<string>('');
   const [userEmail, setUserEmail] = useState('');
   const [userName, setUserName] = useState('');
+  
   const [items, setItems] = useState<PantryItem[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [shoppingList, setShoppingList] = useState<ShoppingItem[]>([]);
@@ -110,14 +107,6 @@ export default function PantryManager() {
   const [editQuantity, setEditQuantity] = useState('');
   const [editUnit, setEditUnit] = useState('');
   
-  const [itemToTrackId, setItemToTrackId] = useState('');
-  const [newTrackName, setNewTrackName] = useState('');
-  const [newTrackCategory, setNewTrackCategory] = useState('Produce');
-  const [newTrackUnit, setNewTrackUnit] = useState('pcs');
-  const [showAddTrackMenu, setShowAddTrackMenu] = useState(false);
-  const [showTrackPantryInput, setShowTrackPantryInput] = useState(false);
-  const [showTrackNewInput, setShowTrackNewInput] = useState(false);
-
   const next7Days = getNext7Days();
   const todayStr = new Date().toISOString().split('T')[0];
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
@@ -148,6 +137,16 @@ export default function PantryManager() {
     };
     loadData();
   }, [router, supabase.auth]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (recipeDropdownRef.current && !recipeDropdownRef.current.contains(event.target as Node)) setShowAddRecipeMenu(false);
+      if (shoppingDropdownRef.current && !shoppingDropdownRef.current.contains(event.target as Node)) setShowAddShoppingMenu(false);
+      if (pantryDropdownRef.current && !pantryDropdownRef.current.contains(event.target as Node)) setShowAddPantryMenu(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     window.history.replaceState({ tab: 'dashboard', type: 'tab' }, '', window.location.pathname);
@@ -302,8 +301,7 @@ export default function PantryManager() {
   };
 
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement> | {target: {value: string}}) => { const val = e.target.value; useStateName(val); if (!isManualCategory && val.length > 2) { setCategory(getAisle(val)); } };
-  const handleNewTrackNameChange = (e: React.ChangeEvent<HTMLInputElement> | {target: {value: string}}) => { const val = e.target.value; setNewTrackName(val); if (val.length > 2) { setNewTrackCategory(getAisle(val)); } };
-
+  
   const addItem = async (e: React.FormEvent) => {
     e.preventDefault(); if (!name.trim()) return; setLoading(true);
     await addOrMergePantryItem({ name: name.trim(), category, quantity: parseFloat(quantity) || 1, unit, track_low_stock: false, low_stock_threshold: 1 });
@@ -329,7 +327,20 @@ export default function PantryManager() {
     showToast(`Added ${scannedItems.length} items to pantry!`); setScannedItems(null); setLoading(false);
   };
 
-  const deleteItem = async (id: string) => { setItems(prev => prev.filter(item => item.id !== id)); await supabase.from('pantry_items').delete().eq('id', id).eq('user_id', userId); showToast('Item deleted.'); };
+  // IF TRACKED, JUST SET TO 0. OTHERWISE DELETE
+  const deleteItem = async (id: string) => { 
+    const item = items.find(i => i.id === id);
+    if (item?.track_low_stock) {
+      setItems(prev => prev.map(i => i.id === id ? { ...i, quantity: 0 } : i));
+      await supabase.from('pantry_items').update({ quantity: 0 }).eq('id', id).eq('user_id', userId);
+      showToast('Item removed from pantry (still tracked).');
+    } else {
+      setItems(prev => prev.filter(item => item.id !== id)); 
+      await supabase.from('pantry_items').delete().eq('id', id).eq('user_id', userId); 
+      showToast('Item deleted.'); 
+    }
+  };
+
   const adjustQuantity = async (item: PantryItem, delta: number) => {
     const newQty = Math.max(0, Number((item.quantity + delta).toFixed(2))); setItems(prev => prev.map(i => i.id === item.id ? { ...i, quantity: newQty } : i));
     await supabase.from('pantry_items').update({ quantity: newQty }).eq('id', item.id).eq('user_id', userId);
@@ -352,21 +363,22 @@ export default function PantryManager() {
     await supabase.from('pantry_items').update(updatedItem).eq('id', id).eq('user_id', userId);
   };
 
-  const enableTrackingForId = async (id: string) => { if (!id) return; setItems(prev => prev.map(i => i.id === id ? { ...i, track_low_stock: true, low_stock_threshold: 1 } : i)); await supabase.from('pantry_items').update({ track_low_stock: true, low_stock_threshold: 1 }).eq('id', id).eq('user_id', userId); setItemToTrackId(''); };
+  const handleAddTrackedItem = async (itemName: string, category: string, unit: string, threshold: number) => {
+    setLoading(true);
+    const existing = items.find(i => normalizeName(i.name) === normalizeName(itemName));
+    if (existing) {
+       await supabase.from('pantry_items').update({ track_low_stock: true, low_stock_threshold: threshold }).eq('id', existing.id).eq('user_id', userId);
+       setItems(prev => prev.map(i => i.id === existing.id ? { ...i, track_low_stock: true, low_stock_threshold: threshold } : i));
+       showToast(`Linked tracker to existing ${existing.name}!`);
+    } else {
+       await addOrMergePantryItem({ name: itemName.trim(), category, quantity: 0, unit, track_low_stock: true, low_stock_threshold: threshold });
+       showToast('Tracking added!');
+    }
+    setLoading(false);
+  };
+
   const disableTrackingForId = async (id: string) => { setItems(prev => prev.map(i => i.id === id ? { ...i, track_low_stock: false } : i)); await supabase.from('pantry_items').update({ track_low_stock: false }).eq('id', id).eq('user_id', userId); };
   const updateLowStockThreshold = async (id: string, threshold: number) => { const val = Math.max(0, threshold); setItems(prev => prev.map(i => i.id === id ? { ...i, low_stock_threshold: val } : i)); await supabase.from('pantry_items').update({ low_stock_threshold: val }).eq('id', id).eq('user_id', userId); };
-
-  const addNewTrackedItem = async (e: React.FormEvent) => {
-    e.preventDefault(); if (!newTrackName.trim()) return; setLoading(true);
-    const existing = items.find(i => (i.name || '').toLowerCase().trim() === newTrackName.toLowerCase().trim() || normalizeName(i.name || '') === normalizeName(newTrackName));
-    if (existing) {
-       await supabase.from('pantry_items').update({ track_low_stock: true, low_stock_threshold: 1 }).eq('id', existing.id).eq('user_id', userId);
-       setItems(prev => prev.map(i => i.id === existing.id ? { ...i, track_low_stock: true, low_stock_threshold: 1 } : i)); showToast(`Linked tracker to existing ${existing.name} in pantry!`);
-    } else {
-       await addOrMergePantryItem({ name: newTrackName.trim(), category: newTrackCategory, quantity: 0, unit: newTrackUnit, track_low_stock: true, low_stock_threshold: 1 }); showToast('Tracking added!');
-    }
-    setNewTrackName(''); setLoading(false); setShowTrackNewInput(false);
-  };
 
   const handleImportRecipe = async (e: React.FormEvent) => {
     e.preventDefault(); if (!importUrl) return; setIsImporting(true);
@@ -455,7 +467,7 @@ export default function PantryManager() {
   const totalAllocated = Object.values(allocationsGrid).reduce((a, b) => a + b, 0);
   const remainingPortions = planTargetPortions - totalAllocated;
 
-  if (!isMounted) return null; // Hydration protection
+  if (!isMounted) return null;
 
   /* ==========================================================================
      9. RENDER JSX
@@ -479,19 +491,10 @@ export default function PantryManager() {
       <TopHeader activeTab={activeTab} handleTabChange={handleTabChange} setShowAccountModal={setShowAccountModal} />
       
       <AccountSettingsModal 
-        showModal={showAccountModal} 
-        setShowModal={setShowAccountModal} 
-        userEmail={userEmail} 
-        userName={userName}
-        setUserName={setUserName}
-        newEmail={newEmail} 
-        setNewEmail={setNewEmail} 
-        newPassword={newPassword} 
-        setNewPassword={setNewPassword} 
-        handleUpdateAccount={handleUpdateAccount} 
-        handleSignOut={handleSignOut} 
-        handleDeleteAccount={handleDeleteAccount}
-        loading={loading} 
+        showModal={showAccountModal} setShowModal={setShowAccountModal} userEmail={userEmail} userName={userName}
+        setUserName={setUserName} newEmail={newEmail} setNewEmail={setNewEmail} newPassword={newPassword} 
+        setNewPassword={setNewPassword} handleUpdateAccount={handleUpdateAccount} handleSignOut={handleSignOut} 
+        handleDeleteAccount={handleDeleteAccount} loading={loading} 
       />
 
       {/* --- RESTORED VOICE INPUT MODAL --- */}
@@ -521,12 +524,7 @@ export default function PantryManager() {
                     <input value={item.name} onChange={e => updateVoiceItem(index, 'name', e.target.value)} className="flex-1 min-w-[80px] bg-white text-black px-2 py-2 rounded-xl text-sm focus:outline-none placeholder:text-black/50" placeholder="Item Name" />
                     <input type="number" step="any" value={item.quantity} onChange={e => updateVoiceItem(index, 'quantity', e.target.value)} className="w-12 bg-white text-black px-1 py-2 rounded-xl text-sm text-center focus:outline-none" />
                     <div className="w-[75px]">
-                      <CustomSelect 
-                        value={item.unit} 
-                        onChange={v => updateVoiceItem(index, 'unit', v)} 
-                        options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
-                        className="bg-white rounded-xl"
-                      />
+                      <CustomSelect value={item.unit} onChange={v => updateVoiceItem(index, 'unit', v)} options={COMMON_UNITS.map(u => ({label: u, value: u}))} className="bg-white rounded-xl" />
                     </div>
                     <button onClick={() => removeVoiceItem(index)} className="w-8 h-8 shrink-0 flex items-center justify-center bg-red-500/80 text-white rounded-xl font-bold hover:bg-red-500 transition">✕</button>
                   </div>
@@ -630,9 +628,15 @@ export default function PantryManager() {
            <div className="bg-white w-full sm:max-w-sm rounded-t-[32px] sm:rounded-[32px] p-6 pb-10 sm:pb-6 shadow-2xl animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-0 sm:zoom-in-95" onClick={e => e.stopPropagation()}>
               <h3 className="font-bold text-xl mb-4 text-center px-4 leading-tight">{recipeActionMenu.recipe.title}</h3>
               <div className="flex flex-col gap-2">
-                 <button onClick={() => { handleOpenRecipe(recipeActionMenu.recipe!); setRecipeActionMenu({isOpen: false, recipe: null}); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition">View Recipe</button>
-                 <button onClick={() => { handleTabChange('planner'); setRecipeActionMenu({isOpen: false, recipe: null}); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition">Add to Planner</button>
-                 <button onClick={() => { deleteRecipe(recipeActionMenu.recipe!.id); setRecipeActionMenu({isOpen: false, recipe: null}); }} className="w-full py-4 bg-red-50 text-red-600 hover:bg-red-100 rounded-2xl font-bold transition mt-2">Delete Recipe</button>
+                 <button onClick={() => { startEditingRecipe(); setRecipeActionMenu({isOpen: false, recipe: null}); }} className="w-full py-4 px-6 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition flex justify-between items-center text-left">
+                   <span>Edit Recipe</span><span className="text-black/40">→</span>
+                 </button>
+                 <button onClick={() => { handleTabChange('planner'); setRecipeActionMenu({isOpen: false, recipe: null}); }} className="w-full py-4 px-6 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition flex justify-between items-center text-left">
+                   <span>Add to Planner</span><span className="text-black/40">→</span>
+                 </button>
+                 <button onClick={() => { deleteRecipe(recipeActionMenu.recipe!.id); setRecipeActionMenu({isOpen: false, recipe: null}); handleTabChange('recipes'); }} className="w-full py-4 px-6 bg-red-50 text-red-600 hover:bg-red-100 rounded-2xl font-bold transition mt-2 flex justify-between items-center text-left">
+                   <span>Delete Recipe</span><span className="text-red-400">→</span>
+                 </button>
               </div>
            </div>
         </div>
@@ -651,9 +655,6 @@ export default function PantryManager() {
                       <div className="w-24">
                         <CustomSelect value={item.unit || 'pcs'} onChange={v => updateScannedItem(index, 'unit', v)} options={COMMON_UNITS.map(u => ({label: u, value: u}))} className="bg-white rounded-xl" />
                       </div>
-                    </div>
-                    <div className="w-full sm:w-32">
-                      <CustomSelect value={item.category || 'Other'} onChange={v => updateScannedItem(index, 'category', v)} options={dynamicCategories.map(c => ({label: c, value: c}))} className="bg-white rounded-xl" />
                     </div>
                     <button onClick={() => removeScannedItem(index)} className="px-3 py-2 bg-red-500/80 text-white rounded-xl font-bold hover:bg-red-500 transition">✕</button>
                   </div>
@@ -761,7 +762,7 @@ export default function PantryManager() {
                 </div>
                 <div className="space-y-1.5 relative z-10">
                   <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Category</label>
-                  <CustomSelect value={manualRecipe.category} onChange={v => setManualRecipe({...manualRecipe, category: v})} options={uniqueRecipeCategories.map(c => ({label: c, value: c}))} className="w-full bg-white rounded-xl border border-black/20 shadow-sm" />
+                  <CustomSelect value={manualRecipe.category} onChange={v => setManualRecipe({...manualRecipe, category: v})} options={uniqueRecipeCategories.map(c => ({label: c, value: c}))} className="bg-white shadow-sm" />
                 </div>
                 <div className="space-y-1.5 relative z-0">
                   <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Cook Time</label>
@@ -822,20 +823,17 @@ export default function PantryManager() {
         <div className="max-w-6xl mx-auto space-y-8 mt-6">
           {activeTab === 'lowstock' && !selectedRecipe && (
             <LowStockTab 
-              handleBackNavigation={handleBackNavigation} lowStockDropdownRef={lowStockDropdownRef} 
-              showAddTrackMenu={showAddTrackMenu} setShowAddTrackMenu={setShowAddTrackMenu} 
-              setShowTrackPantryInput={setShowTrackPantryInput} setShowTrackNewInput={setShowTrackNewInput} 
-              addLowStockToShopping={addLowStockToShopping} lowStockItems={lowStockItems} 
-              showTrackPantryInput={showTrackPantryInput} itemToTrackId={itemToTrackId} 
-              setItemToTrackId={setItemToTrackId} untrackedItemsList={untrackedItemsList} 
-              enableTrackingForId={enableTrackingForId} showTrackNewInput={showTrackNewInput} 
-              addNewTrackedItem={addNewTrackedItem} newTrackName={newTrackName} 
-              setNewTrackName={setNewTrackName} handleNewTrackNameChange={handleNewTrackNameChange} 
-              newTrackCategory={newTrackCategory} setNewTrackCategory={setNewTrackCategory} 
-              dynamicCategories={dynamicCategories} newTrackUnit={newTrackUnit} 
-              setNewTrackUnit={setNewTrackUnit} COMMON_UNITS={COMMON_UNITS} loading={loading} 
-              trackedItemsList={trackedItemsList} updateLowStockThreshold={updateLowStockThreshold} 
-              disableTrackingForId={disableTrackingForId} adjustQuantity={adjustQuantity} 
+              handleBackNavigation={handleBackNavigation}
+              addLowStockToShopping={addLowStockToShopping} 
+              lowStockItems={lowStockItems} 
+              untrackedItemsList={untrackedItemsList} 
+              trackedItemsList={trackedItemsList}
+              handleAddTrackedItem={handleAddTrackedItem}
+              updateLowStockThreshold={updateLowStockThreshold} 
+              disableTrackingForId={disableTrackingForId} 
+              COMMON_UNITS={COMMON_UNITS} 
+              dynamicCategories={dynamicCategories} 
+              loading={loading}
             />
           )}
 
@@ -853,7 +851,7 @@ export default function PantryManager() {
                     </div>
                     <div className="space-y-1.5 relative z-10">
                       <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Category</label>
-                      <CustomSelect value={editRecipeForm.category} onChange={v => setEditRecipeForm({...editRecipeForm, category: v})} options={uniqueRecipeCategories.map(c => ({label: c, value: c}))} className="w-full bg-white rounded-xl border border-black/20 shadow-sm" />
+                      <CustomSelect value={editRecipeForm.category} onChange={v => setEditRecipeForm({...editRecipeForm, category: v})} options={uniqueRecipeCategories.map(c => ({label: c, value: c}))} className="bg-white shadow-sm" />
                     </div>
                     <div className="space-y-1.5 relative z-0">
                       <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Cook Time</label>
@@ -893,7 +891,7 @@ export default function PantryManager() {
                 </div>
                 
                 <div className="absolute top-4 right-4 z-10">
-                  <button onClick={startEditingRecipe} className="w-11 h-11 flex items-center justify-center bg-white/90 backdrop-blur-md border border-black/10 rounded-full text-black hover:bg-white hover:shadow-md transition">
+                  <button onClick={(e) => { e.stopPropagation(); setRecipeActionMenu({isOpen: true, recipe: selectedRecipe}); }} className="w-11 h-11 flex items-center justify-center bg-white/90 backdrop-blur-md border border-black/10 rounded-full text-black hover:bg-white hover:shadow-md transition">
                     <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
                   </button>
                 </div>

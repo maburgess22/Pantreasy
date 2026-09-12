@@ -1,3 +1,4 @@
+// components/tabs/RecipesTab.tsx
 import React from 'react';
 import { Recipe } from '@/utils/types';
 import CustomSelect from '@/components/ui/CustomSelect';
@@ -73,14 +74,17 @@ export default function RecipesTab({
             Add Recipe
           </button>
           
-          {/* NEW BOTTOM SHEET FOR ADD RECIPE */}
           {showAddRecipeMenu && (
             <div className="fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 transition-opacity" onClick={() => setShowAddRecipeMenu(false)}>
               <div className="bg-white w-full sm:max-w-sm rounded-t-[32px] sm:rounded-[32px] p-6 pb-10 sm:pb-6 shadow-2xl animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-0 sm:zoom-in-95" onClick={e => e.stopPropagation()}>
                  <h3 className="font-bold text-xl mb-6 text-center border-b border-black/10 pb-4">Add Recipe</h3>
                  <div className="flex flex-col gap-2">
-                   <button onClick={() => { setShowManualAddRecipe(true); setShowAddRecipeMenu(false); setShowImportInput(false); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Create New Recipe</button>
-                   <button onClick={() => { setShowImportInput(true); setShowAddRecipeMenu(false); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Add using Recipe URL</button>
+                   <button onClick={() => { setShowManualAddRecipe(true); setShowAddRecipeMenu(false); setShowImportInput(false); }} className="w-full py-4 px-6 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition flex justify-between items-center text-left">
+                     <span>Create New Recipe</span><span className="text-black/40">→</span>
+                   </button>
+                   <button onClick={() => { setShowImportInput(true); setShowAddRecipeMenu(false); }} className="w-full py-4 px-6 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition flex justify-between items-center text-left">
+                     <span>Add using Recipe URL</span><span className="text-black/40">→</span>
+                   </button>
                  </div>
               </div>
             </div>

@@ -1,8 +1,10 @@
+// components/tabs/ShoppingTab.tsx
 import React from 'react';
 import { ShoppingItem, PantryItem } from '@/utils/types';
 import CustomSelect from '@/components/ui/CustomSelect';
 
 interface ShoppingTabProps {
+  shoppingDropdownRef: React.RefObject<HTMLDivElement>;
   showAddShoppingMenu: boolean;
   setShowAddShoppingMenu: (val: boolean) => void;
   showShoppingInput: boolean;
@@ -57,33 +59,36 @@ export default function ShoppingTab({
         </div>
         
         <div className="flex flex-col gap-3 shrink-0 w-full md:w-56">
-          <button onClick={() => setShowAddShoppingMenu(true)} className="w-full px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center border border-black/20">
+          <button onClick={() => setShowAddShoppingMenu(true)} className="relative w-full px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center border border-black/20">
             Add Item
           </button>
-          <button onClick={handleExport} className="w-full px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center gap-2 border border-black/20">
+          
+          <button onClick={handleExport} className="relative w-full px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center gap-2 border border-black/20">
              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-             Export List
+             <span>Export List</span>
           </button>
         </div>
       </div>
 
-      {/* NEW BOTTOM SHEET FOR ADD SHOPPING ITEM */}
       {showAddShoppingMenu && (
         <div className="fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 transition-opacity" onClick={() => setShowAddShoppingMenu(false)}>
           <div className="bg-white w-full sm:max-w-sm rounded-t-[32px] sm:rounded-[32px] p-6 pb-10 sm:pb-6 shadow-2xl animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-0 sm:zoom-in-95" onClick={e => e.stopPropagation()}>
              <h3 className="font-bold text-xl mb-6 text-center border-b border-black/10 pb-4">Add to List</h3>
              <div className="flex flex-col gap-2">
-               <button onClick={() => { setShowShoppingInput(true); setShowAddShoppingMenu(false); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Type Item Name</button>
-               <button onClick={() => { setVoiceContext('shopping'); setShowVoiceInputScreen(true); setShowAddShoppingMenu(false); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Voice Input</button>
-               <button onClick={() => { addLowStockToShopping(); setShowAddShoppingMenu(false); }} disabled={lowStockItems.length === 0} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
-                 Add Items from Restock Alerts
+               <button onClick={() => { setShowShoppingInput(true); setShowAddShoppingMenu(false); }} className="w-full py-4 px-6 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition flex justify-between items-center text-left">
+                 <span>Type Item Name</span><span className="text-black/40">→</span>
+               </button>
+               <button onClick={() => { setVoiceContext('shopping'); setShowVoiceInputScreen(true); setShowAddShoppingMenu(false); }} className="w-full py-4 px-6 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition flex justify-between items-center text-left">
+                 <span>Voice Input</span><span className="text-black/40">→</span>
+               </button>
+               <button onClick={() => { addLowStockToShopping(); setShowAddShoppingMenu(false); }} disabled={lowStockItems.length === 0} className="w-full py-4 px-6 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition flex justify-between items-center text-left disabled:opacity-50 disabled:cursor-not-allowed">
+                 <span>Add Items from Restock Alerts</span><span className="text-black/40">→</span>
                </button>
              </div>
           </div>
         </div>
       )}
 
-      {/* NEW MODAL FOR MANUAL ADD */}
       {showShoppingInput && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4 transition-opacity">
           <div className="bg-white rounded-[32px] p-6 md:p-8 w-full max-w-md shadow-2xl flex flex-col gap-4 animate-in zoom-in-95">
