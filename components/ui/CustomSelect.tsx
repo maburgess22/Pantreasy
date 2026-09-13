@@ -11,6 +11,13 @@ export default function CustomSelect({ value, options, onChange, placeholder = "
     setMounted(true);
   }, []);
 
+  // NEW: Lock background scroll when the dropdown is open
+  useEffect(() => {
+    if (isOpen) document.body.style.overflow = 'hidden';
+    else document.body.style.overflow = '';
+    return () => { document.body.style.overflow = ''; };
+  }, [isOpen]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsOpen(false); };
     if (isOpen) window.addEventListener('keydown', handleKeyDown);
@@ -23,7 +30,7 @@ export default function CustomSelect({ value, options, onChange, placeholder = "
         <div className="flex justify-between items-center mb-6 shrink-0 border-b border-black/10 pb-4">
           <h3 className="font-bold text-xl text-center w-full">{placeholder}</h3>
         </div>
-        <div className="overflow-y-auto flex-1 pr-2 space-y-2">
+        <div className="overflow-y-auto flex-1 pr-2 space-y-2 overscroll-contain">
           {options.length === 0 ? (
             <div className="px-5 py-3 text-base text-black/50 italic text-center">No options</div>
           ) : (
@@ -45,7 +52,6 @@ export default function CustomSelect({ value, options, onChange, placeholder = "
         <span className="truncate capitalize text-black font-medium text-base">{selectedLabel}</span>
         <span className="absolute right-4 text-[10px] opacity-50 text-black">▼</span>
       </button>
-      {/* Portals pull the modal completely out of the parent container to the absolute top of the page */}
       {isOpen && mounted && createPortal(modalContent, document.body)}
     </>
   );

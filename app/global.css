@@ -3,14 +3,23 @@
 
 @layer base {
   body {
-    background-color: #fae7b9; /* Updated to your new warm beige */
+    background-color: #fae7b9;
     color: #111111;
     font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   }
 }
 
+/* 1. Load the font file from the public folder */
+@font-face {
+  font-family: 'Mogena';
+  src: url('/Mogena.ttf'); /* Change to .otf or .woff if your file extension is different! */
+  font-weight: normal;
+  font-style: normal;
+}
+
+/* 2. Create the Tailwind class */
 .font-mogena {
-  font-family: var(--font-mogena), sans-serif;
+  font-family: 'Mogena', sans-serif !important;
 }
 
 .font-montserrat {
