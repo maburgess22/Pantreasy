@@ -1,10 +1,13 @@
 import React from 'react';
 import { MealPlanItem, Recipe } from '@/utils/types';
+import { createClient } from '@/utils/supabase/client';
 
 interface PlannerTabProps {
+  userId: string;
   next7Days: string[];
   todayStr: string;
   mealPlans: MealPlanItem[];
+  setMealPlans: React.Dispatch<React.SetStateAction<MealPlanItem[]>>;
   collapsedDays: Record<string, boolean>;
   setCollapsedDays: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   recipes: Recipe[];
@@ -16,12 +19,15 @@ interface PlannerTabProps {
   saveManualMeal: (date: string, mealType: string) => void;
   manualInputsQty: Record<string, number>;
   setManualInputsQty: React.Dispatch<React.SetStateAction<Record<string, number>>>;
+  showToast: (msg: string) => void;
 }
 
 export default function PlannerTab({
-  next7Days, todayStr, mealPlans, collapsedDays, setCollapsedDays, 
-  handleOpenRecipe, deleteMealPlan, setRecipePickerTarget, 
-  manualInputs, setManualInputs, saveManualMeal, manualInputsQty, setManualInputsQty
+  userId, next7Days, todayStr, mealPlans, setMealPlans,
+  collapsedDays, setCollapsedDays, recipes, handleOpenRecipe,
+  deleteMealPlan, setRecipePickerTarget, manualInputs,
+  setManualInputs, saveManualMeal, manualInputsQty,
+  setManualInputsQty, showToast
 }: PlannerTabProps) {
 
   const toggleDay = (dateStr: string) => {
@@ -30,12 +36,11 @@ export default function PlannerTab({
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
-      {/* FULL WIDTH RIBBON PUSHED FLUSH */}
-      <div className="w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] bg-[#6B705C] text-white py-8 shadow-sm mb-6 border-b border-black/10 -mt-6">
-        <div className="max-w-6xl mx-auto px-4 md:px-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+      <div className="w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] bg-[#6B705C] text-white py-8 shadow-sm mb-6 border-b border-black/10 -mt-4 md:-mt-8">
+        <div className="max-w-6xl mx-auto px-4 md:px-8 flex flex-col items-center text-center gap-4 pt-4 md:pt-0">
           <div>
-            <h2 className="text-4xl md:text-5xl font-black tracking-tight leading-snug font-mogena">Meal Planner</h2>
-            <p className="text-white/80 text-sm mt-2 font-medium">Plan your meals for the week ahead.</p>
+            <h2 className="text-4xl md:text-5xl font-black tracking-tight leading-snug font-mogena text-center">Meal Planner</h2>
+            <p className="text-white/80 text-sm mt-2 font-medium text-center">Plan your meals for the week ahead.</p>
           </div>
         </div>
       </div>
@@ -46,31 +51,31 @@ export default function PlannerTab({
           const isToday = dateStr === todayStr;
           const dayName = isToday ? 'Today' : dateObj.toLocaleDateString('en-US', { weekday: 'long' });
           const shortDate = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-          const isCollapsed = collapsedDays[dateStr];
           
           const daysMeals = mealPlans.filter(m => m.date === dateStr);
+          const isCollapsed = collapsedDays[dateStr] !== undefined ? collapsedDays[dateStr] : daysMeals.length === 0;
 
           return (
             <div key={dateStr} className="bg-white rounded-[28px] border border-black/10 shadow-sm overflow-hidden transition-all duration-200 hover:shadow-md">
               
               <button 
                 onClick={() => toggleDay(dateStr)} 
-                className={`w-full flex items-center justify-between p-5 md:p-6 transition ${isToday ? 'bg-[#6B705C]/10' : 'bg-white hover:bg-black/5'}`}
+                className={`w-full flex items-center justify-between p-5 md:p-6 transition ${isCollapsed ? 'rounded-b-[28px]' : ''} ${isToday ? 'bg-[#5a5e4d]' : 'bg-[#6B705C]'} text-white`}
               >
                 <div className="flex items-center gap-4">
-                  <h3 className="font-bold text-xl text-black flex items-center gap-2">
+                  <h3 className="font-bold text-xl text-white flex items-center gap-2">
                     {dayName} 
-                    {isToday && <span className="text-[10px] px-2 py-0.5 bg-[#6B705C] text-white rounded-full uppercase tracking-wider font-bold">Now</span>}
+                    {isToday && <span className="text-[10px] px-2 py-0.5 bg-white text-[#6B705C] rounded-full uppercase tracking-wider font-bold">Now</span>}
                   </h3>
-                  <span className="text-sm font-medium text-black/40 hidden sm:block">{shortDate}</span>
+                  <span className="text-sm font-medium text-white/70 hidden sm:block">{shortDate}</span>
                 </div>
                 <div className="flex items-center gap-4">
                   {daysMeals.length > 0 && (
-                     <span className="text-xs font-bold px-3 py-1 bg-black/5 text-black/60 rounded-xl">
+                     <span className="text-xs font-bold px-3 py-1 bg-white/20 text-white rounded-xl">
                        {daysMeals.length} planned
                      </span>
                   )}
-                  <span className="text-black/40">
+                  <span className="text-white/70">
                     <svg className={`w-6 h-6 transition-transform duration-200 ${isCollapsed ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
                   </span>
                 </div>
