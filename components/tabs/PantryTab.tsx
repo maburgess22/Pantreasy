@@ -2,13 +2,13 @@ import React, { useState } from 'react';
 import { PantryItem } from '@/utils/types';
 import CustomSelect from '@/components/ui/CustomSelect';
 import { createClient } from '@/utils/supabase/client';
-import { getAisle } from '@/utils/helpers';
+import { getAisle, getExpiryStatus } from '@/utils/helpers';
 
 interface PantryTabProps {
   userId: string;
   items: PantryItem[];
   setItems: React.Dispatch<React.SetStateAction<PantryItem[]>>;
-  addOrMergePantryItem: (newItem: { name: string; category: string; quantity: number; unit: string; track_low_stock: boolean; low_stock_threshold: number; }) => Promise<void>;
+  addOrMergePantryItem: (newItem: { name: string; category: string; quantity: number; unit: string; track_low_stock: boolean; low_stock_threshold: number; expiration_date?: string | null }) => Promise<void>;
   dynamicCategories: string[];
   COMMON_UNITS: string[];
   setShowBarcodeScanner: (val: boolean) => void;
@@ -41,6 +41,7 @@ export default function PantryTab({
   const [editName, setEditName] = useState('');
   const [editQuantity, setEditQuantity] = useState('');
   const [editUnit, setEditUnit] = useState('');
+  const [editExpirationDate, setEditExpirationDate] = useState('');
 
   const visiblePantryItems = items.filter(i => i.quantity > 0);
   const groupedItems = visiblePantryItems.reduce((acc, item) => { 
@@ -57,7 +58,15 @@ export default function PantryTab({
   
   const addItem = async (e: React.FormEvent) => {
     e.preventDefault(); if (!name.trim()) return; setLoading(true);
-    await addOrMergePantryItem({ name: name.trim(), category, quantity: parseFloat(quantity) || 1, unit, track_low_stock: false, low_stock_threshold: 1 });
+    await addOrMergePantryItem({ 
+      name: name.trim(), 
+      category, 
+      quantity: parseFloat(quantity) || 1, 
+      unit, 
+      track_low_stock: false, 
+      low_stock_threshold: 1,
+      expiration_date: null 
+    });
     setName(''); setQuantity('1'); setIsManualCategory(false); setLoading(false); setShowPantryInput(false); showToast('Item added to pantry!');
   };
 
@@ -88,15 +97,23 @@ export default function PantryTab({
     setEditName(item.name || ''); 
     setEditQuantity(item.quantity != null ? item.quantity.toString() : '1'); 
     setEditUnit(item.unit || 'pcs'); 
+    setEditExpirationDate(item.expiration_date || ''); 
   };
 
   const saveEdit = async (id: string) => {
     const cleanCat = getAisle(editName.trim());
-    const updatedItem = { name: (editName || '').trim(), category: cleanCat, quantity: parseFloat(editQuantity) || 0, unit: editUnit };
+    const updatedItem = { 
+      name: (editName || '').trim(), 
+      category: cleanCat, 
+      quantity: parseFloat(editQuantity) || 0, 
+      unit: editUnit,
+      expiration_date: editExpirationDate || null 
+    };
     if (!updatedItem.name) return showToast("Item name cannot be empty.");
     setItems(prev => prev.map(item => item.id === id ? { ...item, ...updatedItem } : item));
     setEditingPantryItem(null); 
     await supabase.from('pantry_items').update(updatedItem).eq('id', id).eq('user_id', userId);
+    showToast('Item updated!');
   };
 
   const handleExport = () => {
@@ -104,7 +121,7 @@ export default function PantryTab({
     const lines = ['🛒 MY PANTRY INVENTORY', ''];
     Object.entries(groupedItems).forEach(([cat, list]) => {
       lines.push(`[ ${cat.toUpperCase()} ]`);
-      list.forEach(item => { lines.push(`• ${item.name} - ${item.quantity} ${item.unit}`); });
+      list.forEach(item => { lines.push(`• ${item.name} - ${item.quantity} ${item.unit}${item.expiration_date ? ` (Exp: ${item.expiration_date})` : ''}`); });
       lines.push('');
     });
     navigator.clipboard.writeText(lines.join('\r\n'));
@@ -119,13 +136,13 @@ export default function PantryTab({
             <h2 className="text-4xl md:text-5xl font-black tracking-tight leading-snug font-mogena text-center">Pantry Inventory</h2>
             <p className="text-white/80 text-sm mt-2 font-medium text-center">Keep track of your ingredients.</p>
           </div>
-          <div className="flex flex-col sm:flex-row gap-3 shrink-0 w-full sm:w-auto justify-center">
-            <button onClick={() => setShowAddPantryMenu(true)} className="px-8 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center border border-black/20">
+          <div className="flex flex-col sm:flex-row gap-3 shrink-0 w-full sm:w-auto justify-center flex-wrap">
+            <button onClick={() => setShowAddPantryMenu(true)} className="px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center border border-black/20">
               Add Item
             </button>
-            <button onClick={handleExport} className="px-8 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center gap-2 border border-black/20">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-              Export List
+            <button onClick={handleExport} className="px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center gap-2 border border-black/20">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+              <span>Export List</span>
             </button>
           </div>
         </div>
@@ -145,13 +162,11 @@ export default function PantryTab({
         </div>
       )}
 
-      {isScanning && <div className="text-center font-bold animate-pulse text-[#6B705C]">Reading Receipt...</div>}
-
       {showPantryInput && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4 transition-opacity">
           <div className="bg-white rounded-[32px] p-6 md:p-8 w-full max-w-md shadow-2xl flex flex-col gap-4 animate-in zoom-in-95">
             <div className="flex justify-between items-center mb-2 border-b border-black/10 pb-4 shrink-0">
-              <h2 className="text-2xl font-bold text-black font-mogena">Add Item Manually</h2>
+              <h2 className="text-2xl font-bold text-black">Add Item Manually</h2>
               <button type="button" onClick={() => setShowPantryInput(false)} className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-black font-bold">✕</button>
             </div>
             
@@ -203,18 +218,32 @@ export default function PantryTab({
                   <span className="text-sm font-semibold tracking-wider uppercase text-black">{groupCategory}</span>
                 </div>
                 <div className="space-y-2">
-                  {groupList.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between p-3 rounded-[20px] transition bg-white border border-black/10 shadow-sm relative z-0 hover:z-10">
-                      <div className="flex-1 min-w-0 pr-2">
-                        <h3 className="font-semibold text-base capitalize text-black leading-tight mb-1 whitespace-normal break-words">
-                          {item.name} <span className="text-sm font-normal text-black/60 normal-case whitespace-nowrap">- {item.quantity} {item.unit}</span>
-                        </h3>
+                  {groupList.map((item) => {
+                    const expiry = getExpiryStatus(item.expiration_date);
+                    return (
+                      <div key={item.id} className="flex items-center justify-between p-3 rounded-[20px] transition bg-white border border-black/10 shadow-sm relative z-0 hover:z-10 gap-2">
+                        <div className="flex-1 min-w-0 pr-2">
+                          <h3 className="font-semibold text-base capitalize text-black leading-tight whitespace-normal break-words m-0">
+                            {item.name} <span className="text-sm font-normal text-black/60 normal-case whitespace-nowrap">- {item.quantity} {item.unit}</span>
+                          </h3>
+                        </div>
+                        {expiry.color !== 'none' && (
+                          <div className="shrink-0 flex items-center pr-1">
+                            <span className={`inline-block text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider ${
+                              expiry.color === 'expired' ? 'bg-red-600 text-white' :
+                              expiry.color === 'warning' ? 'bg-amber-500 text-white' :
+                              'bg-black/10 text-black/70'
+                            }`}>
+                              {expiry.label}
+                            </span>
+                          </div>
+                        )}
+                        <button onClick={() => setPantryActionMenu({isOpen: true, item})} className="p-2 hover:bg-black/5 rounded-full text-black/40 hover:text-black transition shrink-0">
+                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
+                        </button>
                       </div>
-                      <button onClick={() => setPantryActionMenu({isOpen: true, item})} className="p-2 hover:bg-black/5 rounded-full text-black/40 hover:text-black transition shrink-0">
-                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             );
@@ -248,7 +277,7 @@ export default function PantryTab({
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4 transition-opacity">
           <div className="bg-white rounded-[32px] p-6 md:p-8 w-full max-w-md shadow-2xl flex flex-col gap-4 animate-in zoom-in-95">
              <div className="flex justify-between items-center mb-2 border-b border-black/10 pb-4 shrink-0">
-               <h2 className="text-2xl font-bold text-black font-mogena">Edit Item</h2>
+               <h2 className="text-2xl font-bold text-black">Edit Item</h2>
                <button onClick={() => setEditingPantryItem(null)} className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-black font-bold">✕</button>
              </div>
              
@@ -279,6 +308,16 @@ export default function PantryTab({
                       className="w-full h-[48px]"
                    />
                  </div>
+               </div>
+
+               <div className="space-y-1.5 relative z-0">
+                 <label className="text-xs font-bold uppercase tracking-wider text-black/60">Expiration Date</label>
+                 <input 
+                   type="date" 
+                   value={editExpirationDate} 
+                   onChange={e => setEditExpirationDate(e.target.value)} 
+                   className="w-full px-4 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium text-base"
+                 />
                </div>
              </div>
              

@@ -136,7 +136,7 @@ export default function LowStockTab({
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[210] flex items-center justify-center p-4 transition-opacity">
           <div className="bg-white rounded-[32px] p-6 md:p-8 w-full max-w-sm shadow-2xl flex flex-col gap-4 animate-in zoom-in-95">
              <div className="flex justify-between items-center mb-2 border-b border-black/10 pb-4 shrink-0">
-               <h2 className="text-xl font-bold text-black font-mogena">Edit Threshold</h2>
+               <h2 className="text-xl font-bold text-black">Edit Threshold</h2>
                <button onClick={() => setShowEditThreshold(false)} className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-black font-bold">✕</button>
              </div>
              <p className="text-sm text-black/60">Alert me when {actionMenu.item.name} drops to...</p>
@@ -155,7 +155,7 @@ export default function LowStockTab({
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4 transition-opacity">
           <div className="bg-white rounded-[32px] p-6 md:p-8 w-full max-w-md shadow-2xl flex flex-col gap-4 animate-in zoom-in-95">
             <div className="flex justify-between items-center mb-4 border-b border-black/10 pb-4 shrink-0">
-              <h2 className="text-2xl font-bold text-black font-mogena">Track Item</h2>
+              <h2 className="text-2xl font-bold text-black">Track Item</h2>
               <button type="button" onClick={() => setShowAddModal(false)} className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-black font-bold">✕</button>
             </div>
             

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { ShoppingItem, PantryItem } from '@/utils/types';
 import CustomSelect from '@/components/ui/CustomSelect';
 import { createClient } from '@/utils/supabase/client';
@@ -8,293 +8,167 @@ interface ShoppingTabProps {
   userId: string;
   shoppingList: ShoppingItem[];
   setShoppingList: React.Dispatch<React.SetStateAction<ShoppingItem[]>>;
-  addOrMergeShoppingItem: (newItem: { name: string; quantity: number; unit: string; }) => Promise<void>;
+  addOrMergeShoppingItem: (newItem: { name: string; quantity: number; unit: string }) => Promise<void>;
   lowStockItems: PantryItem[];
   COMMON_UNITS: string[];
-  setVoiceContext: (val: 'pantry' | 'shopping') => void;
+  setVoiceContext: (val: 'shopping' | 'pantry') => void;
   setShowVoiceInputScreen: (val: boolean) => void;
-  addLowStockToShopping: () => void;
+  addLowStockToShopping: () => Promise<void>;
   showToast: (msg: string) => void;
 }
 
 export default function ShoppingTab({
   userId, shoppingList, setShoppingList, addOrMergeShoppingItem, lowStockItems,
-  COMMON_UNITS, setVoiceContext, setShowVoiceInputScreen,
-  addLowStockToShopping, showToast
+  COMMON_UNITS, setVoiceContext, setShowVoiceInputScreen, addLowStockToShopping, showToast
 }: ShoppingTabProps) {
 
   const supabase = createClient();
   const [loading, setLoading] = useState(false);
+  const [name, setName] = useState('');
+  const [quantity, setQuantity] = useState('1');
+  const [unit, setUnit] = useState('pcs');
 
-  const [showAddShoppingMenu, setShowAddShoppingMenu] = useState(false);
-  const [showShoppingInput, setShowShoppingInput] = useState(false);
-  const [shoppingInputName, setShoppingInputName] = useState('');
-  const [shoppingInputQty, setShoppingInputQty] = useState('1');
-  const [shoppingInputUnit, setShoppingInputUnit] = useState('pcs');
-
-  const [shoppingActionMenu, setShoppingActionMenu] = useState<{isOpen: boolean, item: ShoppingItem | null}>({isOpen: false, item: null});
-  const [editingShoppingItem, setEditingShoppingItem] = useState<ShoppingItem | null>(null);
-  const [editShoppingName, setEditShoppingName] = useState('');
-  const [editShoppingQuantity, setEditShoppingQuantity] = useState('');
-  const [editShoppingUnit, setEditShoppingUnit] = useState('');
-
-  useEffect(() => {
-    if (showAddShoppingMenu || showShoppingInput || shoppingActionMenu.isOpen || editingShoppingItem) document.body.style.overflow = 'hidden';
-    else document.body.style.overflow = '';
-    return () => { document.body.style.overflow = ''; };
-  }, [showAddShoppingMenu, showShoppingInput, shoppingActionMenu.isOpen, editingShoppingItem]);
-
-  const hasCheckedShoppingItems = shoppingList.some(item => item.checked);
-  
-  const groupedShoppingList = shoppingList.reduce((acc, item) => { 
-    const aisle = getAisle(item.name); 
-    acc[aisle] = acc[aisle] || []; 
-    acc[aisle].push(item); 
-    return acc; 
-  }, {} as Record<string, ShoppingItem[]>);
-
-  const handleAddShoppingItem = async (e: React.FormEvent) => { 
-    e.preventDefault(); 
-    if (!shoppingInputName.trim()) return; 
+  const addItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
     setLoading(true);
-    await addOrMergeShoppingItem({ name: shoppingInputName.trim(), quantity: parseFloat(shoppingInputQty) || 1, unit: shoppingInputUnit }); 
-    setShoppingInputName(''); setShoppingInputQty('1'); setShoppingInputUnit('pcs'); setShowShoppingInput(false); showToast('Added to list!'); 
+    await addOrMergeShoppingItem({ name: name.trim(), quantity: parseFloat(quantity) || 1, unit });
+    setName('');
+    setQuantity('1');
+    showToast('Added to shopping list!');
     setLoading(false);
   };
 
-  const toggleShoppingItem = async (id: string) => { 
-    const item = shoppingList.find(i => i.id === id); if (!item) return; 
-    setShoppingList(prev => prev.map(i => i.id === id ? { ...i, checked: !i.checked } : i)); 
-    await supabase.from('shopping_list').update({ checked: !item.checked }).eq('id', id).eq('user_id', userId); 
-  };
-  
-  const deleteShoppingItem = async (id: string) => { 
-    setShoppingList(prev => prev.filter(item => item.id !== id)); 
-    await supabase.from('shopping_list').delete().eq('id', id).eq('user_id', userId); 
-  };
-  
-  const removeCheckedShoppingItems = async () => { 
-    const checkedIds = shoppingList.filter(item => item.checked).map(item => item.id); 
-    if (checkedIds.length === 0) return; 
-    setShoppingList(prev => prev.filter(item => !item.checked)); 
-    await supabase.from('shopping_list').delete().in('id', checkedIds).eq('user_id', userId); 
-    showToast('Checked items removed.'); 
+  const toggleChecked = async (id: string, current: boolean) => {
+    setShoppingList(prev => prev.map(i => i.id === id ? { ...i, checked: !current } : i));
+    await supabase.from('shopping_list').update({ checked: !current }).eq('id', id).eq('user_id', userId);
   };
 
-  const adjustShoppingQuantity = async (item: ShoppingItem, delta: number) => {
-    const newQty = Math.max(0, Number(((item.quantity || 1) + delta).toFixed(2))); 
-    setShoppingList(prev => prev.map(i => i.id === item.id ? { ...i, quantity: newQty } : i));
-    await supabase.from('shopping_list').update({ quantity: newQty }).eq('id', item.id).eq('user_id', userId);
-    if (shoppingActionMenu.item && shoppingActionMenu.item.id === item.id) { 
-       setShoppingActionMenu({ isOpen: true, item: { ...shoppingActionMenu.item, quantity: newQty } }); 
-    }
+  const deleteItem = async (id: string) => {
+    setShoppingList(prev => prev.filter(i => i.id !== id));
+    await supabase.from('shopping_list').delete().eq('id', id).eq('user_id', userId);
   };
 
-  const startEditingShopping = (item: ShoppingItem) => { 
-    setEditingShoppingItem(item); 
-    setEditShoppingName(item.name || ''); 
-    setEditShoppingQuantity(item.quantity != null ? item.quantity.toString() : '1'); 
-    setEditShoppingUnit(item.unit || 'pcs'); 
+  const clearChecked = async () => {
+    const toDelete = shoppingList.filter(i => i.checked).map(i => i.id);
+    if (toDelete.length === 0) return showToast('No completed items to clear.');
+    setLoading(true);
+    setShoppingList(prev => prev.filter(i => !i.checked));
+    await supabase.from('shopping_list').delete().in('id', toDelete).eq('user_id', userId);
+    showToast('Cleared completed items!');
+    setLoading(false);
   };
 
-  const saveShoppingEdit = async (id: string) => {
-    const updatedItem = { name: (editShoppingName || '').trim(), quantity: parseFloat(editShoppingQuantity) || 0, unit: editShoppingUnit };
-    if (!updatedItem.name) return showToast("Item name cannot be empty.");
-    setShoppingList(prev => prev.map(item => item.id === id ? { ...item, ...updatedItem } : item));
-    setEditingShoppingItem(null); 
-    await supabase.from('shopping_list').update(updatedItem).eq('id', id).eq('user_id', userId);
-  };
+  // Group shopping list by supermarket aisles on the fly
+  const groupedList = shoppingList.reduce((acc, item) => {
+    const cat = getAisle(item.name);
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(item);
+    return acc;
+  }, {} as Record<string, ShoppingItem[]>);
 
-  const handleExport = () => {
-    if (Object.keys(groupedShoppingList).length === 0) return showToast('Shopping list is empty!');
-    const lines = ['📋 MY SHOPPING LIST', ''];
-    Object.entries(groupedShoppingList).forEach(([cat, list]) => {
-      lines.push(`[ ${cat.toUpperCase()} ]`);
-      list.forEach(item => { lines.push(`${item.checked ? '[x]' : '[ ]'} ${item.name} - ${item.quantity} ${item.unit}`); });
-      lines.push('');
-    });
-    navigator.clipboard.writeText(lines.join('\r\n'));
-    showToast('Shopping list copied to clipboard!');
-  };
+  const sortedCategories = Object.keys(groupedList).sort();
+  const hasCheckedItems = shoppingList.some(i => i.checked);
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto">
+    <div className="space-y-6">
+      {/* HEADER SECTION */}
       <div className="w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] bg-[#6B705C] text-white py-8 shadow-sm mb-6 border-b border-black/10 -mt-4 md:-mt-8">
         <div className="max-w-6xl mx-auto px-4 md:px-8 flex flex-col items-center text-center gap-5 pt-4 md:pt-0">
           <div>
             <h2 className="text-4xl md:text-5xl font-black tracking-tight leading-snug font-mogena text-center">Shopping List</h2>
-            <p className="text-white/80 text-sm mt-2 font-medium text-center">Keep track of what you need to buy.</p>
+            <p className="text-white/80 text-sm mt-2 font-medium text-center">Plan your next grocery run.</p>
           </div>
-          <div className="flex flex-col sm:flex-row gap-3 shrink-0 w-full sm:w-auto justify-center">
-            <button onClick={() => setShowAddShoppingMenu(true)} className="px-8 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center border border-black/20">
-              Add Item
+          <div className="flex flex-col sm:flex-row gap-3 shrink-0 w-full sm:w-auto justify-center flex-wrap">
+            <button onClick={() => { setVoiceContext('shopping'); setShowVoiceInputScreen(true); }} className="px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center gap-2 border border-black/20">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
+              <span>Voice Add</span>
             </button>
-            <button onClick={handleExport} className="px-8 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center gap-2 border border-black/20">
-               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-               <span>Export List</span>
-            </button>
+            {lowStockItems.length > 0 && (
+              <button onClick={addLowStockToShopping} className="px-6 py-2.5 bg-amber-500 text-white rounded-xl text-sm font-bold transition hover:bg-amber-600 shadow-sm flex items-center justify-center gap-2 border border-amber-600">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                <span>Add {lowStockItems.length} Low Stock Items</span>
+              </button>
+            )}
+            {hasCheckedItems && (
+               <button onClick={clearChecked} disabled={loading} className="px-6 py-2.5 bg-white text-black rounded-xl text-sm font-medium transition hover:bg-gray-100 shadow-sm flex items-center justify-center border border-black/20 disabled:opacity-50">
+                 Clear Completed
+               </button>
+            )}
           </div>
         </div>
       </div>
 
-      {showAddShoppingMenu && (
-        <div className="fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 transition-opacity" onClick={() => setShowAddShoppingMenu(false)}>
-          <div className="bg-white w-full sm:max-w-sm rounded-t-[32px] sm:rounded-[32px] p-6 pb-10 sm:pb-6 shadow-2xl animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-0 sm:zoom-in-95" onClick={e => e.stopPropagation()}>
-             <h3 className="font-bold text-xl mb-6 text-center border-b border-black/10 pb-4">Add to List</h3>
-             <div className="flex flex-col gap-2">
-               <button onClick={() => { setShowShoppingInput(true); setShowAddShoppingMenu(false); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Type Item Name</button>
-               <button onClick={() => { setVoiceContext('shopping'); setShowVoiceInputScreen(true); setShowAddShoppingMenu(false); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Voice Input</button>
-               <button onClick={() => { addLowStockToShopping(); setShowAddShoppingMenu(false); }} disabled={lowStockItems.length === 0} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">Add Items from Restock Alerts</button>
-             </div>
+      {/* QUICK ADD FORM */}
+      <form onSubmit={addItem} className="bg-white p-4 rounded-[24px] shadow-sm border border-black/10 flex flex-col sm:flex-row gap-3 items-center">
+        <div className="flex-1 w-full relative z-20">
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Item name (e.g. Almond Milk)"
+            className="w-full px-4 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium text-sm"
+            required
+          />
+        </div>
+        <div className="flex gap-2 w-full sm:w-auto relative z-10">
+          <input
+            type="number" step="any" min="0.01"
+            value={quantity}
+            onChange={(e) => setQuantity(e.target.value)}
+            className="w-20 px-3 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium text-center text-sm"
+            required
+          />
+          <div className="w-[90px]">
+            <CustomSelect value={unit} onChange={setUnit} options={COMMON_UNITS.map(u => ({label: u, value: u}))} />
           </div>
         </div>
-      )}
-
-      {showShoppingInput && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4 transition-opacity">
-          <div className="bg-white rounded-[32px] p-6 md:p-8 w-full max-w-md shadow-2xl flex flex-col gap-4 animate-in zoom-in-95">
-            <div className="flex justify-between items-center mb-2 border-b border-black/10 pb-4 shrink-0">
-              <h2 className="text-2xl font-bold text-black font-mogena">Add Item Manually</h2>
-              <button type="button" onClick={() => setShowShoppingInput(false)} className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-black font-bold">✕</button>
-            </div>
-            
-            <form id="addShoppingForm" onSubmit={handleAddShoppingItem} className="space-y-4 mt-2 overflow-y-auto pr-1 flex-1">
-              <div className="space-y-1.5 relative z-20">
-                <label className="text-xs font-bold uppercase tracking-wider text-black/60">Item Name</label>
-                <input
-                  type="text"
-                  value={shoppingInputName}
-                  onChange={(e) => setShoppingInputName(e.target.value)}
-                  placeholder="e.g. Crisp Lettuce"
-                  className="w-full px-4 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium text-base"
-                  required
-                  autoFocus
-                />
-              </div>
-              <div className="flex gap-4 relative z-0">
-                <div className="space-y-1.5 flex-1">
-                  <label className="text-xs font-bold uppercase tracking-wider text-black/60">Quantity</label>
-                  <input type="number" step="any" min="0.01" placeholder="1" value={shoppingInputQty} onChange={(e) => setShoppingInputQty(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium text-center text-base" required />
-                </div>
-                <div className="space-y-1.5 flex-1">
-                  <label className="text-xs font-bold uppercase tracking-wider text-black/60">Unit</label>
-                  <CustomSelect 
-                    value={shoppingInputUnit} 
-                    onChange={setShoppingInputUnit} 
-                    options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
-                    placeholder="Unit"
-                  />
-                </div>
-              </div>
-            </form>
-            
-            <div className="pt-2 shrink-0">
-              <button type="submit" form="addShoppingForm" disabled={loading} className="w-full py-4 bg-black text-white rounded-2xl font-bold hover:bg-black/80 shadow-sm transition">
-                {loading ? 'Adding...' : 'Add to List'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* SHOPPING ITEM EDIT MENUS */}
-      {shoppingActionMenu.isOpen && shoppingActionMenu.item && (
-        <div className="fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 transition-opacity" onClick={() => setShoppingActionMenu({isOpen: false, item: null})}>
-           <div className="bg-white w-full sm:max-w-sm rounded-t-[32px] sm:rounded-[32px] p-6 pb-10 sm:pb-6 shadow-2xl animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-0 sm:zoom-in-95" onClick={e => e.stopPropagation()}>
-              <h3 className="font-bold text-xl mb-6 text-center border-b border-black/10 pb-4">{shoppingActionMenu.item.name}</h3>
-              <div className="bg-black/5 rounded-2xl p-4 mb-4 flex items-center justify-between shadow-sm">
-                 <span className="font-semibold text-xs uppercase tracking-wider text-black/60">Amount</span>
-                 <div className="flex items-center gap-3">
-                    <button onClick={() => adjustShoppingQuantity(shoppingActionMenu.item!, -1)} className="w-8 h-8 rounded-lg bg-white shadow-sm font-bold flex items-center justify-center hover:bg-black/5">-</button>
-                    <span className="font-bold min-w-[3rem] text-center text-sm">{shoppingActionMenu.item.quantity} {shoppingActionMenu.item.unit}</span>
-                    <button onClick={() => adjustShoppingQuantity(shoppingActionMenu.item!, 1)} className="w-8 h-8 rounded-lg bg-white shadow-sm font-bold flex items-center justify-center hover:bg-black/5">+</button>
-                 </div>
-              </div>
-              <div className="flex flex-col gap-2">
-                 <button onClick={() => { startEditingShopping(shoppingActionMenu.item!); setShoppingActionMenu({isOpen: false, item: null}); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Edit Details</button>
-                 <button onClick={() => { deleteShoppingItem(shoppingActionMenu.item!.id); setShoppingActionMenu({isOpen: false, item: null}); }} className="w-full py-4 bg-red-50 text-red-600 hover:bg-red-100 rounded-2xl font-bold transition mt-2 shadow-sm">Remove Item</button>
-              </div>
-           </div>
-        </div>
-      )}
-
-      {editingShoppingItem && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4 transition-opacity">
-          <div className="bg-white rounded-[32px] p-6 md:p-8 w-full max-w-md shadow-2xl flex flex-col gap-4 animate-in zoom-in-95">
-             <div className="flex justify-between items-center mb-2 border-b border-black/10 pb-4 shrink-0">
-               <h2 className="text-2xl font-bold text-black font-mogena">Edit Item</h2>
-               <button onClick={() => setEditingShoppingItem(null)} className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-black font-bold">✕</button>
-             </div>
-             
-             <div className="space-y-4 mt-2 overflow-y-auto pr-1 flex-1">
-               <div className="space-y-1.5 relative z-20">
-                 <label className="text-xs font-bold uppercase tracking-wider text-black/60">Item Name</label>
-                 <input
-                    type="text"
-                    value={editShoppingName} 
-                    onChange={(e) => setEditShoppingName(e.target.value)}
-                    placeholder="Item name"
-                    className="w-full px-4 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium text-base"
-                    required
-                  />
-               </div>
-               
-               <div className="grid grid-cols-2 gap-4 relative z-0">
-                 <div className="space-y-1.5 w-full">
-                   <label className="text-xs font-bold uppercase tracking-wider text-black/60">Quantity</label>
-                   <input type="number" step="any" min="0.01" value={editShoppingQuantity} onChange={e => setEditShoppingQuantity(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium text-center text-base" />
-                 </div>
-                 <div className="space-y-1.5 w-full">
-                   <label className="text-xs font-bold uppercase tracking-wider text-black/60">Unit</label>
-                   <CustomSelect 
-                      value={editShoppingUnit} 
-                      onChange={setEditShoppingUnit} 
-                      options={COMMON_UNITS.map(u => ({label: u, value: u}))}
-                      className="w-full h-[48px]"
-                   />
-                 </div>
-               </div>
-             </div>
-             
-             <div className="pt-2 shrink-0">
-                <button onClick={() => saveShoppingEdit(editingShoppingItem.id)} className="w-full py-4 bg-black text-white rounded-2xl font-bold hover:bg-black/80 shadow-sm transition">Save Changes</button>
-             </div>
-          </div>
-        </div>
-      )}
-
-      {hasCheckedShoppingItems && (
-        <button onClick={removeCheckedShoppingItems} className="w-full mb-4 px-6 py-3.5 bg-red-50 text-red-700 border border-red-200 rounded-2xl font-bold hover:bg-red-100 transition shadow-sm">
-          Remove all crossed off Items
+        <button type="submit" disabled={loading} className="w-full sm:w-auto px-6 py-3 bg-black text-white font-bold rounded-xl shadow-sm hover:bg-black/80 transition disabled:opacity-50">
+          Add
         </button>
-      )}
+      </form>
 
-      <div className="space-y-6">
-        {Object.keys(groupedShoppingList).length === 0 ? (
-          <p className="text-center text-black/60 py-8">Your list is empty.</p>
-        ) : (
-          Object.entries(groupedShoppingList).map(([aisle, aisleItems]) => (
-            <div key={aisle} className="bg-white rounded-[24px] p-5 border border-black/10 shadow-sm">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-[#6B705C] mb-4 pb-2 border-b border-black/10">{aisle}</h3>
+      {/* CATEGORY GRID */}
+      {shoppingList.length === 0 ? (
+        <p className="text-center text-black/50 py-12">Your shopping list is empty.</p>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {sortedCategories.map(category => (
+            <div key={category} className="rounded-[28px] p-5 space-y-3 bg-[#6B705C]/10 border border-[#6B705C]/20 shadow-sm">
+              <div className="flex items-center gap-2 pb-2 border-b border-[#6B705C]/20">
+                <span className="text-sm font-semibold tracking-wider uppercase text-black">{category}</span>
+                <span className="text-xs font-bold text-black/40 bg-black/5 px-2 py-0.5 rounded-full">{groupedList[category].length}</span>
+              </div>
               <div className="space-y-2">
-                {aisleItems.map(item => (
-                  <div key={item.id} className={`flex items-center justify-between p-3 rounded-xl border border-black/10 transition ${item.checked ? 'bg-black/5 opacity-60' : 'bg-white shadow-sm'}`}>
-                    <label className="flex items-center gap-3 cursor-pointer flex-1 min-w-0 pr-2">
-                      <input type="checkbox" checked={item.checked} onChange={() => toggleShoppingItem(item.id)} className="w-5 h-5 accent-black rounded cursor-pointer shrink-0" />
-                      <span className={`font-medium capitalize whitespace-normal break-words ${item.checked ? 'line-through text-black/50' : ''}`}>
-                        {item.name} <span className="text-black/60 font-normal normal-case whitespace-nowrap ml-1">- {item.quantity || 1} {item.unit || 'pcs'}</span>
-                      </span>
-                    </label>
-                    <button onClick={() => setShoppingActionMenu({isOpen: true, item})} className="p-2 hover:bg-black/5 rounded-full text-black/40 hover:text-black transition shrink-0">
-                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
+                {groupedList[category]
+                  // Sort so unchecked items are at the top of their category, checked at the bottom
+                  .sort((a, b) => Number(a.checked) - Number(b.checked))
+                  .map(item => (
+                  <div key={item.id} className={`flex items-center justify-between p-3 rounded-[20px] transition border shadow-sm relative z-0 hover:z-10 gap-3 ${item.checked ? 'bg-black/5 border-transparent opacity-60' : 'bg-white border-black/10'}`}>
+                    
+                    {/* CHECKBOX */}
+                    <button onClick={() => toggleChecked(item.id, !!item.checked)} className="shrink-0 flex items-center justify-center w-6 h-6 rounded-full border-2 border-[#6B705C] transition focus:outline-none hover:bg-[#6B705C]/20">
+                      {item.checked && <div className="w-3 h-3 bg-[#6B705C] rounded-full" />}
+                    </button>
+
+                    {/* ITEM DETAILS */}
+                    <div className="flex-1 min-w-0" onClick={() => toggleChecked(item.id, !!item.checked)}>
+                      <h3 className={`font-semibold text-sm capitalize leading-tight whitespace-normal break-words m-0 cursor-pointer select-none ${item.checked ? 'line-through text-black/60' : 'text-black'}`}>
+                        {item.name} <span className="text-xs font-normal normal-case whitespace-nowrap ml-1 text-black/50">- {item.quantity} {item.unit}</span>
+                      </h3>
+                    </div>
+
+                    {/* DELETE BUTTON */}
+                    <button onClick={() => deleteItem(item.id)} className="p-2 bg-red-50 text-red-500 rounded-full hover:bg-red-500 hover:text-white transition shrink-0">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                     </button>
                   </div>
                 ))}
               </div>
             </div>
-          ))
-        )}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

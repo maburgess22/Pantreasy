@@ -84,6 +84,7 @@ export default function RecipesTab({
 
   const saveManualRecipe = async () => {
     if (!manualRecipe.title.trim()) return showToast("Add a recipe title."); setLoading(true);
+    // FIXED: Save in 'Amount Unit Name' format so the scaler logic correctly reads the numbers!
     const cleanedIngredients = manualRecipe.ingredientsList.filter(i => i.name.trim() !== '').map(i => `${i.amount || 1} ${i.unit || 'pcs'} ${i.name.trim()}`);
     const cleanedInstructions = manualRecipe.instructionsText.split('\n').map(i => i.trim()).filter(i => i !== '');
     const newRecipe = { title: manualRecipe.title.trim(), category: manualRecipe.category, cook_time: manualRecipe.cook_time, portions: manualRecipe.portions, image: manualRecipe.image, ingredients: cleanedIngredients, instructions: cleanedInstructions, user_id: userId };
@@ -205,7 +206,7 @@ export default function RecipesTab({
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[200]">
            <div className="bg-white rounded-[32px] w-full max-w-md p-6 md:p-8 flex flex-col max-h-[90vh] animate-in zoom-in-95">
              <div className="flex justify-between items-center mb-6 shrink-0">
-               <h2 className="text-2xl font-bold text-black font-mogena">Categories</h2>
+               <h2 className="text-2xl font-bold text-black">Categories</h2>
                <button onClick={() => setShowCategoryManager(false)} className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-black font-bold">✕</button>
              </div>
              
@@ -270,7 +271,7 @@ export default function RecipesTab({
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[200] flex items-center justify-center p-4 transition-opacity">
            <div className="bg-white rounded-[32px] w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 flex flex-col gap-4">
              <div className="flex justify-between items-center shrink-0 border-b border-black/10 pb-4">
-               <h2 className="text-xl font-bold text-black font-mogena">Import Recipe</h2>
+               <h2 className="text-xl font-bold text-black">Import Recipe</h2>
                <button onClick={() => setShowImportInput(false)} className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-black font-bold">✕</button>
              </div>
              <form onSubmit={handleImportRecipe} className="flex flex-col gap-3 mt-2">
@@ -287,7 +288,7 @@ export default function RecipesTab({
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
           <div className="w-full max-w-4xl rounded-[32px] p-6 md:p-8 bg-white border border-black/20 text-black shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95">
             <div className="flex justify-between items-center border-b pb-4 border-black/10 mb-6 shrink-0">
-              <h2 className="text-2xl font-bold font-mogena">Create Recipe</h2>
+              <h2 className="text-2xl font-bold">Create Recipe</h2>
               <button onClick={() => setShowManualAddRecipe(false)} className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-black font-bold">✕</button>
             </div>
             <div className="overflow-y-auto pr-2 space-y-6 flex-1">

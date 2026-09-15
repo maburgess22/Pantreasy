@@ -1,6 +1,5 @@
 import React from 'react';
 import { MealPlanItem, Recipe } from '@/utils/types';
-import { createClient } from '@/utils/supabase/client';
 
 interface PlannerTabProps {
   userId: string;

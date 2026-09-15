@@ -2,13 +2,15 @@
 
 export interface PantryItem {
   id: string;
+  user_id: string;
   name: string;
   category: string;
   quantity: number;
   unit: string;
   track_low_stock?: boolean;
   low_stock_threshold?: number;
-  user_id?: string;
+  expiration_date?: string | null;
+  created_at?: string;
 }
 
 export interface Recipe {

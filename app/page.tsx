@@ -7,7 +7,8 @@ import { createClient } from '@/utils/supabase/client';
 import { PantryItem, Recipe, ShoppingItem, MealPlanItem } from '@/utils/types';
 import { 
   toBaseUnit, fromBaseUnit, scaleAndConvertIngredient, cleanIngredientName, 
-  getStandardGroceryItem, getAisle, compressImage, normalizeName, getNext7Days
+  getStandardGroceryItem, getAisle, compressImage, normalizeName, getNext7Days,
+  computeExpiryDate 
 } from '@/utils/helpers';
 
 import CustomSelect from '@/components/ui/CustomSelect';
@@ -23,20 +24,26 @@ import PlannerTab from '@/components/tabs/PlannerTab';
 import LowStockTab from '@/components/tabs/LowStockTab';
 
 const COMMON_UNITS = ['pcs', 'kg', 'g', 'lbs', 'oz', 'ml', 'l', 'cups', 'tbsp', 'tsp', 'cans', 'packs', 'dash', 'pinch', 'cloves'];
-const DEFAULT_CATEGORIES = ['Produce', 'Dairy & Eggs', 'Meat & Seafood', 'Pantry Staples', 'Bakery', 'Frozen', 'Snacks', 'Beverages', 'Other'];
+
+// UPDATED TO MATCH SUPERMARKET AISLES
+const DEFAULT_CATEGORIES = [
+  'Produce', 'Dairy & Eggs', 'Meat & Poultry', 'Seafood', 'Vegetarian Products', 
+  'Pantry Staples', 'Spices & Condiments', 'Bakery', 'Frozen Foods', 'Snacks & Sweets', 
+  'Beverages', 'Deli & Prepared Foods', 'Household & Cleaning', 'Health & Personal Care', 
+  'Pet Care', 'Other'
+];
 
 export default function PantryManager() {
   const supabase = createClient();
   const router = useRouter();
   const [isMounted, setIsMounted] = useState(false);
 
-  // Core User & Tab State
+  // --- 1. CORE STATE ---
   const [activeTab, setActiveTab] = useState<'dashboard' | 'pantry' | 'recipes' | 'shopping' | 'planner' | 'lowstock'>('dashboard');
   const [userId, setUserId] = useState<string>('');
   const [userEmail, setUserEmail] = useState('');
   const [userName, setUserName] = useState('');
   
-  // Core Data Arrays
   const [items, setItems] = useState<PantryItem[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [shoppingList, setShoppingList] = useState<ShoppingItem[]>([]);
@@ -44,12 +51,11 @@ export default function PantryManager() {
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  // Settings Modal
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
 
-  // Global Recipe Views (Overlay everything)
+  // --- 2. GLOBAL VIEWS & MODALS ---
   const [recipeActionMenu, setRecipeActionMenu] = useState<{isOpen: boolean, recipe: Recipe | null}>({isOpen: false, recipe: null});
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [recipeDetailTab, setRecipeDetailTab] = useState<'ingredients' | 'instructions'>('ingredients');
@@ -59,7 +65,9 @@ export default function PantryManager() {
   const [isEditingRecipe, setIsEditingRecipe] = useState(false);
   const [editRecipeForm, setEditRecipeForm] = useState({ title: '', category: '', cook_time: '', portions: 4, image: '', ingredientsList: [] as {id: number, name: string, amount: string, unit: string}[], instructionsText: '' });
   
-  // Universal Scanner / Voice State
+  const [showManualAddRecipe, setShowManualAddRecipe] = useState(false);
+  const [manualRecipe, setManualRecipe] = useState({ title: '', category: '', cook_time: '30 mins', portions: 4, ingredientsList: [{id: 1, name: '', amount: '1', unit: 'pcs'}], instructionsText: '', image: '' });
+
   const [showVoiceInputScreen, setShowVoiceInputScreen] = useState(false);
   const [voiceContext, setVoiceContext] = useState<'shopping' | 'pantry'>('shopping');
   const [voiceTranscript, setVoiceTranscript] = useState('');
@@ -72,40 +80,34 @@ export default function PantryManager() {
   const [scannedItems, setScannedItems] = useState<any[] | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Global Distribution / Planner Modals
+  // --- 3. PLANNER & DISTRIBUTION STATE ---
   const [showDistributionModal, setShowDistributionModal] = useState(false);
   const [recipePickerTarget, setRecipePickerTarget] = useState<{date: string, mealType: string} | null>(null);
   const [planTargetPortions, setPlanTargetPortions] = useState(4);
   const [allocationsGrid, setAllocationsGrid] = useState<Record<string, number>>({});
-  
-  // PLANNER STATE
   const [collapsedDays, setCollapsedDays] = useState<Record<string, boolean>>({});
   const [manualInputs, setManualInputs] = useState<Record<string, string>>({});
   const [manualInputsQty, setManualInputsQty] = useState<Record<string, number>>({});
 
-  // Categories
   const [userDefinedCategories, setUserDefinedCategories] = useState<string[]>([]);
   
+  // --- 4. DERIVED VALUES ---
   const next7Days = getNext7Days();
   const todayStr = new Date().toISOString().split('T')[0];
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
   const dynamicCategories = Array.from(new Set([...DEFAULT_CATEGORIES, ...(items || []).map(i => i?.category)])).filter(Boolean);
 
-  // Derived Values
   const trackedItemsList = items.filter(i => i.track_low_stock);
   const untrackedItemsList = items.filter(i => !i.track_low_stock);
   const lowStockItems = trackedItemsList.filter(i => i.quantity <= (i.low_stock_threshold || 1));
   const todaysMeals = mealPlans.filter(m => m.date === todayStr);
-  
   const dynamicRecipeTags = Array.from(new Set((recipes || []).flatMap(r => (r?.category || '').split(',').map(s => s.trim()).filter(Boolean))));
   const allCombinedCategories = Array.from(new Set([...userDefinedCategories, ...dynamicRecipeTags])).sort();
   const visiblePantryItems = items.filter(i => i.quantity > 0);
 
-  const isGlobalModalOpen = !!(
-    showAccountModal || showVoiceInputScreen || showBarcodeScanner ||
-    recipeActionMenu.isOpen || scannedItems || showDistributionModal || recipePickerTarget
-  );
+  const isGlobalModalOpen = !!(showAccountModal || showVoiceInputScreen || showBarcodeScanner || recipeActionMenu.isOpen || scannedItems || showDistributionModal || recipePickerTarget || showManualAddRecipe);
 
+  // --- 5. EFFECTS ---
   useEffect(() => {
     if (isGlobalModalOpen) document.body.style.overflow = 'hidden';
     else document.body.style.overflow = '';
@@ -131,12 +133,11 @@ export default function PantryManager() {
       if (rData) setRecipes(rData);
       const { data: sData } = await supabase.from('shopping_list').select('*').eq('user_id', uid).order('created_at', { ascending: false });
       if (sData) setShoppingList(sData);
-      const today = new Date().toISOString().split('T')[0];
-      const { data: mData } = await supabase.from('meal_plan').select('*, recipes(title, image, cook_time, category)').eq('user_id', uid).gte('date', today).order('date', { ascending: true });
+      const { data: mData } = await supabase.from('meal_plan').select('*, recipes(title, image, cook_time, category)').eq('user_id', uid).gte('date', todayStr).order('date', { ascending: true });
       if (mData) setMealPlans(mData as MealPlanItem[]);
     };
     loadData();
-  }, [router, supabase.auth]);
+  }, [router, supabase.auth, todayStr]);
 
   useEffect(() => {
     window.history.replaceState({ tab: 'dashboard', type: 'tab' }, '', window.location.pathname);
@@ -151,17 +152,9 @@ export default function PantryManager() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
+  // --- 6. CORE HANDLERS ---
   const handleTabChange = (tab: string) => { window.history.pushState({ tab, type: 'tab' }, '', `#${tab}`); setActiveTab(tab as any); setSelectedRecipe(null); setIsEditingRecipe(false); };
-  
-  const handleOpenRecipe = (recipe: Recipe) => { 
-    window.history.pushState({ tab: activeTab, recipe, type: 'recipe' }, '', `#recipe-${recipe.id}`); 
-    setSelectedRecipe(recipe); 
-    setTargetPortions(recipe.portions || 4); 
-    setIsEditingRecipe(false); 
-    setRecipeDetailTab('ingredients'); 
-    window.scrollTo(0, 0); 
-  };
-  
+  const handleOpenRecipe = (recipe: Recipe) => { window.history.pushState({ tab: activeTab, recipe, type: 'recipe' }, '', `#recipe-${recipe.id}`); setSelectedRecipe(recipe); setTargetPortions(recipe.portions || 4); setIsEditingRecipe(false); setRecipeDetailTab('ingredients'); window.scrollTo(0, 0); };
   const handleOpenLowStock = () => { window.history.pushState({ tab: 'lowstock', type: 'tab' }, '', `#lowstock`); setActiveTab('lowstock'); setSelectedRecipe(null); setIsEditingRecipe(false); };
   const handleBackNavigation = () => window.history.back();
   const handleSignOut = async () => { await supabase.auth.signOut(); router.push('/login'); };
@@ -177,35 +170,175 @@ export default function PantryManager() {
     }
     setLoading(false);
   };
+  const handleDeleteAccount = async () => { if (!window.confirm("Are you sure?")) return; setLoading(true); showToast("Account deletion request submitted."); await supabase.auth.signOut(); router.push('/login'); setLoading(false); };
 
-  const handleDeleteAccount = async () => {
-    if (!window.confirm("Are you sure you want to delete your account? This action is permanent and cannot be undone.")) return;
-    setLoading(true); showToast("Account deletion request submitted."); await supabase.auth.signOut(); router.push('/login'); setLoading(false);
+  // --- 7. UNIFIED MATH PARSER & DISPLAY FORMATTER ---
+  const parseIngredientStr = (ingStr: string) => {
+    let name = ingStr; let qty: string | number = 1; let unit = 'pcs';
+    const dashMatch = ingStr.match(/^(.*?)\s*[-—–]\s*([\d.\/]+)\s*(.*)$/);
+    if (dashMatch) {
+      name = dashMatch[1].trim(); qty = dashMatch[2]; unit = dashMatch[3] || 'pcs';
+    } else {
+      const fallback = ingStr.match(/^([\d.\/]+)?\s*(?:\b(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)\b)?\s*(.*)$/i);
+      if (fallback) { qty = fallback[1] || '1'; unit = fallback[2] || 'pcs'; name = fallback[3] || ingStr; }
+    }
+    return { name: name.trim(), qty, unit: unit.toLowerCase() };
   };
 
-  const saveUserCategories = (cats: string[]) => {
-    setUserDefinedCategories(cats);
-    localStorage.setItem('recipeCategories', JSON.stringify(cats));
+  const normalizeForScaler = (ingStr: string) => {
+    let clean = ingStr.replace(/^1\s*pcs\s+/i, ''); 
+    const dashMatch = clean.match(/^(.*?)\s*[-—–]\s*([\d.\/]+)\s*(.*)$/);
+    return dashMatch ? `${dashMatch[2]} ${dashMatch[3] || ''} ${dashMatch[1]}`.replace(/\s+/g, ' ').trim() : clean;
   };
 
-  const handleCreateCategory = (name: string) => {
-    const trimmed = name.trim();
-    if (!trimmed || userDefinedCategories.includes(trimmed)) return;
-    saveUserCategories([...userDefinedCategories, trimmed]);
+  const formatIngredientDisplay = (scaledStr: string) => {
+    const match = scaledStr.trim().match(/^([\d.\/]+)\s*(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)?\s*(.*)$/i);
+    if (match && match[3]) {
+      const qty = match[1];
+      const unit = match[2] || 'pcs';
+      const name = match[3];
+      return `${name} - ${qty} ${unit}`.trim();
+    }
+    if (scaledStr.includes('-')) return scaledStr;
+    return `${scaledStr} - 1 pcs`; 
   };
 
+  const getIngredientStatus = (ingredient: string, pantry: PantryItem[]) => { 
+    const match = ingredient.match(/^([\d.\/]+)\s*(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)?\s*(.*)$/i);
+    const qty = parseFloat(match?.[1] || '1') || 1;
+    const unit = (match?.[2] || 'pcs').toLowerCase();
+    const nameMatch = (match?.[3] || ingredient).toLowerCase();
+
+    const pantryMatch = (pantry || []).find(p => { const pName = (p.name || '').toLowerCase(); return nameMatch.includes(pName) || pName.includes(nameMatch); });
+    if (!pantryMatch || pantryMatch.quantity <= 0) return { status: 'missing' };
+    const neededBase = toBaseUnit(qty, unit); const availableBase = toBaseUnit(pantryMatch.quantity, pantryMatch.unit || 'pcs');
+    if (neededBase.base === availableBase.base) {
+      if (availableBase.qty >= neededBase.qty) return { status: 'in_stock' }; return { status: 'insufficient' };
+    }
+    if (pantryMatch.quantity >= qty) return { status: 'in_stock' }; return { status: 'insufficient' };
+  };
+
+  // --- 8. TYPE-SAFE EDITING ---
+  const updateEditIng = (idx: number, field: 'name' | 'amount' | 'unit', value: string) => {
+    setEditRecipeForm(prev => { const clone = [...prev.ingredientsList]; clone[idx] = { ...clone[idx], [field]: value }; return { ...prev, ingredientsList: clone }; });
+  };
+  const addEditIngRow = () => { setEditRecipeForm(prev => ({ ...prev, ingredientsList: [...prev.ingredientsList, { id: Date.now(), name: '', amount: '1', unit: 'pcs' }] })); };
+  const removeEditIngRow = (idx: number) => { setEditRecipeForm(prev => ({ ...prev, ingredientsList: prev.ingredientsList.filter((_, i) => i !== idx) })); };
+
+  const updateManualIng = (idx: number, field: 'name' | 'amount' | 'unit', value: string) => {
+    setManualRecipe(prev => { const clone = [...prev.ingredientsList]; clone[idx] = { ...clone[idx], [field]: value }; return { ...prev, ingredientsList: clone }; });
+  };
+  const addManualIngRow = () => { setManualRecipe(prev => ({ ...prev, ingredientsList: [...prev.ingredientsList, { id: Date.now(), name: '', amount: '1', unit: 'pcs' }] })); };
+  const removeManualIngRow = (idx: number) => { setManualRecipe(prev => ({ ...prev, ingredientsList: prev.ingredientsList.filter((_, i) => i !== idx) })); };
+
+  // --- RECIPE ACTIONS ---
+  const startEditingRecipe = (recipeToEdit?: Recipe) => { 
+    const target = recipeToEdit || selectedRecipe; if (!target) return; 
+    if (!selectedRecipe || selectedRecipe.id !== target.id) { window.history.pushState({ tab: activeTab, recipe: target, type: 'recipe' }, '', `#recipe-${target.id}`); setSelectedRecipe(target); setTargetPortions(target.portions || 4); setRecipeDetailTab('ingredients'); window.scrollTo(0, 0); }
+    
+    const parsedIngs = (target.ingredients || []).map((ing, i) => { 
+      let clean = ing.replace(/^1\s*pcs\s+/i, '');
+      let name = clean; let qty: string | number = 1; let unit = 'pcs';
+      const dashMatch = clean.match(/^(.*?)\s*[-—–]\s*([\d.\/]+)\s*(.*)$/);
+      if (dashMatch) {
+         name = dashMatch[1].trim(); qty = dashMatch[2]; unit = dashMatch[3] || 'pcs';
+      } else {
+         const frontMatch = clean.match(/^([\d.\/]+)\s*(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)?\s*(.*)$/i);
+         if (frontMatch) { qty = frontMatch[1]; unit = frontMatch[2] || 'pcs'; name = frontMatch[3]; }
+      }
+      return { id: Date.now() + i, name: name.trim(), amount: qty.toString(), unit: unit.toLowerCase() };
+    });
+    
+    if (parsedIngs.length === 0) parsedIngs.push({ id: Date.now(), name: '', amount: '1', unit: 'pcs' });
+    setEditRecipeForm({ title: target.title || '', category: target.category || '', cook_time: target.cook_time || '', portions: target.portions || 4, image: target.image || '', ingredientsList: parsedIngs, instructionsText: (target.instructions || []).join('\n') }); setIsEditingRecipe(true); 
+  };
+  
+  const saveEditedRecipe = async () => {
+    if (!selectedRecipe || !editRecipeForm.title.trim()) return showToast("Recipe title cannot be empty."); setLoading(true);
+    const cleanedIngredients = editRecipeForm.ingredientsList.filter(i => i.name.trim() !== '').map(i => `${i.name.trim()} - ${i.amount || 1} ${i.unit || 'pcs'}`);
+    const cleanedInstructions = editRecipeForm.instructionsText.split('\n').map(i => i.trim()).filter(i => i !== '');
+    const updatedData = { title: editRecipeForm.title.trim(), category: editRecipeForm.category, cook_time: editRecipeForm.cook_time, portions: editRecipeForm.portions, image: editRecipeForm.image, ingredients: cleanedIngredients, instructions: cleanedInstructions };
+    const { data, error } = await supabase.from('recipes').update(updatedData).eq('id', selectedRecipe.id).eq('user_id', userId).select().single();
+    if (!error && data) { setRecipes(prev => prev.map(r => r.id === data.id ? data : r)); setSelectedRecipe(data); setIsEditingRecipe(false); showToast('Recipe updated!'); } setLoading(false);
+  };
+
+  const saveManualRecipe = async () => {
+    if (!manualRecipe.title.trim()) return showToast("Add a recipe title."); setLoading(true);
+    const cleanedIngredients = manualRecipe.ingredientsList.filter(i => i.name.trim() !== '').map(i => `${i.name.trim()} - ${i.amount || 1} ${i.unit || 'pcs'}`);
+    const cleanedInstructions = manualRecipe.instructionsText.split('\n').map(i => i.trim()).filter(i => i !== '');
+    const newRecipe = { title: manualRecipe.title.trim(), category: manualRecipe.category, cook_time: manualRecipe.cook_time, portions: manualRecipe.portions, image: manualRecipe.image, ingredients: cleanedIngredients, instructions: cleanedInstructions, user_id: userId };
+    const { data, error } = await supabase.from('recipes').insert([newRecipe]).select().single();
+    if (!error && data) { 
+      setRecipes(prev => [data, ...prev]); setShowManualAddRecipe(false); 
+      setManualRecipe({ title: '', category: '', cook_time: '30 mins', portions: 4, ingredientsList: [{id: 1, name: '', amount: '1', unit: 'pcs'}], instructionsText: '', image: '' }); 
+      showToast('Recipe created!'); 
+    } 
+    setLoading(false);
+  };
+
+  const deleteRecipe = async (id: string, e?: React.MouseEvent) => { if (e) e.stopPropagation(); setRecipes(prev => prev.filter(r => r.id !== id)); await supabase.from('recipes').delete().eq('id', id).eq('user_id', userId); showToast('Recipe deleted.'); };
+
+  const consumeRecipeIngredients = async (recipe: Recipe, currentMultiplier: number) => {
+    setLoading(true); let pantryUpdates: {id: string, quantity: number, unit: string}[] = []; let newPantryState = [...items];
+    for (const ing of (recipe.ingredients || [])) {
+      const scaledIng = scaleAndConvertIngredient(normalizeForScaler(ing), currentMultiplier, measurementSystem);
+      const matchData = scaledIng.match(/^([\d.\/]+)\s*(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)?\s*(.*)$/i);
+      const neededQty = parseFloat(matchData?.[1] || '1') || 1;
+      const neededUnit = (matchData?.[2] || 'pcs').toLowerCase();
+      const lowerName = (matchData?.[3] || scaledIng).toLowerCase();
+      
+      const match = newPantryState.find(p => lowerName.includes((p.name || '').toLowerCase()) || (p.name || '').toLowerCase().includes(lowerName));
+      if (match && match.quantity > 0) {
+        const existingBase = toBaseUnit(match.quantity, match.unit || 'pcs'); const neededBase = toBaseUnit(neededQty, neededUnit);
+        if (existingBase.base === neededBase.base) {
+          const newBaseQty = Math.max(0, existingBase.qty - neededBase.qty); const final = fromBaseUnit(newBaseQty, existingBase.base);
+          newPantryState = newPantryState.map(i => i.id === match.id ? { ...i, quantity: final.qty, unit: final.unit } : i);
+          pantryUpdates.push({ id: match.id, quantity: final.qty, unit: final.unit });
+        } else if ((match.unit || 'pcs').toLowerCase() === neededUnit) {
+          const newQty = Math.max(0, match.quantity - neededQty);
+          newPantryState = newPantryState.map(i => i.id === match.id ? { ...i, quantity: newQty } : i);
+          pantryUpdates.push({ id: match.id, quantity: newQty, unit: match.unit || 'pcs' });
+        }
+      }
+    }
+    if (pantryUpdates.length > 0) {
+       setItems(newPantryState);
+       for (const update of pantryUpdates) { await supabase.from('pantry_items').update({ quantity: update.quantity, unit: update.unit }).eq('id', update.id).eq('user_id', userId); }
+       showToast('Ingredients removed from pantry!');
+    } else showToast('No matching items found in pantry to deduct.');
+    setLoading(false);
+  };
+
+  const addMissingRecipeIngredients = async (recipe: Recipe, currentMultiplier: number) => {
+    setLoading(true);
+    const rawMissing = (recipe.ingredients || []).map(ing => scaleAndConvertIngredient(normalizeForScaler(ing), currentMultiplier, measurementSystem)).filter(scaledIng => getIngredientStatus(scaledIng, items).status !== 'in_stock');
+    if (rawMissing.length === 0) { showToast('You already have all ingredients!'); setLoading(false); return; }
+    for (const rawIng of rawMissing) {
+      const matchData = rawIng.match(/^([\d.\/]+)\s*(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)?\s*(.*)$/i);
+      let qty = parseFloat(matchData?.[1] || '1') || 1; let unit = (matchData?.[2] || 'pcs').toLowerCase(); let name = matchData?.[3] || rawIng;
+      let cleanName = cleanIngredientName(name);
+      
+      const standard = getStandardGroceryItem(`${qty} ${unit} ${cleanName}`);
+      const stdMatch = standard.match(/^([\d.]+)?\s*(?:\b(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)\b)?\s*(.*)$/i);
+      let finalQty = parseFloat(stdMatch?.[1] || '1') || qty; let finalUnit = (stdMatch?.[2] || unit).toLowerCase(); let finalName = stdMatch?.[3] || standard;
+      if (!stdMatch?.[1]) { finalQty = 1; finalUnit = 'pcs'; finalName = standard; }
+      await addOrMergeShoppingItem({ name: finalName, quantity: finalQty, unit: finalUnit });
+    }
+    showToast('Missing ingredients added!'); setLoading(false);
+  };
+
+  // --- 9. CATEGORY MANAGEMENT ---
+  const saveUserCategories = (cats: string[]) => { setUserDefinedCategories(cats); localStorage.setItem('recipeCategories', JSON.stringify(cats)); };
+  const handleCreateCategory = (name: string) => { const trimmed = name.trim(); if (!trimmed || userDefinedCategories.includes(trimmed)) return; saveUserCategories([...userDefinedCategories, trimmed]); };
   const handleRenameCategory = async (oldName: string, newName: string) => {
-    const trimmedNew = newName.trim();
-    if (!trimmedNew) return;
+    const trimmedNew = newName.trim(); if (!trimmedNew) return;
     saveUserCategories(userDefinedCategories.map(c => c === oldName ? trimmedNew : c));
-
     const recipesToUpdate = recipes.filter(r => (r.category || '').split(',').map(s => s.trim()).includes(oldName));
     if (recipesToUpdate.length > 0) {
       setLoading(true);
       for (const r of recipesToUpdate) {
         const tags = (r.category || '').split(',').map(s => s.trim()).filter(Boolean);
-        const newTags = tags.map(t => t === oldName ? trimmedNew : t);
-        const newCategoryString = Array.from(new Set(newTags)).join(', ');
+        const newCategoryString = Array.from(new Set(tags.map(t => t === oldName ? trimmedNew : t))).join(', ');
         await supabase.from('recipes').update({ category: newCategoryString }).eq('id', r.id).eq('user_id', userId);
         setRecipes(prev => prev.map(pr => pr.id === r.id ? { ...pr, category: newCategoryString } : pr));
       }
@@ -213,18 +346,14 @@ export default function PantryManager() {
     }
     showToast(`Category renamed to ${trimmedNew}`);
   };
-
   const handleDeleteCategory = async (catName: string) => {
-    if (catName === 'All Recipes') return;
-    saveUserCategories(userDefinedCategories.filter(c => c !== catName));
-
+    if (catName === 'All Recipes') return; saveUserCategories(userDefinedCategories.filter(c => c !== catName));
     const recipesToUpdate = recipes.filter(r => (r.category || '').split(',').map(s => s.trim()).includes(catName));
     if (recipesToUpdate.length > 0) {
       setLoading(true);
       for (const r of recipesToUpdate) {
         const tags = (r.category || '').split(',').map(s => s.trim()).filter(Boolean);
-        const newTags = tags.filter(t => t !== catName);
-        const newCategoryString = newTags.join(', ');
+        const newCategoryString = tags.filter(t => t !== catName).join(', ');
         await supabase.from('recipes').update({ category: newCategoryString }).eq('id', r.id).eq('user_id', userId);
         setRecipes(prev => prev.map(pr => pr.id === r.id ? { ...pr, category: newCategoryString } : pr));
       }
@@ -233,60 +362,33 @@ export default function PantryManager() {
     showToast(`Category deleted`);
   };
 
-  useEffect(() => {
-    let html5QrCode: any;
-    if (showBarcodeScanner) {
-      import('html5-qrcode').then(({ Html5Qrcode }) => {
-        html5QrCode = new Html5Qrcode("barcode-reader");
-        html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 150 } },
-          async (decodedText: string) => { try { await html5QrCode.stop(); html5QrCode.clear(); } catch(e) {} setShowBarcodeScanner(false); await handleBarcodeScanned(decodedText); },
-          (err: any) => { }
-        ).catch((err: any) => { showToast("Camera access denied."); setShowBarcodeScanner(false); });
-      }).catch(err => { showToast("Scanner failed to load."); setShowBarcodeScanner(false); });
+  // --- 10. DATABASE ADD/MERGE FUNCTIONS ---
+  const addOrMergePantryItem = async (newItem: { name: string, category: string, quantity: number, unit: string, track_low_stock: boolean, low_stock_threshold: number, expiration_date?: string | null }) => {
+    
+    // EXCLUSIVELY COMPUTE DATES FOR PERISHABLE CATEGORIES
+    const perishableCategories = ['Produce', 'Dairy & Eggs', 'Meat & Poultry', 'Seafood', 'Deli & Prepared Foods'];
+    let expDate = newItem.expiration_date || null;
+    
+    if (!expDate && perishableCategories.includes(newItem.category)) {
+      expDate = (await computeExpiryDate(newItem.name)) || null; // NOW AWAITS ONLINE USDA FETCH
     }
-    return () => { if (html5QrCode && html5QrCode.isScanning) { html5QrCode.stop().then(() => html5QrCode.clear()).catch((e: any) => console.log(e)); } };
-  }, [showBarcodeScanner]);
 
-  const handleBarcodeScanned = async (barcode: string) => {
-    setLoading(true); showToast('Barcode recognized! Fetching details...');
-    try {
-      const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${barcode}.json?fields=product_name,generic_name,brands,quantity,categories_tags`);
-      const data = await res.json();
-      if (data.status === 1 && data.product) {
-        const p = data.product; const itemName = p.product_name || p.generic_name || 'Unknown Item';
-        const brand = p.brands ? `${p.brands.split(',')[0]} ` : '';
-        const fullName = `${brand}${itemName}`.trim().charAt(0).toUpperCase() + `${brand}${itemName}`.trim().slice(1).toLowerCase();
-        
-        if (p.quantity) { 
-          const match = p.quantity.match(/^([\d.]+)\s*([a-zA-Z]+)/); 
-          if (match) { 
-            await addOrMergePantryItem({ name: fullName, category: getAisle(fullName), quantity: parseFloat(match[1]), unit: match[2].toLowerCase(), track_low_stock: false, low_stock_threshold: 1 });
-            showToast('Item loaded and saved!');
-            setLoading(false);
-            return;
-          } 
-        }
-        await addOrMergePantryItem({ name: fullName, category: getAisle(fullName), quantity: 1, unit: 'pcs', track_low_stock: false, low_stock_threshold: 1 });
-        showToast('Item loaded and saved!');
-      } else { showToast('Product not found in database. Try typing manually.'); }
-    } catch (e) { showToast('Error looking up barcode.'); }
-    setLoading(false);
-  };
-
-  const addOrMergePantryItem = async (newItem: { name: string, category: string, quantity: number, unit: string, track_low_stock: boolean, low_stock_threshold: number }) => {
     const existing = items.find(i => normalizeName(i.name) === normalizeName(newItem.name));
+    
     if (existing) {
       const existingBase = toBaseUnit(existing.quantity, existing.unit); const newBase = toBaseUnit(newItem.quantity, newItem.unit);
       if (existingBase.base === newBase.base || existing.quantity === 0) {
         const combinedBaseQty = existing.quantity === 0 ? newBase.qty : existingBase.qty + newBase.qty;
-        const combinedBaseUnit = existing.quantity === 0 ? newBase.base : existingBase.base;
-        const final = fromBaseUnit(combinedBaseQty, combinedBaseUnit);
-        await supabase.from('pantry_items').update({ quantity: final.qty, unit: final.unit, track_low_stock: newItem.track_low_stock || existing.track_low_stock }).eq('id', existing.id).eq('user_id', userId);
-        setItems(prev => prev.map(i => i.id === existing.id ? { ...i, quantity: final.qty, unit: final.unit, track_low_stock: newItem.track_low_stock || i.track_low_stock } : i));
+        const final = fromBaseUnit(combinedBaseQty, existing.quantity === 0 ? newBase.base : existingBase.base);
+        const newExpDate = existing.quantity === 0 ? expDate : (existing.expiration_date || expDate);
+        
+        await supabase.from('pantry_items').update({ quantity: final.qty, unit: final.unit, track_low_stock: newItem.track_low_stock || existing.track_low_stock, expiration_date: newExpDate }).eq('id', existing.id).eq('user_id', userId);
+        setItems(prev => prev.map(i => i.id === existing.id ? { ...i, quantity: final.qty, unit: final.unit, track_low_stock: newItem.track_low_stock || i.track_low_stock, expiration_date: newExpDate } : i));
         return;
       }
     }
-    const { data } = await supabase.from('pantry_items').insert([{ ...newItem, user_id: userId }]).select().single();
+
+    const { data } = await supabase.from('pantry_items').insert([{ ...newItem, expiration_date: expDate, user_id: userId }]).select().single();
     if (data) setItems(prev => [data, ...prev]);
   };
 
@@ -303,6 +405,76 @@ export default function PantryManager() {
     } 
     const { data } = await supabase.from('shopping_list').insert([{ ...newItem, user_id: userId }]).select().single();
     if (data) setShoppingList(prev => [data, ...prev]);
+  };
+
+  // --- 11. TRACKING & LOW STOCK ---
+  const handleAddTrackedItem = async (itemName: string, category: string, unit: string, threshold: number) => {
+    setLoading(true); const existing = items.find(i => normalizeName(i.name) === normalizeName(itemName));
+    if (existing) {
+       await supabase.from('pantry_items').update({ track_low_stock: true, low_stock_threshold: threshold }).eq('id', existing.id).eq('user_id', userId);
+       setItems(prev => prev.map(i => i.id === existing.id ? { ...i, track_low_stock: true, low_stock_threshold: threshold } : i));
+       showToast(`Linked tracker to existing ${existing.name}!`);
+    } else {
+       await addOrMergePantryItem({ name: itemName.trim(), category, quantity: 0, unit, track_low_stock: true, low_stock_threshold: threshold });
+       showToast('Tracking added!');
+    }
+    setLoading(false);
+  };
+  const disableTrackingForId = async (id: string) => { setItems(prev => prev.map(i => i.id === id ? { ...i, track_low_stock: false } : i)); await supabase.from('pantry_items').update({ track_low_stock: false }).eq('id', id).eq('user_id', userId); };
+  const updateLowStockThreshold = async (id: string, threshold: number) => { const val = Math.max(0, threshold); setItems(prev => prev.map(i => i.id === id ? { ...i, low_stock_threshold: val } : i)); await supabase.from('pantry_items').update({ low_stock_threshold: val }).eq('id', id).eq('user_id', userId); };
+
+  const addLowStockToShopping = async () => { 
+    const newItems = lowStockItems.map(item => ({ name: `${item.name} (Restock)`, user_id: userId })); 
+    if (newItems.length === 0) return; 
+    const { data } = await supabase.from('shopping_list').insert(newItems).select(); 
+    if (data) { setShoppingList(prev => [...data, ...prev]); showToast('Added to shopping list!'); } 
+  };
+
+  // --- 12. PLANNER DISTRIBUTION ---
+  const deleteMealPlan = async (id: string) => { setMealPlans(prev => prev.filter(m => m.id !== id)); await supabase.from('meal_plan').delete().eq('id', id).eq('user_id', userId); };
+  const saveManualMeal = async (date: string, mealType: string) => { 
+    const key = `${date}-${mealType}`; const value = manualInputs[key]; const qty = manualInputsQty[key] || 1; 
+    if (!value || !value.trim()) return; 
+    const { data } = await supabase.from('meal_plan').insert([{ date, meal_type: mealType, manual_name: value.trim(), portions: qty, user_id: userId }]).select('*, recipes(title)').single(); 
+    if (data) { setMealPlans(prev => [...prev, data as MealPlanItem]); setManualInputs(prev => ({ ...prev, [key]: '' })); setManualInputsQty(prev => ({ ...prev, [key]: 1 })); } 
+  };
+  const startDistribution = () => { setPlanTargetPortions(targetPortions); setAllocationsGrid({}); setShowDistributionModal(true); };
+  const handlePickRecipeForPlanner = (recipe: Recipe) => { if (!recipePickerTarget) return; setSelectedRecipe(recipe); setTargetPortions(recipe.portions || 4); setPlanTargetPortions(recipe.portions || 4); const key = `${recipePickerTarget.date}|${recipePickerTarget.mealType}`; setAllocationsGrid({ [key]: 1 }); setRecipePickerTarget(null); setShowDistributionModal(true); };
+  const handleAllocate = (dateStr: string, mealType: string, delta: number) => { const key = `${dateStr}|${mealType}`; const current = allocationsGrid[key] || 0; if (delta > 0 && remainingPortions <= 0) return; if (delta < 0 && current <= 0) return; setAllocationsGrid(prev => ({ ...prev, [key]: current + delta })); };
+  const saveMealPlan = async () => {
+    if (!selectedRecipe) return; if (remainingPortions !== 0) return showToast(`Allocate exactly ${planTargetPortions} portions.`); setLoading(true);
+    const inserts = Object.entries(allocationsGrid).filter(([_, qty]) => qty > 0).map(([key, qty]) => { const [date, meal_type] = key.split('|'); return { date, meal_type, recipe_id: selectedRecipe.id, portions: qty, user_id: userId }; });
+    const { data } = await supabase.from('meal_plan').insert(inserts).select('*, recipes(title, image, cook_time, category)');
+    if (data) { setMealPlans(prev => [...prev, ...(data as MealPlanItem[])]); showToast('Meals added to planner!'); setShowDistributionModal(false); } setLoading(false);
+  };
+
+  // --- 13. SCANNERS & VOICE ---
+  useEffect(() => {
+    let html5QrCode: any;
+    if (showBarcodeScanner) {
+      import('html5-qrcode').then(({ Html5Qrcode }) => {
+        html5QrCode = new Html5Qrcode("barcode-reader");
+        html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 150 } },
+          async (decodedText: string) => { try { await html5QrCode.stop(); html5QrCode.clear(); } catch(e) {} setShowBarcodeScanner(false); await handleBarcodeScanned(decodedText); },
+          (err: any) => { }
+        ).catch((err: any) => { showToast("Camera access denied."); setShowBarcodeScanner(false); });
+      }).catch(err => { showToast("Scanner failed to load."); setShowBarcodeScanner(false); });
+    }
+    return () => { if (html5QrCode && html5QrCode.isScanning) { html5QrCode.stop().then(() => html5QrCode.clear()).catch((e: any) => console.log(e)); } };
+  }, [showBarcodeScanner]);
+
+  const handleBarcodeScanned = async (barcode: string) => {
+    setLoading(true); showToast('Barcode recognized! Fetching...');
+    try {
+      const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${barcode}.json?fields=product_name,generic_name,brands,quantity,categories_tags`); const data = await res.json();
+      if (data.status === 1 && data.product) {
+        const p = data.product; const itemName = p.product_name || p.generic_name || 'Unknown Item'; const brand = p.brands ? `${p.brands.split(',')[0]} ` : '';
+        const fullName = `${brand}${itemName}`.trim().charAt(0).toUpperCase() + `${brand}${itemName}`.trim().slice(1).toLowerCase();
+        if (p.quantity) { const match = p.quantity.match(/^([\d.]+)\s*([a-zA-Z]+)/); if (match) { await addOrMergePantryItem({ name: fullName, category: getAisle(fullName), quantity: parseFloat(match[1]), unit: match[2].toLowerCase(), track_low_stock: false, low_stock_threshold: 1 }); showToast('Item loaded and saved!'); setLoading(false); return; } }
+        await addOrMergePantryItem({ name: fullName, category: getAisle(fullName), quantity: 1, unit: 'pcs', track_low_stock: false, low_stock_threshold: 1 }); showToast('Item loaded and saved!');
+      } else { showToast('Product not found in database.'); }
+    } catch (e) { showToast('Error looking up barcode.'); }
+    setLoading(false);
   };
 
   const toggleListening = () => {
@@ -327,17 +499,9 @@ export default function PantryManager() {
       let cleanedItemStr = itemStr.replace(/\b(of|some)\b/g, '').replace(/\s+/g, ' ').trim();
       const match = cleanedItemStr.match(/^([\d.]+)?\s*(?:\b(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|grams|kilograms|liters|milliliters|cloves)\b)?\s*(.*)$/i);
       let qty = 1; let unit = 'pcs'; let parsedName = cleanedItemStr;
-      if (match) {
-        if (match[1]) qty = parseFloat(match[1]);
-        if (match[2]) { const rawUnit = match[2].toLowerCase(); if (rawUnit === 'grams') unit = 'g'; else if (rawUnit === 'kilograms') unit = 'kg'; else if (rawUnit === 'liters') unit = 'l'; else if (rawUnit === 'milliliters') unit = 'ml'; else unit = rawUnit; }
-        if (match[3]) parsedName = match[3];
-      }
-      let standardizedName = parsedName.charAt(0).toUpperCase() + parsedName.slice(1);
-      let predictedCategory = getAisle(standardizedName);
-      if (unit === 'pcs') {
-        if (standardizedName.toLowerCase().includes('milk') || standardizedName.toLowerCase().includes('water')) unit = 'ml';
-        if (standardizedName.toLowerCase().includes('flour') || standardizedName.toLowerCase().includes('sugar') || standardizedName.toLowerCase().includes('rice')) unit = 'g';
-      }
+      if (match) { if (match[1]) qty = parseFloat(match[1]); if (match[2]) { const rawUnit = match[2].toLowerCase(); if (rawUnit === 'grams') unit = 'g'; else if (rawUnit === 'kilograms') unit = 'kg'; else if (rawUnit === 'liters') unit = 'l'; else if (rawUnit === 'milliliters') unit = 'ml'; else unit = rawUnit; } if (match[3]) parsedName = match[3]; }
+      let standardizedName = parsedName.charAt(0).toUpperCase() + parsedName.slice(1); let predictedCategory = getAisle(standardizedName);
+      if (unit === 'pcs') { if (standardizedName.toLowerCase().includes('milk') || standardizedName.toLowerCase().includes('water')) unit = 'ml'; if (standardizedName.toLowerCase().includes('flour') || standardizedName.toLowerCase().includes('sugar') || standardizedName.toLowerCase().includes('rice')) unit = 'g'; }
       return { id: Date.now() + idx, name: standardizedName.trim(), quantity: qty, unit, category: predictedCategory };
     });
     const parsed = await Promise.all(parsedPromises); setVoiceParsedItems(parsed);
@@ -345,7 +509,6 @@ export default function PantryManager() {
 
   const updateVoiceItem = (index: number, field: string, value: string | number) => { setVoiceParsedItems(prev => { const updated = [...prev]; updated[index] = { ...updated[index], [field]: value }; return updated; }); };
   const removeVoiceItem = (index: number) => setVoiceParsedItems(prev => prev.filter((_, i) => i !== index));
-
   const commitVoiceItems = async () => {
     if (voiceParsedItems.length === 0) return; setLoading(true);
     for (const item of voiceParsedItems) {
@@ -361,254 +524,29 @@ export default function PantryManager() {
     try {
       const compressedFile = await compressImage(file); const formData = new FormData(); formData.append('receipt', compressedFile);
       const res = await fetch('/api/scan-receipt', { method: 'POST', body: formData }); const data = await res.json();
-      
       if (data.items && data.items.length > 0) {
         showToast('Enriching items from database...');
         const enrichedItems = await Promise.all(data.items.map(async (item: any) => {
            if (item.unit === 'pcs' || !item.unit) {
               try {
-                 const offRes = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(item.name)}&search_simple=1&action=process&json=1&page_size=1`);
-                 const offData = await offRes.json();
-                 if (offData.products && offData.products.length > 0 && offData.products[0].quantity) {
-                    const match = offData.products[0].quantity.match(/^([\d.]+)\s*([a-zA-Z]+)/);
-                    if (match) { 
-                      item.quantity = parseFloat(match[1]) || item.quantity; 
-                      item.unit = match[2].toLowerCase(); 
-                    }
-                 }
+                 const offRes = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(item.name)}&search_simple=1&action=process&json=1&page_size=1`); const offData = await offRes.json();
+                 if (offData.products && offData.products.length > 0 && offData.products[0].quantity) { const match = offData.products[0].quantity.match(/^([\d.]+)\s*([a-zA-Z]+)/); if (match) { item.quantity = parseFloat(match[1]) || item.quantity; item.unit = match[2].toLowerCase(); } }
               } catch(e) {}
            }
            return item;
         }));
         setScannedItems(enrichedItems);
-      } else {
-        showToast(data.message || 'Scanner API didn\'t find any items.');
-      }
-    } catch { showToast('Failed to read receipt. Image may be too large or backend error.'); }
+      } else showToast(data.message || 'Scanner API didn\'t find any items.');
+    } catch { showToast('Failed to read receipt.'); }
     if (fileInputRef.current) fileInputRef.current.value = ''; setIsScanning(false);
   };
 
   const updateScannedItem = (index: number, field: string, value: string | number) => { setScannedItems(prev => { if (!prev) return prev; const updated = [...prev]; updated[index] = { ...updated[index], [field]: value }; return updated; }); };
   const removeScannedItem = (index: number) => setScannedItems(prev => prev ? prev.filter((_, i) => i !== index) : prev);
-
   const commitScannedItems = async () => {
     if (!scannedItems || scannedItems.length === 0) return setScannedItems(null); setLoading(true);
     for (const item of scannedItems) { await addOrMergePantryItem({ name: item.name, category: item.category || 'Other', quantity: parseFloat(item.quantity) || 1, unit: item.unit || 'pcs', track_low_stock: false, low_stock_threshold: 1 }); }
     showToast(`Added ${scannedItems.length} items to pantry!`); setScannedItems(null); setLoading(false);
-  };
-
-  /* =================================================================================
-     RESTORED GLOBAL DATABASE FUNCTIONS (Passed as props to Tabs)
-     ================================================================================= */
-
-  const deleteMealPlan = async (id: string) => { 
-    setMealPlans(prev => prev.filter(m => m.id !== id)); 
-    await supabase.from('meal_plan').delete().eq('id', id).eq('user_id', userId); 
-  };
-
-  const saveManualMeal = async (date: string, mealType: string) => { 
-    const key = `${date}-${mealType}`; 
-    const value = manualInputs[key]; 
-    const qty = manualInputsQty[key] || 1; 
-    if (!value || !value.trim()) return; 
-    const { data } = await supabase.from('meal_plan').insert([{ date, meal_type: mealType, manual_name: value.trim(), portions: qty, user_id: userId }]).select('*, recipes(title)').single(); 
-    if (data) { 
-      setMealPlans(prev => [...prev, data as MealPlanItem]); 
-      setManualInputs(prev => ({ ...prev, [key]: '' })); 
-      setManualInputsQty(prev => ({ ...prev, [key]: 1 })); 
-    } 
-  };
-
-  const addLowStockToShopping = async () => { 
-    const newItems = lowStockItems.map(item => ({ name: `${item.name} (Restock)`, user_id: userId })); 
-    if (newItems.length === 0) return; 
-    const { data } = await supabase.from('shopping_list').insert(newItems).select(); 
-    if (data) { setShoppingList(prev => [...data, ...prev]); showToast('Added to shopping list!'); } 
-  };
-
-  const handleAddTrackedItem = async (itemName: string, category: string, unit: string, threshold: number) => {
-    setLoading(true);
-    const existing = items.find(i => normalizeName(i.name) === normalizeName(itemName));
-    if (existing) {
-       await supabase.from('pantry_items').update({ track_low_stock: true, low_stock_threshold: threshold }).eq('id', existing.id).eq('user_id', userId);
-       setItems(prev => prev.map(i => i.id === existing.id ? { ...i, track_low_stock: true, low_stock_threshold: threshold } : i));
-       showToast(`Linked tracker to existing ${existing.name}!`);
-    } else {
-       await addOrMergePantryItem({ name: itemName.trim(), category, quantity: 0, unit, track_low_stock: true, low_stock_threshold: threshold });
-       showToast('Tracking added!');
-    }
-    setLoading(false);
-  };
-
-  const disableTrackingForId = async (id: string) => { 
-    setItems(prev => prev.map(i => i.id === id ? { ...i, track_low_stock: false } : i)); 
-    await supabase.from('pantry_items').update({ track_low_stock: false }).eq('id', id).eq('user_id', userId); 
-  };
-
-  const updateLowStockThreshold = async (id: string, threshold: number) => { 
-    const val = Math.max(0, threshold); 
-    setItems(prev => prev.map(i => i.id === id ? { ...i, low_stock_threshold: val } : i)); 
-    await supabase.from('pantry_items').update({ low_stock_threshold: val }).eq('id', id).eq('user_id', userId); 
-  };
-
-  const updateIng = (setter: Function, idx: number, field: string, value: string) => {
-    setter((prev: any) => { const clone = [...prev.ingredientsList]; clone[idx] = { ...clone[idx], [field]: value }; return { ...prev, ingredientsList: clone }; });
-  };
-
-  const addIngRow = (setter: Function) => {
-    setter((prev: any) => ({ ...prev, ingredientsList: [...prev.ingredientsList, { id: Date.now(), name: '', amount: '1', unit: 'pcs' }] }));
-  };
-
-  const removeIngRow = (setter: Function, idx: number) => {
-    setter((prev: any) => ({ ...prev, ingredientsList: prev.ingredientsList.filter((_: any, i: number) => i !== idx) }));
-  };
-
-  const startEditingRecipe = (recipeToEdit?: Recipe) => { 
-    const target = recipeToEdit || selectedRecipe;
-    if (!target) return; 
-    
-    if (!selectedRecipe || selectedRecipe.id !== target.id) {
-       window.history.pushState({ tab: activeTab, recipe: target, type: 'recipe' }, '', `#recipe-${target.id}`);
-       setSelectedRecipe(target); setTargetPortions(target.portions || 4); setRecipeDetailTab('ingredients'); window.scrollTo(0, 0);
-    }
-    
-    const parsedIngs = (target.ingredients || []).map((ing, i) => {
-       let fallbackAmt = '1';
-       let fallbackUnit = 'pcs';
-       let fallbackName = ing.trim();
-       
-       const startNumMatch = fallbackName.match(/^([\d.]+)\s*(.*)$/);
-       if (startNumMatch) {
-           fallbackAmt = startNumMatch[1];
-           const restOfStr = startNumMatch[2].trim();
-           const words = restOfStr.split(' ');
-           if (words.length > 0 && COMMON_UNITS.includes(words[0].toLowerCase())) {
-               fallbackUnit = words[0].toLowerCase();
-               fallbackName = words.slice(1).join(' ');
-           } else {
-               fallbackName = restOfStr;
-           }
-       }
-       return { id: Date.now() + i, name: fallbackName, amount: fallbackAmt, unit: fallbackUnit };
-    });
-    
-    if (parsedIngs.length === 0) parsedIngs.push({ id: Date.now(), name: '', amount: '1', unit: 'pcs' });
-
-    setEditRecipeForm({ title: target.title || '', category: target.category || '', cook_time: target.cook_time || '', portions: target.portions || 4, image: target.image || '', ingredientsList: parsedIngs, instructionsText: (target.instructions || []).join('\n') }); 
-    setIsEditingRecipe(true); 
-  };
-  
-  const saveEditedRecipe = async () => {
-    if (!selectedRecipe || !editRecipeForm.title.trim()) return showToast("Recipe title cannot be empty."); setLoading(true);
-    const cleanedIngredients = editRecipeForm.ingredientsList.filter(i => i.name.trim() !== '').map(i => `${i.amount || 1} ${i.unit || 'pcs'} ${i.name.trim()}`);
-    const cleanedInstructions = editRecipeForm.instructionsText.split('\n').map(i => i.trim()).filter(i => i !== '');
-    const updatedData = { title: editRecipeForm.title.trim(), category: editRecipeForm.category, cook_time: editRecipeForm.cook_time, portions: editRecipeForm.portions, image: editRecipeForm.image, ingredients: cleanedIngredients, instructions: cleanedInstructions };
-    const { data, error } = await supabase.from('recipes').update(updatedData).eq('id', selectedRecipe.id).eq('user_id', userId).select().single();
-    if (!error && data) { setRecipes(prev => prev.map(r => r.id === data.id ? data : r)); setSelectedRecipe(data); setIsEditingRecipe(false); showToast('Recipe updated!'); } setLoading(false);
-  };
-
-  const deleteRecipe = async (id: string, e?: React.MouseEvent) => { 
-    if (e) e.stopPropagation(); 
-    setRecipes(prev => prev.filter(r => r.id !== id)); 
-    await supabase.from('recipes').delete().eq('id', id).eq('user_id', userId); 
-    showToast('Recipe deleted.'); 
-  };
-
-  const consumeRecipeIngredients = async (recipe: Recipe, currentMultiplier: number) => {
-    setLoading(true);
-    let pantryUpdates: {id: string, quantity: number, unit: string}[] = [];
-    let newPantryState = [...items];
-
-    for (const ing of (recipe.ingredients || [])) {
-      const scaledIng = scaleAndConvertIngredient(ing, currentMultiplier, measurementSystem);
-      const lowerIng = scaledIng.toLowerCase();
-      
-      const match = newPantryState.find(p => lowerIng.includes((p.name || '').toLowerCase()));
-      
-      if (match && match.quantity > 0) {
-        const parsed = scaledIng.match(/^([\d.]+)?\s*(?:\b(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)\b)?\s*(.*)$/i);
-        let neededQty = parseFloat(parsed?.[1] || '1') || 1;
-        let neededUnit = (parsed?.[2] || 'pcs').toLowerCase();
-
-        const existingBase = toBaseUnit(match.quantity, match.unit || 'pcs');
-        const neededBase = toBaseUnit(neededQty, neededUnit);
-
-        if (existingBase.base === neededBase.base) {
-          const newBaseQty = Math.max(0, existingBase.qty - neededBase.qty);
-          const final = fromBaseUnit(newBaseQty, existingBase.base);
-          
-          newPantryState = newPantryState.map(i => i.id === match.id ? { ...i, quantity: final.qty, unit: final.unit } : i);
-          pantryUpdates.push({ id: match.id, quantity: final.qty, unit: final.unit });
-        } else if ((match.unit || 'pcs').toLowerCase() === neededUnit) {
-          const newQty = Math.max(0, match.quantity - neededQty);
-          newPantryState = newPantryState.map(i => i.id === match.id ? { ...i, quantity: newQty } : i);
-          pantryUpdates.push({ id: match.id, quantity: newQty, unit: match.unit || 'pcs' });
-        }
-      }
-    }
-
-    if (pantryUpdates.length > 0) {
-       setItems(newPantryState);
-       for (const update of pantryUpdates) {
-          await supabase.from('pantry_items').update({ quantity: update.quantity, unit: update.unit }).eq('id', update.id).eq('user_id', userId);
-       }
-       showToast('Ingredients removed from pantry!');
-    } else {
-       showToast('No matching items found in pantry to deduct.');
-    }
-    setLoading(false);
-  };
-
-  const startDistribution = () => { setPlanTargetPortions(targetPortions); setAllocationsGrid({}); setShowDistributionModal(true); };
-  const handlePickRecipeForPlanner = (recipe: Recipe) => { if (!recipePickerTarget) return; setSelectedRecipe(recipe); setTargetPortions(recipe.portions || 4); setPlanTargetPortions(recipe.portions || 4); const key = `${recipePickerTarget.date}|${recipePickerTarget.mealType}`; setAllocationsGrid({ [key]: 1 }); setRecipePickerTarget(null); setShowDistributionModal(true); };
-  const handleAllocate = (dateStr: string, mealType: string, delta: number) => { const key = `${dateStr}|${mealType}`; const current = allocationsGrid[key] || 0; if (delta > 0 && remainingPortions <= 0) return; if (delta < 0 && current <= 0) return; setAllocationsGrid(prev => ({ ...prev, [key]: current + delta })); };
-
-  const saveMealPlan = async () => {
-    if (!selectedRecipe) return; if (remainingPortions !== 0) return showToast(`Allocate exactly ${planTargetPortions} portions.`); setLoading(true);
-    const inserts = Object.entries(allocationsGrid).filter(([_, qty]) => qty > 0).map(([key, qty]) => { const [date, meal_type] = key.split('|'); return { date, meal_type, recipe_id: selectedRecipe.id, portions: qty, user_id: userId }; });
-    const { data } = await supabase.from('meal_plan').insert(inserts).select('*, recipes(title, image, cook_time, category)');
-    if (data) { setMealPlans(prev => [...prev, ...(data as MealPlanItem[])]); showToast('Meals added to planner!'); setShowDistributionModal(false); } setLoading(false);
-  };
-
-  const getIngredientStatus = (ingredient: string, pantry: PantryItem[]) => { 
-    const matchStr = ingredient.match(/^([\d.]+)?\s*(?:\b(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)\b)?\s*(.*)$/i);
-    const neededQty = parseFloat(matchStr?.[1] || '1') || 1;
-    const neededUnit = (matchStr?.[2] || 'pcs').toLowerCase();
-    const nameMatch = (matchStr?.[3] || ingredient).toLowerCase();
-
-    const match = (pantry || []).find(p => {
-      const pName = (p.name || '').toLowerCase();
-      return nameMatch.includes(pName) || pName.includes(nameMatch);
-    });
-
-    if (!match || match.quantity <= 0) return { status: 'missing' };
-
-    const neededBase = toBaseUnit(neededQty, neededUnit);
-    const availableBase = toBaseUnit(match.quantity, match.unit || 'pcs');
-
-    if (neededBase.base === availableBase.base) {
-      if (availableBase.qty >= neededBase.qty) return { status: 'in_stock' };
-      return { status: 'insufficient' };
-    }
-    
-    if (match.quantity >= neededQty) return { status: 'in_stock' };
-    return { status: 'insufficient' };
-  };
-
-  const addMissingRecipeIngredients = async (recipe: Recipe, currentMultiplier: number) => {
-    setLoading(true);
-    const rawMissing = (recipe.ingredients || []).map(ing => scaleAndConvertIngredient(ing, currentMultiplier, measurementSystem)).filter(scaledIng => getIngredientStatus(scaledIng, items).status !== 'in_stock');
-    if (rawMissing.length === 0) { showToast('You already have all ingredients!'); setLoading(false); return; }
-    for (const rawIng of rawMissing) {
-      const match = rawIng.match(/^([\d.]+)?\s*(?:\b(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)\b)?\s*(.*)$/i);
-      let qty = parseFloat(match?.[1] || '1') || 1; let unit = (match?.[2] || 'pcs').toLowerCase(); let rawName = match?.[3] || rawIng; let cleanName = cleanIngredientName(rawName);
-      const standard = getStandardGroceryItem(`${qty} ${unit} ${cleanName}`);
-      const stdMatch = standard.match(/^([\d.]+)?\s*(?:\b(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)\b)?\s*(.*)$/i);
-      let finalQty = parseFloat(stdMatch?.[1] || '1') || 1; let finalUnit = (stdMatch?.[2] || unit).toLowerCase(); let finalName = stdMatch?.[3] || standard;
-      if (!stdMatch?.[1]) { finalQty = 1; finalUnit = 'pcs'; finalName = standard; }
-      await addOrMergeShoppingItem({ name: finalName, quantity: finalQty, unit: finalUnit });
-    }
-    showToast('Missing ingredients added!'); setLoading(false);
   };
 
   const multiplier = selectedRecipe ? (targetPortions / (selectedRecipe.portions || 4)) : 1;
@@ -619,49 +557,36 @@ export default function PantryManager() {
 
   return (
     <main className="min-h-screen w-full overflow-x-hidden bg-[url('/background.jpg')] bg-cover bg-center bg-fixed text-black p-4 pb-28 md:p-8 md:pb-8 font-montserrat">
-      
       <datalist id="common-units">{COMMON_UNITS.map(u => <option key={u} value={u} />)}</datalist>
       <input type="file" accept="image/*" capture="environment" ref={fileInputRef} className="hidden" onChange={handleScanReceipt} />
 
       {toast && (
         <div className="fixed inset-x-0 top-10 flex items-center justify-center z-[100] px-4 pointer-events-none">
-          <div className="bg-black text-white px-6 py-4 rounded-2xl shadow-2xl font-bold text-center animate-in fade-in slide-in-from-top-4 pointer-events-auto">
-            {toast}
-          </div>
+          <div className="bg-black text-white px-6 py-4 rounded-2xl shadow-2xl font-bold text-center animate-in fade-in slide-in-from-top-4 pointer-events-auto">{toast}</div>
         </div>
       )}
 
-      {/* --- DASHBOARD TOP HEADER --- */}
+      {/* DASHBOARD TOP HEADER */}
       {activeTab === 'dashboard' && !selectedRecipe && (
         <TopHeader activeTab={activeTab} handleTabChange={handleTabChange} setShowAccountModal={setShowAccountModal} />
       )}
       
-      <AccountSettingsModal 
-        showModal={showAccountModal} setShowModal={setShowAccountModal} userEmail={userEmail} userName={userName}
-        setUserName={setUserName} newEmail={newEmail} setNewEmail={setNewEmail} newPassword={newPassword} 
-        setNewPassword={setNewPassword} handleUpdateAccount={handleUpdateAccount} handleSignOut={handleSignOut} 
-        handleDeleteAccount={handleDeleteAccount} loading={loading} 
-      />
+      <AccountSettingsModal showModal={showAccountModal} setShowModal={setShowAccountModal} userEmail={userEmail} userName={userName} setUserName={setUserName} newEmail={newEmail} setNewEmail={setNewEmail} newPassword={newPassword} setNewPassword={setNewPassword} handleUpdateAccount={handleUpdateAccount} handleSignOut={handleSignOut} handleDeleteAccount={handleDeleteAccount} loading={loading} />
 
-      {/* --- UNIVERSAL SCANNER MODALS --- */}
+      {/* GLOBAL SCANNERS */}
       {showVoiceInputScreen && (
         <div className="flex flex-col items-center justify-center min-h-[80vh]">
           <div className="bg-[#6B705C] p-6 md:p-8 rounded-[32px] shadow-2xl w-full max-w-2xl flex flex-col gap-6 text-white border border-black/10 animate-in fade-in zoom-in-95">
             <div className="text-center">
-              <h2 className="text-3xl font-bold mb-2 font-mogena">Voice Entry</h2>
+              <h2 className="text-3xl font-bold mb-2">Voice Entry</h2>
               <p className="text-white/80 text-sm">Say something like: "3 bananas and 200g of flour"</p>
             </div>
-            
             <div className="flex justify-center mt-2">
-              <button 
-                onClick={toggleListening}
-                className={`px-8 py-4 rounded-2xl flex items-center justify-center gap-3 font-bold transition-all shadow-sm ${isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-black text-white hover:bg-black/80'}`}
-              >
+              <button onClick={toggleListening} className={`px-8 py-4 rounded-2xl flex items-center justify-center gap-3 font-bold transition-all shadow-sm ${isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-black text-white hover:bg-black/80'}`}>
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
                 {isListening ? 'Tap to Stop...' : 'Tap to Speak'}
               </button>
             </div>
-
             {voiceParsedItems.length > 0 && (
               <div className="flex flex-col gap-3 mt-4">
                 <h3 className="text-sm font-semibold uppercase tracking-wider text-white/80 border-b border-white/20 pb-2 mb-2">Review Items</h3>
@@ -669,9 +594,7 @@ export default function PantryManager() {
                   <div key={item.id} className="flex flex-row items-center gap-2 bg-white/10 p-2 rounded-2xl w-full relative z-0 hover:z-10">
                     <input value={item.name} onChange={e => updateVoiceItem(index, 'name', e.target.value)} className="flex-1 min-w-[80px] bg-white text-black px-2 py-2 rounded-xl text-sm focus:outline-none placeholder:text-black/50" placeholder="Item Name" />
                     <input type="number" step="any" value={item.quantity} onChange={e => updateVoiceItem(index, 'quantity', e.target.value)} className="w-12 bg-white text-black px-1 py-2 rounded-xl text-sm text-center focus:outline-none" />
-                    <div className="w-[75px]">
-                      <CustomSelect value={item.unit} onChange={v => updateVoiceItem(index, 'unit', v)} options={COMMON_UNITS.map(u => ({label: u, value: u}))} className="bg-white rounded-xl" />
-                    </div>
+                    <div className="w-[75px]"><CustomSelect value={item.unit} onChange={v => updateVoiceItem(index, 'unit', v)} options={COMMON_UNITS.map(u => ({label: u, value: u}))} className="bg-white rounded-xl" /></div>
                     <button onClick={() => removeVoiceItem(index)} className="w-8 h-8 shrink-0 flex items-center justify-center bg-red-500/80 text-white rounded-xl font-bold hover:bg-red-500 transition">✕</button>
                   </div>
                 ))}
@@ -680,11 +603,8 @@ export default function PantryManager() {
                 </button>
               </div>
             )}
-
             <div className="border-t border-white/20 pt-4 mt-2">
-              <button onClick={() => { setShowVoiceInputScreen(false); setVoiceParsedItems([]); setVoiceTranscript(''); }} className="w-full py-3 bg-transparent text-white font-bold hover:bg-white/10 rounded-2xl transition">
-                Cancel
-              </button>
+              <button onClick={() => { setShowVoiceInputScreen(false); setVoiceParsedItems([]); setVoiceTranscript(''); }} className="w-full py-3 bg-transparent text-white font-bold hover:bg-white/10 rounded-2xl transition">Cancel</button>
             </div>
           </div>
         </div>
@@ -693,10 +613,7 @@ export default function PantryManager() {
       {showBarcodeScanner && (
         <div className="fixed inset-0 bg-black/90 z-[120] flex flex-col items-center justify-center p-4">
           <div className="bg-[#6B705C] p-6 md:p-8 rounded-[32px] shadow-2xl w-full max-w-sm flex flex-col items-center gap-6 text-white border border-black/10 animate-in fade-in zoom-in-95">
-             <div className="text-center">
-                <h2 className="text-3xl font-bold mb-2 font-mogena">Scan Barcode</h2>
-                <p className="text-white/80 text-sm">Align the barcode within the frame</p>
-             </div>
+             <div className="text-center"><h2 className="text-3xl font-bold mb-2">Scan Barcode</h2><p className="text-white/80 text-sm">Align the barcode within the frame</p></div>
              <div id="barcode-reader" className="w-full rounded-2xl overflow-hidden shadow-inner bg-black"></div>
              <button onClick={() => setShowBarcodeScanner(false)} className="w-full py-4 bg-white text-black rounded-2xl font-bold hover:bg-gray-100 shadow-sm transition">Cancel</button>
           </div>
@@ -706,7 +623,7 @@ export default function PantryManager() {
       {scannedItems && scannedItems.length > 0 && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
            <div className="bg-white rounded-[32px] w-full max-w-2xl p-6 md:p-8 flex flex-col max-h-[90vh] animate-in zoom-in-95">
-             <h2 className="text-2xl font-bold mb-4 font-mogena">Review Scanned Items</h2>
+             <h2 className="text-2xl font-bold mb-4">Review Scanned Items</h2>
              <div className="overflow-y-auto flex-1 space-y-3 pr-2 w-full">
                {scannedItems.map((item, index) => (
                   <div key={index} className="flex flex-col gap-2 bg-black/5 p-3 rounded-2xl relative z-0 hover:z-10 w-full">
@@ -716,9 +633,7 @@ export default function PantryManager() {
                     </div>
                     <div className="grid grid-cols-2 gap-2 w-full">
                       <input type="number" step="any" value={item.quantity || 1} onChange={e => updateScannedItem(index, 'quantity', e.target.value)} className="w-full px-4 py-3 rounded-xl text-center focus:outline-none bg-white" placeholder="Qty" />
-                      <div className="w-full h-full">
-                        <CustomSelect value={item.unit || 'pcs'} onChange={v => updateScannedItem(index, 'unit', v)} options={COMMON_UNITS.map(u => ({label: u, value: u}))} className="bg-white rounded-xl w-full h-[48px]" />
-                      </div>
+                      <div className="w-full h-full"><CustomSelect value={item.unit || 'pcs'} onChange={v => updateScannedItem(index, 'unit', v)} options={COMMON_UNITS.map(u => ({label: u, value: u}))} className="bg-white rounded-xl w-full h-[48px]" /></div>
                     </div>
                     <div className="w-full mt-1">
                       <CustomSelect value={item.category || 'Other'} onChange={v => updateScannedItem(index, 'category', v)} options={dynamicCategories.map(c => ({label: c, value: c}))} className="bg-white rounded-xl w-full" />
@@ -734,11 +649,12 @@ export default function PantryManager() {
         </div>
       )}
 
+      {/* PLANNER DISTRIBUTION MODAL */}
       {showDistributionModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
           <div className="w-full max-w-3xl rounded-[32px] p-6 md:p-8 bg-white border border-black/20 text-black shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95">
             <div className="flex justify-between items-center border-b pb-4 border-black/10 mb-6 shrink-0">
-              <h2 className="text-2xl font-bold font-mogena">Plan Your Meals</h2>
+              <h2 className="text-2xl font-bold">Plan Your Meals</h2>
               <button onClick={() => setShowDistributionModal(false)} className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-black font-bold">✕</button>
             </div>
             <div className="overflow-y-auto pr-2 space-y-6 flex-1">
@@ -770,7 +686,6 @@ export default function PantryManager() {
                               return (
                                 <div key={meal} className="flex flex-col items-center w-full">
                                   <span className="text-[10px] uppercase font-semibold text-black/50 mb-1">{meal}</span>
-                                  
                                   {existingMeals.length > 0 && (
                                     <div className="flex flex-col gap-1 w-full mb-1">
                                       {existingMeals.map(m => (
@@ -780,7 +695,6 @@ export default function PantryManager() {
                                       ))}
                                     </div>
                                   )}
-
                                   {qty > 0 ? (
                                     <div className="flex items-center justify-between w-full bg-[#6B705C] text-white rounded-xl p-1 px-2 text-sm shadow-sm transition mt-auto">
                                       <button onClick={() => handleAllocate(dateStr, meal, -1)} className="font-bold px-2 py-1 hover:text-white/70 transition">-</button>
@@ -801,29 +715,21 @@ export default function PantryManager() {
               </div>
             </div>
             <div className="pt-6 mt-4 border-t border-black/10 shrink-0">
-              <button onClick={saveMealPlan} disabled={loading} className="w-full py-4 rounded-2xl font-bold text-lg bg-black text-white hover:bg-black/80 disabled:opacity-50 transition shadow-sm">
-                {loading ? 'Saving...' : 'Confirm Meal Plan'}
-              </button>
+              <button onClick={saveMealPlan} disabled={loading} className="w-full py-4 rounded-2xl font-bold text-lg bg-black text-white hover:bg-black/80 disabled:opacity-50 transition shadow-sm">{loading ? 'Saving...' : 'Confirm Meal Plan'}</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* --- UNIVERSAL RECIPE ACTION MENU --- */}
+      {/* RECIPE ACTION MENU */}
       {recipeActionMenu.isOpen && recipeActionMenu.recipe && (
         <div className="fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 transition-opacity" onClick={() => setRecipeActionMenu({isOpen: false, recipe: null})}>
            <div className="bg-white w-full sm:max-w-sm rounded-t-[32px] sm:rounded-[32px] p-6 pb-10 sm:pb-6 shadow-2xl animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-0 sm:zoom-in-95" onClick={e => e.stopPropagation()}>
               <h3 className="font-bold text-xl mb-4 text-center px-4 leading-tight">{recipeActionMenu.recipe.title}</h3>
               <div className="flex flex-col gap-2">
-                 <button onClick={() => { startEditingRecipe(recipeActionMenu.recipe!); setRecipeActionMenu({isOpen: false, recipe: null}); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">
-                   Edit Recipe
-                 </button>
-                 <button onClick={() => { handleTabChange('planner'); setRecipeActionMenu({isOpen: false, recipe: null}); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">
-                   Add to Planner
-                 </button>
-                 <button onClick={() => { deleteRecipe(recipeActionMenu.recipe!.id); setRecipeActionMenu({isOpen: false, recipe: null}); handleTabChange('recipes'); }} className="w-full py-4 bg-red-50 text-red-600 hover:bg-red-100 rounded-2xl font-bold transition mt-2 shadow-sm">
-                   Delete Recipe
-                 </button>
+                 <button onClick={() => { startEditingRecipe(recipeActionMenu.recipe!); setRecipeActionMenu({isOpen: false, recipe: null}); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Edit Recipe</button>
+                 <button onClick={() => { handleTabChange('planner'); setRecipeActionMenu({isOpen: false, recipe: null}); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Add to Planner</button>
+                 <button onClick={() => { deleteRecipe(recipeActionMenu.recipe!.id); setRecipeActionMenu({isOpen: false, recipe: null}); handleTabChange('recipes'); }} className="w-full py-4 bg-red-50 text-red-600 hover:bg-red-100 rounded-2xl font-bold transition mt-2 shadow-sm">Delete Recipe</button>
               </div>
            </div>
         </div>
@@ -857,7 +763,7 @@ export default function PantryManager() {
 
       {/* RECIPE DETAIL AND EDIT VIEWS */}
       {selectedRecipe && isEditingRecipe && (
-        <div className="space-y-6 mt-4">
+        <div className="space-y-6 mt-4 max-w-6xl mx-auto">
           <div className="mb-4">
             <button onClick={() => setIsEditingRecipe(false)} className="flex items-center gap-2 text-black hover:text-black/60 transition shrink-0 font-bold -ml-2 p-2">
                <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
@@ -896,18 +802,18 @@ export default function PantryManager() {
                 {editRecipeForm.ingredientsList.map((ing, idx) => (
                    <div key={ing.id} className="flex flex-col gap-2 bg-black/5 p-3 rounded-2xl relative z-0 hover:z-10 w-full">
                       <div className="flex gap-2 w-full">
-                        <input type="text" placeholder="Ingredient name" value={ing.name} onChange={e => updateIng(setEditRecipeForm, idx, 'name', e.target.value)} className="flex-1 w-full min-w-0 px-4 py-3 rounded-xl font-bold focus:outline-none bg-white placeholder:text-black/50" />
-                        <button onClick={() => removeIngRow(setEditRecipeForm, idx)} className="w-12 h-12 flex items-center justify-center bg-red-500/80 text-white rounded-xl font-bold hover:bg-red-500 transition shrink-0">✕</button>
+                        <input type="text" placeholder="Ingredient name" value={ing.name} onChange={e => updateEditIng(idx, 'name', e.target.value)} className="flex-1 w-full min-w-0 px-4 py-3 rounded-xl font-bold focus:outline-none bg-white placeholder:text-black/50" />
+                        <button onClick={() => removeEditIngRow(idx)} className="w-12 h-12 flex items-center justify-center bg-red-500/80 text-white rounded-xl font-bold hover:bg-red-500 transition shrink-0">✕</button>
                       </div>
                       <div className="grid grid-cols-2 gap-2 w-full">
-                        <input type="number" step="any" placeholder="1" value={ing.amount} onChange={e => updateIng(setEditRecipeForm, idx, 'amount', e.target.value)} className="w-full px-4 py-3 rounded-xl text-center focus:outline-none bg-white" />
+                        <input type="number" step="any" placeholder="1" value={ing.amount} onChange={e => updateEditIng(idx, 'amount', e.target.value)} className="w-full px-4 py-3 rounded-xl text-center focus:outline-none bg-white" />
                         <div className="w-full h-full">
-                          <CustomSelect value={ing.unit} onChange={v => updateIng(setEditRecipeForm, idx, 'unit', v)} options={COMMON_UNITS.map(u => ({label: u, value: u}))} className="bg-white rounded-xl w-full h-[48px]" />
+                          <CustomSelect value={ing.unit} onChange={v => updateEditIng(idx, 'unit', v)} options={COMMON_UNITS.map(u => ({label: u, value: u}))} className="bg-white rounded-xl w-full h-[48px]" />
                         </div>
                       </div>
                    </div>
                 ))}
-                <button onClick={() => addIngRow(setEditRecipeForm)} className="px-4 py-3 w-full bg-white border border-black/10 rounded-2xl text-sm font-bold shadow-sm hover:bg-black/5 transition">+ Add Ingredient</button>
+                <button onClick={addEditIngRow} className="px-4 py-3 w-full bg-white border border-black/10 rounded-2xl text-sm font-bold shadow-sm hover:bg-black/5 transition">+ Add Ingredient</button>
              </div>
 
              <div className="space-y-1.5 mt-4">
@@ -946,9 +852,9 @@ export default function PantryManager() {
 
             <div className="bg-[#6B705C] text-white py-8 border-b border-black/10 shadow-sm">
               <div className="max-w-6xl mx-auto px-4 md:px-8 flex flex-col items-center justify-center gap-6 relative">
-                <h2 className="text-4xl md:text-5xl font-black tracking-tight leading-snug text-center w-full px-12 break-words whitespace-normal font-mogena">{selectedRecipe.title}</h2>
+                <h2 className="text-4xl md:text-5xl font-black tracking-tight leading-snug text-center w-full px-12 break-words whitespace-normal">{selectedRecipe.title}</h2>
                 <div className="flex flex-col sm:flex-row gap-3 shrink-0 w-full sm:w-auto justify-center flex-wrap">
-                  <button onClick={startDistribution} className="px-6 py-3 bg-black text-white rounded-xl text-sm font-medium hover:bg-black/80 transition shadow-sm text-center">Add to Meal Plan</button>
+                  <button onClick={() => { setPlanTargetPortions(targetPortions); setAllocationsGrid({}); setShowDistributionModal(true); }} className="px-6 py-3 bg-black text-white rounded-xl text-sm font-medium hover:bg-black/80 transition shadow-sm text-center">Add to Meal Plan</button>
                   <button onClick={() => addMissingRecipeIngredients(selectedRecipe, multiplier)} className="px-6 py-3 bg-black text-white rounded-xl text-sm font-medium hover:bg-black/80 transition shadow-sm text-center">Add Missing Items to Shopping List</button>
                   <button onClick={() => consumeRecipeIngredients(selectedRecipe, multiplier)} className="px-6 py-3 bg-black text-white rounded-xl text-sm font-medium hover:bg-black/80 transition shadow-sm text-center">Recipe Made - Remove from Pantry</button>
                 </div>
@@ -960,7 +866,7 @@ export default function PantryManager() {
             <div className="flex justify-between items-center mb-6">
               <div className="flex bg-black/5 p-1 rounded-2xl w-full md:w-auto">
                 <button onClick={() => setRecipeDetailTab('ingredients')} className={`flex-1 md:px-8 py-3 text-sm font-bold rounded-xl transition ${recipeDetailTab === 'ingredients' ? 'bg-white shadow-sm text-black' : 'text-black/60 hover:text-black'}`}>Ingredients</button>
-                <button onClick={() => setRecipeDetailTab('instructions')} className={`flex-1 md:px-8 py-3 text-sm font-bold rounded-xl transition ${recipeDetailTab === 'instructions' ? 'bg-white shadow-sm text-black' : 'text-black/60 hover:text-black'}`}>Method</button>
+                <button onClick={() => setRecipeDetailTab('instructions')} className={`flex-1 md:px-8 py-3 text-sm font-bold rounded-xl transition ${recipeDetailTab === 'instructions' ? 'bg-white shadow-sm text-black' : 'text-black/60 hover:text-black'}`}>Instructions</button>
               </div>
             </div>
 
@@ -976,18 +882,19 @@ export default function PantryManager() {
                     </div>
                   </div>
                   <div className="flex items-center bg-black/5 rounded-lg p-1 text-black shrink-0">
-                    <button onClick={() => setMeasurementSystem('metric')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition ${measurementSystem === 'metric' ? 'bg-white shadow-sm text-black' : 'hover:bg-black/5 text-black/60'}`}>Metric</button>
-                    <button onClick={() => setMeasurementSystem('imperial')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition ${measurementSystem === 'imperial' ? 'bg-white shadow-sm text-black' : 'hover:bg-black/5 text-black/60'}`}>Imperial</button>
+                    <button onClick={() => setMeasurementSystem('metric')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition ${measurementSystem === 'metric' ? 'bg-white shadow-sm text-black' : 'hover:bg-transparent text-black/60'}`}>Metric</button>
+                    <button onClick={() => setMeasurementSystem('imperial')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition ${measurementSystem === 'imperial' ? 'bg-white shadow-sm text-black' : 'hover:bg-transparent text-black/60'}`}>Imperial</button>
                   </div>
                 </div>
 
                 <div className="space-y-0">
                   {(selectedRecipe.ingredients || []).map((ing, i) => {
-                    const scaledIng = scaleAndConvertIngredient(ing, multiplier, measurementSystem);
+                    const scaledIng = scaleAndConvertIngredient(normalizeForScaler(ing), multiplier, measurementSystem);
+                    const displayIng = formatIngredientDisplay(scaledIng);
                     const statusObj = getIngredientStatus(scaledIng, items);
                     return (
                       <div key={i} className="flex flex-row justify-between items-start gap-3 text-sm p-3 rounded-xl bg-white border border-black/10 text-black font-medium shadow-sm">
-                        <span className="flex-1 pr-2 whitespace-normal break-words">{scaledIng}</span>
+                        <span className="flex-1 pr-2 whitespace-normal break-words">{displayIng}</span>
                         <div className="shrink-0 flex items-center mt-0.5">
                           {statusObj.status === 'in_stock' && <span className="text-[10px] px-2.5 py-1 bg-[#6B705C] text-white rounded-full font-bold uppercase tracking-wider shadow-sm">In Pantry</span>}
                           {statusObj.status === 'insufficient' && <span className="text-[10px] px-2.5 py-1 border border-[#6B705C]/50 text-[#6B705C] rounded-full font-bold uppercase tracking-wider">Low Stock</span>}
@@ -1029,44 +936,27 @@ export default function PantryManager() {
 
       {!selectedRecipe && activeTab === 'pantry' && (
         <PantryTab 
-          userId={userId} 
-          items={items} 
-          setItems={setItems} 
-          addOrMergePantryItem={addOrMergePantryItem}
-          dynamicCategories={dynamicCategories}
-          COMMON_UNITS={COMMON_UNITS}
-          setShowBarcodeScanner={setShowBarcodeScanner} 
-          setVoiceContext={setVoiceContext} 
-          setShowVoiceInputScreen={setShowVoiceInputScreen} 
-          isScanning={isScanning} 
-          fileInputRef={fileInputRef} 
-          showToast={showToast}
+          userId={userId} items={items} setItems={setItems} addOrMergePantryItem={addOrMergePantryItem}
+          dynamicCategories={dynamicCategories} COMMON_UNITS={COMMON_UNITS} setShowBarcodeScanner={setShowBarcodeScanner} 
+          setVoiceContext={setVoiceContext} setShowVoiceInputScreen={setShowVoiceInputScreen} isScanning={isScanning} 
+          fileInputRef={fileInputRef} showToast={showToast}
         />
       )}
 
       {!selectedRecipe && activeTab === 'shopping' && (
         <ShoppingTab 
-          userId={userId}
-          shoppingList={shoppingList}
-          setShoppingList={setShoppingList}
-          addOrMergeShoppingItem={addOrMergeShoppingItem}
-          lowStockItems={lowStockItems}
-          COMMON_UNITS={COMMON_UNITS}
-          setVoiceContext={setVoiceContext}
-          setShowVoiceInputScreen={setShowVoiceInputScreen}
-          addLowStockToShopping={addLowStockToShopping}
-          showToast={showToast}
+          userId={userId} shoppingList={shoppingList} setShoppingList={setShoppingList}
+          addOrMergeShoppingItem={addOrMergeShoppingItem} lowStockItems={lowStockItems}
+          COMMON_UNITS={COMMON_UNITS} setVoiceContext={setVoiceContext} setShowVoiceInputScreen={setShowVoiceInputScreen}
+          addLowStockToShopping={addLowStockToShopping} showToast={showToast}
         />
       )}
 
       {!selectedRecipe && activeTab === 'recipes' && (
         <RecipesTab 
-          userId={userId}
-          recipes={recipes} setRecipes={setRecipes}
-          allCombinedCategories={allCombinedCategories}
-          handleCreateCategory={handleCreateCategory}
-          handleRenameCategory={handleRenameCategory}
-          handleDeleteCategory={handleDeleteCategory}
+          userId={userId} recipes={recipes} setRecipes={setRecipes}
+          allCombinedCategories={allCombinedCategories} handleCreateCategory={handleCreateCategory}
+          handleRenameCategory={handleRenameCategory} handleDeleteCategory={handleDeleteCategory}
           handleOpenRecipe={handleOpenRecipe} startEditingRecipe={startEditingRecipe}
           setRecipeActionMenu={setRecipeActionMenu} handleTabChange={handleTabChange} showToast={showToast} COMMON_UNITS={COMMON_UNITS}
         />
@@ -1075,28 +965,19 @@ export default function PantryManager() {
       {!selectedRecipe && activeTab === 'planner' && (
         <PlannerTab 
           userId={userId} next7Days={next7Days} todayStr={todayStr} mealPlans={mealPlans} setMealPlans={setMealPlans}
-          collapsedDays={collapsedDays} setCollapsedDays={setCollapsedDays} 
-          recipes={recipes} handleOpenRecipe={handleOpenRecipe} 
-          deleteMealPlan={deleteMealPlan} setRecipePickerTarget={setRecipePickerTarget} 
-          manualInputs={manualInputs} setManualInputs={setManualInputs} 
-          saveManualMeal={saveManualMeal} manualInputsQty={manualInputsQty} 
+          collapsedDays={collapsedDays} setCollapsedDays={setCollapsedDays} recipes={recipes} handleOpenRecipe={handleOpenRecipe} 
+          deleteMealPlan={deleteMealPlan} setRecipePickerTarget={setRecipePickerTarget} manualInputs={manualInputs} 
+          setManualInputs={setManualInputs} saveManualMeal={saveManualMeal} manualInputsQty={manualInputsQty} 
           setManualInputsQty={setManualInputsQty} showToast={showToast}
         />
       )}
 
       {!selectedRecipe && activeTab === 'lowstock' && (
         <LowStockTab 
-          handleBackNavigation={handleBackNavigation}
-          addLowStockToShopping={addLowStockToShopping} 
-          lowStockItems={lowStockItems} 
-          untrackedItemsList={untrackedItemsList} 
-          trackedItemsList={trackedItemsList}
-          handleAddTrackedItem={handleAddTrackedItem}
-          updateLowStockThreshold={updateLowStockThreshold} 
-          disableTrackingForId={disableTrackingForId} 
-          COMMON_UNITS={COMMON_UNITS} 
-          dynamicCategories={dynamicCategories} 
-          loading={loading}
+          handleBackNavigation={handleBackNavigation} addLowStockToShopping={addLowStockToShopping} 
+          lowStockItems={lowStockItems} untrackedItemsList={untrackedItemsList} trackedItemsList={trackedItemsList}
+          handleAddTrackedItem={handleAddTrackedItem} updateLowStockThreshold={updateLowStockThreshold} 
+          disableTrackingForId={disableTrackingForId} COMMON_UNITS={COMMON_UNITS} dynamicCategories={dynamicCategories} loading={loading}
         />
       )}
 
