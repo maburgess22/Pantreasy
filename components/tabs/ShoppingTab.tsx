@@ -24,9 +24,20 @@ export default function ShoppingTab({
 
   const supabase = createClient();
   const [loading, setLoading] = useState(false);
+
+  // --- STATE FOR ADDING MENUS ---
+  const [showAddShoppingMenu, setShowAddShoppingMenu] = useState(false);
+  const [showShoppingInput, setShowShoppingInput] = useState(false);
   const [name, setName] = useState('');
   const [quantity, setQuantity] = useState('1');
   const [unit, setUnit] = useState('pcs');
+
+  // --- STATE FOR 3-DOT MENU AND EDITING ---
+  const [shoppingActionMenu, setShoppingActionMenu] = useState<{isOpen: boolean, item: ShoppingItem | null}>({isOpen: false, item: null});
+  const [editingShoppingItem, setEditingShoppingItem] = useState<ShoppingItem | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editQuantity, setEditQuantity] = useState('');
+  const [editUnit, setEditUnit] = useState('');
 
   const addItem = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,6 +70,35 @@ export default function ShoppingTab({
     setLoading(false);
   };
 
+  const adjustQuantity = async (item: ShoppingItem, delta: number) => {
+    const newQty = Math.max(0, Number(((item.quantity || 1) + delta).toFixed(2))); 
+    setShoppingList(prev => prev.map(i => i.id === item.id ? { ...i, quantity: newQty } : i));
+    await supabase.from('shopping_list').update({ quantity: newQty }).eq('id', item.id).eq('user_id', userId);
+    if (shoppingActionMenu.item && shoppingActionMenu.item.id === item.id) { 
+      setShoppingActionMenu({ isOpen: true, item: { ...shoppingActionMenu.item, quantity: newQty } }); 
+    }
+  };
+
+  const startEditing = (item: ShoppingItem) => { 
+    setEditingShoppingItem(item); 
+    setEditName(item.name || ''); 
+    setEditQuantity(item.quantity != null ? item.quantity.toString() : '1'); 
+    setEditUnit(item.unit || 'pcs'); 
+  };
+
+  const saveEdit = async (id: string) => {
+    const updatedItem = { 
+      name: (editName || '').trim(), 
+      quantity: parseFloat(editQuantity) || 0, 
+      unit: editUnit
+    };
+    if (!updatedItem.name) return showToast("Item name cannot be empty.");
+    setShoppingList(prev => prev.map(item => item.id === id ? { ...item, ...updatedItem } : item));
+    setEditingShoppingItem(null); 
+    await supabase.from('shopping_list').update(updatedItem).eq('id', id).eq('user_id', userId);
+    showToast('Item updated!');
+  };
+
   // Group shopping list by supermarket aisles on the fly
   const groupedList = shoppingList.reduce((acc, item) => {
     const cat = getAisle(item.name);
@@ -80,14 +120,12 @@ export default function ShoppingTab({
             <p className="text-white/80 text-sm mt-2 font-medium text-center">Plan your next grocery run.</p>
           </div>
           <div className="flex flex-col sm:flex-row gap-3 shrink-0 w-full sm:w-auto justify-center flex-wrap">
-            <button onClick={() => { setVoiceContext('shopping'); setShowVoiceInputScreen(true); }} className="px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center gap-2 border border-black/20">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
-              <span>Voice Add</span>
+            <button onClick={() => setShowAddShoppingMenu(true)} className="px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center border border-black/20">
+              Add Item
             </button>
             {lowStockItems.length > 0 && (
-              <button onClick={addLowStockToShopping} className="px-6 py-2.5 bg-amber-500 text-white rounded-xl text-sm font-bold transition hover:bg-amber-600 shadow-sm flex items-center justify-center gap-2 border border-amber-600">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                <span>Add {lowStockItems.length} Low Stock Items</span>
+              <button onClick={addLowStockToShopping} className="px-6 py-2.5 bg-white text-amber-600 rounded-xl text-sm font-bold transition hover:bg-amber-50 shadow-sm flex items-center justify-center border border-black/20">
+                Add {lowStockItems.length} Low Stock Items
               </button>
             )}
             {hasCheckedItems && (
@@ -99,34 +137,66 @@ export default function ShoppingTab({
         </div>
       </div>
 
-      {/* QUICK ADD FORM */}
-      <form onSubmit={addItem} className="bg-white p-4 rounded-[24px] shadow-sm border border-black/10 flex flex-col sm:flex-row gap-3 items-center">
-        <div className="flex-1 w-full relative z-20">
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Item name (e.g. Almond Milk)"
-            className="w-full px-4 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium text-sm"
-            required
-          />
-        </div>
-        <div className="flex gap-2 w-full sm:w-auto relative z-10">
-          <input
-            type="number" step="any" min="0.01"
-            value={quantity}
-            onChange={(e) => setQuantity(e.target.value)}
-            className="w-20 px-3 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium text-center text-sm"
-            required
-          />
-          <div className="w-[90px]">
-            <CustomSelect value={unit} onChange={setUnit} options={COMMON_UNITS.map(u => ({label: u, value: u}))} />
+      {/* BOTTOM-UP MENU FOR ADDING */}
+      {showAddShoppingMenu && (
+        <div className="fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 transition-opacity" onClick={() => setShowAddShoppingMenu(false)}>
+          <div className="bg-white w-full sm:max-w-sm rounded-t-[32px] sm:rounded-[32px] p-6 pb-10 sm:pb-6 shadow-2xl animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-0 sm:zoom-in-95" onClick={e => e.stopPropagation()}>
+             <h3 className="font-bold text-xl mb-6 text-center border-b border-black/10 pb-4">Add to Shopping List</h3>
+             <div className="flex flex-col gap-2">
+               <button onClick={() => { setShowShoppingInput(true); setShowAddShoppingMenu(false); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Type Item Name</button>
+               <button onClick={() => { setVoiceContext('shopping'); setShowVoiceInputScreen(true); setShowAddShoppingMenu(false); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Voice Input</button>
+             </div>
           </div>
         </div>
-        <button type="submit" disabled={loading} className="w-full sm:w-auto px-6 py-3 bg-black text-white font-bold rounded-xl shadow-sm hover:bg-black/80 transition disabled:opacity-50">
-          Add
-        </button>
-      </form>
+      )}
+
+      {/* MANUAL INPUT MODAL */}
+      {showShoppingInput && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4 transition-opacity">
+          <div className="bg-white rounded-[32px] p-6 md:p-8 w-full max-w-md shadow-2xl flex flex-col gap-4 animate-in zoom-in-95">
+            <div className="flex justify-between items-center mb-2 border-b border-black/10 pb-4 shrink-0">
+              <h2 className="text-2xl font-bold text-black">Add to List Manually</h2>
+              <button type="button" onClick={() => setShowShoppingInput(false)} className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-black font-bold">✕</button>
+            </div>
+            
+            <form id="addShoppingForm" onSubmit={(e) => { addItem(e); setShowShoppingInput(false); }} className="space-y-4 mt-2 overflow-y-auto pr-1 flex-1">
+              <div className="space-y-1.5 relative z-20">
+                <label className="text-xs font-bold uppercase tracking-wider text-black/60">Item Name</label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Almond Milk"
+                  className="w-full px-4 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium text-base"
+                  required
+                  autoFocus
+                />
+              </div>
+              <div className="flex gap-4 relative z-0">
+                <div className="space-y-1.5 flex-1">
+                  <label className="text-xs font-bold uppercase tracking-wider text-black/60">Quantity</label>
+                  <input type="number" step="any" min="0.01" placeholder="1" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium text-center text-base" required />
+                </div>
+                <div className="space-y-1.5 flex-1">
+                  <label className="text-xs font-bold uppercase tracking-wider text-black/60">Unit</label>
+                  <CustomSelect 
+                    value={unit} 
+                    onChange={setUnit} 
+                    options={COMMON_UNITS.map(u => ({label: u, value: u}))} 
+                    placeholder="Unit"
+                  />
+                </div>
+              </div>
+            </form>
+            
+            <div className="pt-2 shrink-0">
+              <button type="submit" form="addShoppingForm" disabled={loading} className="w-full py-4 bg-black text-white rounded-2xl font-bold hover:bg-black/80 shadow-sm transition">
+                {loading ? 'Adding...' : 'Add to List'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* CATEGORY GRID */}
       {shoppingList.length === 0 ? (
@@ -141,7 +211,6 @@ export default function ShoppingTab({
               </div>
               <div className="space-y-2">
                 {groupedList[category]
-                  // Sort so unchecked items are at the top of their category, checked at the bottom
                   .sort((a, b) => Number(a.checked) - Number(b.checked))
                   .map(item => (
                   <div key={item.id} className={`flex items-center justify-between p-3 rounded-[20px] transition border shadow-sm relative z-0 hover:z-10 gap-3 ${item.checked ? 'bg-black/5 border-transparent opacity-60' : 'bg-white border-black/10'}`}>
@@ -158,15 +227,81 @@ export default function ShoppingTab({
                       </h3>
                     </div>
 
-                    {/* DELETE BUTTON */}
-                    <button onClick={() => deleteItem(item.id)} className="p-2 bg-red-50 text-red-500 rounded-full hover:bg-red-500 hover:text-white transition shrink-0">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    {/* 3 DOT MENU BUTTON */}
+                    <button onClick={() => setShoppingActionMenu({isOpen: true, item})} className="p-2 hover:bg-black/5 rounded-full text-black/40 hover:text-black transition shrink-0">
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
                     </button>
                   </div>
                 ))}
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* 3-DOT ACTION MENU MODAL */}
+      {shoppingActionMenu.isOpen && shoppingActionMenu.item && (
+        <div className="fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 transition-opacity" onClick={() => setShoppingActionMenu({isOpen: false, item: null})}>
+           <div className="bg-white w-full sm:max-w-sm rounded-t-[32px] sm:rounded-[32px] p-6 pb-10 sm:pb-6 shadow-2xl animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-0 sm:zoom-in-95" onClick={e => e.stopPropagation()}>
+              <h3 className="font-bold text-xl mb-6 text-center border-b border-black/10 pb-4">{shoppingActionMenu.item.name}</h3>
+              <div className="bg-black/5 rounded-2xl p-4 mb-4 flex items-center justify-between shadow-sm">
+                 <span className="font-semibold text-xs uppercase tracking-wider text-black/60">Amount</span>
+                 <div className="flex items-center gap-3">
+                    <button onClick={() => adjustQuantity(shoppingActionMenu.item!, -1)} className="w-8 h-8 rounded-lg bg-white shadow-sm font-bold flex items-center justify-center hover:bg-black/5">-</button>
+                    <span className="font-bold min-w-[3rem] text-center text-sm">{shoppingActionMenu.item.quantity || 1} {shoppingActionMenu.item.unit || 'pcs'}</span>
+                    <button onClick={() => adjustQuantity(shoppingActionMenu.item!, 1)} className="w-8 h-8 rounded-lg bg-white shadow-sm font-bold flex items-center justify-center hover:bg-black/5">+</button>
+                 </div>
+              </div>
+              <div className="flex flex-col gap-2">
+                 <button onClick={() => { startEditing(shoppingActionMenu.item!); setShoppingActionMenu({isOpen: false, item: null}); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Edit Details</button>
+                 <button onClick={() => { deleteItem(shoppingActionMenu.item!.id); setShoppingActionMenu({isOpen: false, item: null}); }} className="w-full py-4 bg-red-50 text-red-600 hover:bg-red-100 rounded-2xl font-bold transition mt-2 shadow-sm">Remove Item</button>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* EDIT ITEM MODAL */}
+      {editingShoppingItem && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4 transition-opacity">
+          <div className="bg-white rounded-[32px] p-6 md:p-8 w-full max-w-md shadow-2xl flex flex-col gap-4 animate-in zoom-in-95">
+             <div className="flex justify-between items-center mb-2 border-b border-black/10 pb-4 shrink-0">
+               <h2 className="text-2xl font-bold text-black">Edit Item</h2>
+               <button onClick={() => setEditingShoppingItem(null)} className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-black font-bold">✕</button>
+             </div>
+             
+             <div className="space-y-4 mt-2 overflow-y-auto pr-1 flex-1">
+               <div className="space-y-1.5 relative z-20">
+                 <label className="text-xs font-bold uppercase tracking-wider text-black/60">Item Name</label>
+                 <input
+                    type="text"
+                    value={editName} 
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium text-base"
+                    required
+                  />
+               </div>
+               
+               <div className="grid grid-cols-2 gap-4 relative z-0">
+                 <div className="space-y-1.5 w-full">
+                   <label className="text-xs font-bold uppercase tracking-wider text-black/60">Quantity</label>
+                   <input type="number" step="any" min="0.01" value={editQuantity} onChange={e => setEditQuantity(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium text-center text-base" />
+                 </div>
+                 <div className="space-y-1.5 w-full">
+                   <label className="text-xs font-bold uppercase tracking-wider text-black/60">Unit</label>
+                   <CustomSelect 
+                      value={editUnit} 
+                      onChange={setEditUnit} 
+                      options={COMMON_UNITS.map(u => ({label: u, value: u}))}
+                      className="w-full h-[48px]"
+                   />
+                 </div>
+               </div>
+             </div>
+             
+             <div className="pt-2 shrink-0">
+                <button onClick={() => saveEdit(editingShoppingItem.id)} className="w-full py-4 bg-black text-white rounded-2xl font-bold hover:bg-black/80 shadow-sm transition">Save Changes</button>
+             </div>
+          </div>
         </div>
       )}
     </div>

@@ -60,21 +60,22 @@ export function getStandardGroceryItem(str: string) {
 export function getAisle(itemName: string) {
   const lower = itemName.toLowerCase();
   
-  if (/(tofu|tempeh|seitan|quorn|beyond|impossible|meatless|vegan|vegetarian|plant-based|plant based)/.test(lower)) return 'Vegetarian Products';
-  if (/(milk|cheese|yogurt|butter|egg|cream)/.test(lower)) return 'Dairy & Eggs';
-  if (/(chicken|beef|pork|lamb|sausage|bacon|turkey)/.test(lower)) return 'Meat & Poultry';
-  if (/(fish|salmon|tuna|shrimp|prawn|cod|crab|lobster|seafood)/.test(lower)) return 'Seafood';
-  if (/(apple|banana|berry|tomato|lettuce|onion|garlic|potato|carrot|pepper|spinach|broccoli|fruit|veg|avocado|avacado|mushroom|celery|cabbage|melon|orange|lemon|lime|grape)/.test(lower)) return 'Produce';
-  if (/(bread|bagel|bun|pastry|croissant|muffin|cake)/.test(lower)) return 'Bakery';
-  if (/(spice|herb|salt|pepper|sauce|ketchup|mustard|mayo|dressing|vinegar|syrup|honey)/.test(lower)) return 'Spices & Condiments';
-  if (/(rice|pasta|flour|sugar|oil|canned|bean|lentil|broth|soup|cereal|oat)/.test(lower)) return 'Pantry Staples';
-  if (/(water|juice|soda|coffee|tea|beer|wine|liquor)/.test(lower)) return 'Beverages';
-  if (/(chip|crisp|cookie|chocolate|candy|nut|popcorn)/.test(lower)) return 'Snacks & Sweets';
-  if (/(pizza|ice cream|frozen)/.test(lower)) return 'Frozen Foods';
-  if (/(deli|hummus|prepared|salad kit)/.test(lower)) return 'Deli & Prepared Foods';
-  if (/(soap|clean|detergent|paper towel|trash|foil|tissue)/.test(lower)) return 'Household & Cleaning';
-  if (/(shampoo|lotion|toothpaste|medicine|vitamin|dental)/.test(lower)) return 'Health & Personal Care';
-  if (/(dog|cat|pet)/.test(lower)) return 'Pet Care';
+  if (/(tofu|tempeh|seitan|quorn|beyond|impossible|meatless|vegan|vegetarian|plant-based|plant based|nutritional yeast|aquafaba|tvp)/.test(lower)) return 'Vegetarian Products';
+  if (/(milk|cheese|yogurt|butter|egg|cream|feta|mozzarella|cheddar|parmesan|brie|paneer|halloumi|ghee|whey|dairy|kefir|quark|mascarpone|ricotta|provolone|gouda|swiss|camembert|gorgonzola|roquefort|buttermilk|margarine)/.test(lower)) return 'Dairy & Eggs';
+  if (/(chicken|beef|pork|lamb|sausage|bacon|turkey|duck|veal|ham|salami|prosciutto|pepperoni|steak|mince|venison|goose|quail|rabbit|chorizo|pancetta|pastrami|bresaola|bratwurst|frankfurter|meatball|patty)/.test(lower)) return 'Meat & Poultry';
+  if (/(fish|salmon|tuna|shrimp|prawn|cod|crab|lobster|seafood|mussel|scallop|squid|calamari|oyster|clam|haddock|trout|mackerel|sardine|anchovy|halibut|tilapia|mahi|swordfish|octopus|eel|caviar)/.test(lower)) return 'Seafood';
+  // Note: Updated to use roots like 'strawberr', 'cherr', 'berr', 'tomato', 'potato' to catch plurals automatically
+  if (/(apple|banana|berr|tomato|lettuce|onion|garlic|potato|carrot|pepper|spinach|broccoli|fruit|veg|avocado|avacado|mushroom|celery|cabbage|melon|orange|lemon|lime|grape|peach|plum|pear|asparagus|zucchini|courgette|aubergine|eggplant|strawberr|blueberr|raspberr|blackberr|cranberr|cherr|apricot|nectarine|grapefruit|tangerine|pomelo|papaya|mango|pineapple|kiwi|pomegranate|fig|date|watermelon|cantaloupe|honeydew|radish|turnip|parsnip|beet|rutabaga|yam|squash|pumpkin|leek|scallion|chive|shallot|artichoke|brussels sprout|cauliflower|bok choy|chard|collard|arugula|watercress|endive|radicchio|fennel|okra|corn|pea|edamame)/.test(lower)) return 'Produce';
+  if (/(bread|bagel|bun|pastry|croissant|muffin|cake|tortilla|wrap|pita|loaf|baguette|ciabatta|focaccia|sourdough|pumpernickel|rye|brioche|crumpet|scone|biscuit|roll|donut|doughnut|pie|tart|brownie|cupcake)/.test(lower)) return 'Bakery';
+  if (/(spice|herb|salt|pepper|sauce|ketchup|mustard|mayo|dressing|vinegar|syrup|honey|cumin|paprika|cinnamon|nutmeg|turmeric|coriander|ginger|bay leaf|oregano|thyme|basil|rosemary|parsley|cilantro|mint|dill|sage|tarragon|cardamom|clove|saffron|vanilla|teriyaki|sriracha|salsa|relish|chutney|jam|jelly|marmalade|peanut butter|almond butter|spread|molasses|gravy)/.test(lower)) return 'Spices & Condiments';
+  if (/(rice|pasta|flour|sugar|oil|canned|bean|lentil|broth|soup|cereal|oat|noodle|spaghetti|macaroni|chickpea|garbanzo|quinoa|barley|couscous|bulgur|polenta|cornmeal|stock|bouillon|yeast|baking powder|baking soda|cornstarch|cocoa|chocolate chip|peanut|almond|walnut|pecan|cashew|hazelnut|macadamia|pistachio|sunflower seed|pumpkin seed|chia|flax|hemp|sesame|olive|caper|pickle)/.test(lower)) return 'Pantry Staples';
+  if (/(water|juice|soda|coffee|tea|beer|wine|liquor|beverage|drink|lemonade|cider|espresso|cappuccino|latte|matcha|kombucha|cola|pop|champagne|prosecco|vodka|rum|whiskey|gin|tequila|cocktail|smoothie|squash|cordial)/.test(lower)) return 'Beverages';
+  if (/(chip|crisp|cookie|chocolate|candy|nut|popcorn|cracker|pretzel|nacho|puff|jerky|fruit leather|gummy|marshmallow|caramel|toffee|fudge|nougat|mint|gum)/.test(lower)) return 'Snacks & Sweets';
+  if (/(pizza|ice cream|frozen|gelato|sorbet|popsicle|fish stick|hash brown|waffle)/.test(lower)) return 'Frozen Foods';
+  if (/(deli|hummus|prepared|salad kit|coleslaw|potato salad|macaroni salad|rotisserie|pate|guac|tzatziki|sushi)/.test(lower)) return 'Deli & Prepared Foods';
+  if (/(soap|clean|detergent|paper towel|trash|foil|tissue|bleach|sponge|mop|broom|wipe|spray|polish|softener|wrapper|ziploc|bag|parchment|napkin|plate|cup|cutlery|battery|bulb)/.test(lower)) return 'Household & Cleaning';
+  if (/(shampoo|lotion|toothpaste|medicine|vitamin|dental|deodorant|body wash|conditioner|razor|shaving|tampon|pad|diaper|band-aid|plaster|advil|tylenol|ibuprofen|paracetamol|aspirin|allergy|supplement|protein powder)/.test(lower)) return 'Health & Personal Care';
+  if (/(dog|cat|pet|kibble|treat|litter|chew)/.test(lower)) return 'Pet Care';
   
   return 'Other';
 }
@@ -120,7 +121,7 @@ export function getNext7Days() {
   return days;
 }
 
-// --- OFFICAL USDA FOODKEEPER INTEGRATION ---
+// --- MERGED FOODKEEPER INTEGRATION ---
 
 let usdaCache: any[] | null = null;
 
@@ -128,7 +129,6 @@ export async function fetchUSDAFoodKeeper() {
   if (usdaCache) return usdaCache;
   
   try {
-    // 1. Check if we already cached the huge JSON in the browser to save data
     if (typeof window !== 'undefined') {
       const stored = localStorage.getItem('usda_foodkeeper_cache');
       if (stored) {
@@ -137,15 +137,12 @@ export async function fetchUSDAFoodKeeper() {
       }
     }
 
-    // 2. Reach out to the official government endpoint
     const res = await fetch('https://www.fsis.usda.gov/shared/data/EN/FoodKeeper-Data.json');
     const data = await res.json();
     
-    // 3. Drill down into the specific "Product" sheet
     const productsSheet = data.sheets?.find((s: any) => s.name === 'Product');
     if (!productsSheet || !productsSheet.data) return null;
 
-    // 4. Translate USDA's complex matrix into simple { keywords, days } objects
     const parsedProducts = productsSheet.data.map((p: any) => {
       let days = null;
       
@@ -159,7 +156,6 @@ export async function fetchUSDAFoodKeeper() {
         return null;
       };
 
-      // Prefer Fridge estimates, then Pantry if not refrigerated
       days = toDays(p.DOP_Refrigerate_Max, p.DOP_Refrigerate_Metric) || 
              toDays(p.DOP_Pantry_Max, p.DOP_Pantry_Metric);
 
@@ -172,14 +168,13 @@ export async function fetchUSDAFoodKeeper() {
 
     usdaCache = parsedProducts;
     
-    // 5. Store it permanently
     if (typeof window !== 'undefined') {
       localStorage.setItem('usda_foodkeeper_cache', JSON.stringify(parsedProducts));
     }
     return usdaCache;
   } catch (err) {
-    console.warn("USDA Fetch failed, falling back to local foodKeeperData.json", err);
-    return null; // Will fallback to the JSON file safely
+    console.warn("USDA Fetch failed.", err);
+    return null;
   }
 }
 
@@ -192,7 +187,13 @@ export function extractCoreItemName(fullName: string): string[] {
     'tinned', 'pcs', 'kg', 'g', 'lbs', 'oz', 'ml', 'l', 'pack', 'cans', 
     'the', 'a', 'an', 'with', 'and', 'value', 'farm', 'farms', 'free', 'range',
     'sainsburys', 'sainsbury', 'tesco', 'asda', 'aldi', 'lidl', 'waitrose', 
-    'morrisons', 'marks', 'spencer', 'co-op', 'kroger', 'walmart', 'trader', 'joes', 'whole'
+    'morrisons', 'marks', 'spencer', 'co-op', 'kroger', 'walmart', 'trader', 'joes', 'whole',
+    
+    // Regional and descriptive adjectives
+    'british', 'scottish', 'irish', 'welsh', 'english', 'local', 'imported', 'grown',
+    
+    // Physical Modifiers - allows the engine to find the root ingredient
+    'cubes', 'cube', 'sliced', 'slices', 'diced', 'grated', 'shredded', 'chopped', 'pieces', 'chunks', 'minced', 'mince'
   ];
   
   return cleaned.split(/\s+/).filter(w => w.length > 2 && !stopWords.includes(w));
@@ -201,9 +202,10 @@ export function extractCoreItemName(fullName: string): string[] {
 export async function getEstimatedShelfLifeDays(itemName: string): Promise<number | null> {
   const normalized = itemName.toLowerCase().trim();
   
-  // Pull the USDA database, OR fall back to the local file if offline
   const usdaData = await fetchUSDAFoodKeeper();
-  const dbToUse = (usdaData && usdaData.length > 0) ? usdaData : foodKeeperData;
+  
+  // 1. COMBINE BOTH: Local override dictionary comes FIRST, then USDA safety net
+  const dbToUse = [...(foodKeeperData || []), ...(usdaData || [])];
 
   for (const entry of dbToUse) {
     if (entry.keywords.some((k: string) => normalized.includes(k) || k.includes(normalized))) {
@@ -211,6 +213,7 @@ export async function getEstimatedShelfLifeDays(itemName: string): Promise<numbe
     }
   }
 
+  // 2. Fallback to core words
   const coreWords = extractCoreItemName(itemName);
   for (const entry of dbToUse) {
     for (const keyword of entry.keywords) {
@@ -220,11 +223,26 @@ export async function getEstimatedShelfLifeDays(itemName: string): Promise<numbe
     }
   }
   
+  // 3. THE ULTIMATE FALLBACK: If USDA doesn't know it, guess based on the category!
+  const category = getAisle(itemName);
+  const categoryDefaults: Record<string, number> = {
+    'Produce': 7,
+    'Dairy & Eggs': 14,
+    'Meat & Poultry': 4,
+    'Seafood': 3,
+    'Deli & Prepared Foods': 5,
+    'Vegetarian Products': 7,
+    'Bakery': 5
+  };
+
+  if (categoryDefaults[category]) {
+    return categoryDefaults[category];
+  }
+  
   return null;
 }
 
 export async function computeExpiryDate(itemName: string, fromDate = new Date()): Promise<string | null> {
-  // Because it now fetches online data, this function is now asynchronous (await)
   const days = await getEstimatedShelfLifeDays(itemName);
   if (!days) return null;
 

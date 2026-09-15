@@ -25,7 +25,6 @@ import LowStockTab from '@/components/tabs/LowStockTab';
 
 const COMMON_UNITS = ['pcs', 'kg', 'g', 'lbs', 'oz', 'ml', 'l', 'cups', 'tbsp', 'tsp', 'cans', 'packs', 'dash', 'pinch', 'cloves'];
 
-// UPDATED TO MATCH SUPERMARKET AISLES
 const DEFAULT_CATEGORIES = [
   'Produce', 'Dairy & Eggs', 'Meat & Poultry', 'Seafood', 'Vegetarian Products', 
   'Pantry Staples', 'Spices & Condiments', 'Bakery', 'Frozen Foods', 'Snacks & Sweets', 
@@ -63,10 +62,10 @@ export default function PantryManager() {
   const [measurementSystem, setMeasurementSystem] = useState<'metric' | 'imperial'>('metric');
   
   const [isEditingRecipe, setIsEditingRecipe] = useState(false);
-  const [editRecipeForm, setEditRecipeForm] = useState({ title: '', category: '', cook_time: '', portions: 4, image: '', ingredientsList: [] as {id: number, name: string, amount: string, unit: string}[], instructionsText: '' });
+  const [editRecipeForm, setEditRecipeForm] = useState({ title: '', category: '', cook_time: '', portions: 4, image: '', ingredientsList: [] as {id: number, name: string, amount: string, unit: string, isHeader?: boolean}[], instructionsText: '' });
   
   const [showManualAddRecipe, setShowManualAddRecipe] = useState(false);
-  const [manualRecipe, setManualRecipe] = useState({ title: '', category: '', cook_time: '30 mins', portions: 4, ingredientsList: [{id: 1, name: '', amount: '1', unit: 'pcs'}], instructionsText: '', image: '' });
+  const [manualRecipe, setManualRecipe] = useState({ title: '', category: '', cook_time: '30 mins', portions: 4, ingredientsList: [{id: 1, name: '', amount: '1', unit: 'pcs'} as {id: number, name: string, amount: string, unit: string, isHeader?: boolean}], instructionsText: '', image: '' });
 
   const [showVoiceInputScreen, setShowVoiceInputScreen] = useState(false);
   const [voiceContext, setVoiceContext] = useState<'shopping' | 'pantry'>('shopping');
@@ -173,25 +172,15 @@ export default function PantryManager() {
   const handleDeleteAccount = async () => { if (!window.confirm("Are you sure?")) return; setLoading(true); showToast("Account deletion request submitted."); await supabase.auth.signOut(); router.push('/login'); setLoading(false); };
 
   // --- 7. UNIFIED MATH PARSER & DISPLAY FORMATTER ---
-  const parseIngredientStr = (ingStr: string) => {
-    let name = ingStr; let qty: string | number = 1; let unit = 'pcs';
-    const dashMatch = ingStr.match(/^(.*?)\s*[-—–]\s*([\d.\/]+)\s*(.*)$/);
-    if (dashMatch) {
-      name = dashMatch[1].trim(); qty = dashMatch[2]; unit = dashMatch[3] || 'pcs';
-    } else {
-      const fallback = ingStr.match(/^([\d.\/]+)?\s*(?:\b(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)\b)?\s*(.*)$/i);
-      if (fallback) { qty = fallback[1] || '1'; unit = fallback[2] || 'pcs'; name = fallback[3] || ingStr; }
-    }
-    return { name: name.trim(), qty, unit: unit.toLowerCase() };
-  };
-
   const normalizeForScaler = (ingStr: string) => {
+    if (ingStr.startsWith('##')) return ingStr;
     let clean = ingStr.replace(/^1\s*pcs\s+/i, ''); 
     const dashMatch = clean.match(/^(.*?)\s*[-—–]\s*([\d.\/]+)\s*(.*)$/);
     return dashMatch ? `${dashMatch[2]} ${dashMatch[3] || ''} ${dashMatch[1]}`.replace(/\s+/g, ' ').trim() : clean;
   };
 
   const formatIngredientDisplay = (scaledStr: string) => {
+    if (scaledStr.startsWith('##')) return scaledStr.replace('##', '').trim();
     const match = scaledStr.trim().match(/^([\d.\/]+)\s*(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)?\s*(.*)$/i);
     if (match && match[3]) {
       const qty = match[1];
@@ -204,6 +193,7 @@ export default function PantryManager() {
   };
 
   const getIngredientStatus = (ingredient: string, pantry: PantryItem[]) => { 
+    if (ingredient.startsWith('##')) return { status: 'header' };
     const match = ingredient.match(/^([\d.\/]+)\s*(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)?\s*(.*)$/i);
     const qty = parseFloat(match?.[1] || '1') || 1;
     const unit = (match?.[2] || 'pcs').toLowerCase();
@@ -218,18 +208,14 @@ export default function PantryManager() {
     if (pantryMatch.quantity >= qty) return { status: 'in_stock' }; return { status: 'insufficient' };
   };
 
-  // --- 8. TYPE-SAFE EDITING ---
+  // --- 8. TYPE-SAFE EDITING (WITH SUBHEADERS) ---
   const updateEditIng = (idx: number, field: 'name' | 'amount' | 'unit', value: string) => {
     setEditRecipeForm(prev => { const clone = [...prev.ingredientsList]; clone[idx] = { ...clone[idx], [field]: value }; return { ...prev, ingredientsList: clone }; });
   };
-  const addEditIngRow = () => { setEditRecipeForm(prev => ({ ...prev, ingredientsList: [...prev.ingredientsList, { id: Date.now(), name: '', amount: '1', unit: 'pcs' }] })); };
-  const removeEditIngRow = (idx: number) => { setEditRecipeForm(prev => ({ ...prev, ingredientsList: prev.ingredientsList.filter((_, i) => i !== idx) })); };
-
-  const updateManualIng = (idx: number, field: 'name' | 'amount' | 'unit', value: string) => {
-    setManualRecipe(prev => { const clone = [...prev.ingredientsList]; clone[idx] = { ...clone[idx], [field]: value }; return { ...prev, ingredientsList: clone }; });
+  const addEditIngRow = (isHeader = false) => { 
+    setEditRecipeForm(prev => ({ ...prev, ingredientsList: [...prev.ingredientsList, { id: Date.now(), name: isHeader ? '## ' : '', amount: '1', unit: 'pcs', isHeader }] })); 
   };
-  const addManualIngRow = () => { setManualRecipe(prev => ({ ...prev, ingredientsList: [...prev.ingredientsList, { id: Date.now(), name: '', amount: '1', unit: 'pcs' }] })); };
-  const removeManualIngRow = (idx: number) => { setManualRecipe(prev => ({ ...prev, ingredientsList: prev.ingredientsList.filter((_, i) => i !== idx) })); };
+  const removeEditIngRow = (idx: number) => { setEditRecipeForm(prev => ({ ...prev, ingredientsList: prev.ingredientsList.filter((_, i) => i !== idx) })); };
 
   // --- RECIPE ACTIONS ---
   const startEditingRecipe = (recipeToEdit?: Recipe) => { 
@@ -237,6 +223,7 @@ export default function PantryManager() {
     if (!selectedRecipe || selectedRecipe.id !== target.id) { window.history.pushState({ tab: activeTab, recipe: target, type: 'recipe' }, '', `#recipe-${target.id}`); setSelectedRecipe(target); setTargetPortions(target.portions || 4); setRecipeDetailTab('ingredients'); window.scrollTo(0, 0); }
     
     const parsedIngs = (target.ingredients || []).map((ing, i) => { 
+      if (ing.startsWith('##')) return { id: Date.now() + i, name: ing, amount: '1', unit: 'pcs', isHeader: true };
       let clean = ing.replace(/^1\s*pcs\s+/i, '');
       let name = clean; let qty: string | number = 1; let unit = 'pcs';
       const dashMatch = clean.match(/^(.*?)\s*[-—–]\s*([\d.\/]+)\s*(.*)$/);
@@ -246,34 +233,20 @@ export default function PantryManager() {
          const frontMatch = clean.match(/^([\d.\/]+)\s*(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)?\s*(.*)$/i);
          if (frontMatch) { qty = frontMatch[1]; unit = frontMatch[2] || 'pcs'; name = frontMatch[3]; }
       }
-      return { id: Date.now() + i, name: name.trim(), amount: qty.toString(), unit: unit.toLowerCase() };
+      return { id: Date.now() + i, name: name.trim(), amount: qty.toString(), unit: unit.toLowerCase(), isHeader: false };
     });
     
-    if (parsedIngs.length === 0) parsedIngs.push({ id: Date.now(), name: '', amount: '1', unit: 'pcs' });
+    if (parsedIngs.length === 0) parsedIngs.push({ id: Date.now(), name: '', amount: '1', unit: 'pcs', isHeader: false });
     setEditRecipeForm({ title: target.title || '', category: target.category || '', cook_time: target.cook_time || '', portions: target.portions || 4, image: target.image || '', ingredientsList: parsedIngs, instructionsText: (target.instructions || []).join('\n') }); setIsEditingRecipe(true); 
   };
   
   const saveEditedRecipe = async () => {
     if (!selectedRecipe || !editRecipeForm.title.trim()) return showToast("Recipe title cannot be empty."); setLoading(true);
-    const cleanedIngredients = editRecipeForm.ingredientsList.filter(i => i.name.trim() !== '').map(i => `${i.name.trim()} - ${i.amount || 1} ${i.unit || 'pcs'}`);
+    const cleanedIngredients = editRecipeForm.ingredientsList.filter(i => i.name.trim() !== '').map(i => i.isHeader || i.name.startsWith('##') ? i.name.trim() : `${i.amount || 1} ${i.unit || 'pcs'} ${i.name.trim()}`);
     const cleanedInstructions = editRecipeForm.instructionsText.split('\n').map(i => i.trim()).filter(i => i !== '');
     const updatedData = { title: editRecipeForm.title.trim(), category: editRecipeForm.category, cook_time: editRecipeForm.cook_time, portions: editRecipeForm.portions, image: editRecipeForm.image, ingredients: cleanedIngredients, instructions: cleanedInstructions };
     const { data, error } = await supabase.from('recipes').update(updatedData).eq('id', selectedRecipe.id).eq('user_id', userId).select().single();
     if (!error && data) { setRecipes(prev => prev.map(r => r.id === data.id ? data : r)); setSelectedRecipe(data); setIsEditingRecipe(false); showToast('Recipe updated!'); } setLoading(false);
-  };
-
-  const saveManualRecipe = async () => {
-    if (!manualRecipe.title.trim()) return showToast("Add a recipe title."); setLoading(true);
-    const cleanedIngredients = manualRecipe.ingredientsList.filter(i => i.name.trim() !== '').map(i => `${i.name.trim()} - ${i.amount || 1} ${i.unit || 'pcs'}`);
-    const cleanedInstructions = manualRecipe.instructionsText.split('\n').map(i => i.trim()).filter(i => i !== '');
-    const newRecipe = { title: manualRecipe.title.trim(), category: manualRecipe.category, cook_time: manualRecipe.cook_time, portions: manualRecipe.portions, image: manualRecipe.image, ingredients: cleanedIngredients, instructions: cleanedInstructions, user_id: userId };
-    const { data, error } = await supabase.from('recipes').insert([newRecipe]).select().single();
-    if (!error && data) { 
-      setRecipes(prev => [data, ...prev]); setShowManualAddRecipe(false); 
-      setManualRecipe({ title: '', category: '', cook_time: '30 mins', portions: 4, ingredientsList: [{id: 1, name: '', amount: '1', unit: 'pcs'}], instructionsText: '', image: '' }); 
-      showToast('Recipe created!'); 
-    } 
-    setLoading(false);
   };
 
   const deleteRecipe = async (id: string, e?: React.MouseEvent) => { if (e) e.stopPropagation(); setRecipes(prev => prev.filter(r => r.id !== id)); await supabase.from('recipes').delete().eq('id', id).eq('user_id', userId); showToast('Recipe deleted.'); };
@@ -281,6 +254,7 @@ export default function PantryManager() {
   const consumeRecipeIngredients = async (recipe: Recipe, currentMultiplier: number) => {
     setLoading(true); let pantryUpdates: {id: string, quantity: number, unit: string}[] = []; let newPantryState = [...items];
     for (const ing of (recipe.ingredients || [])) {
+      if (ing.startsWith('##')) continue;
       const scaledIng = scaleAndConvertIngredient(normalizeForScaler(ing), currentMultiplier, measurementSystem);
       const matchData = scaledIng.match(/^([\d.\/]+)\s*(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)?\s*(.*)$/i);
       const neededQty = parseFloat(matchData?.[1] || '1') || 1;
@@ -311,7 +285,7 @@ export default function PantryManager() {
 
   const addMissingRecipeIngredients = async (recipe: Recipe, currentMultiplier: number) => {
     setLoading(true);
-    const rawMissing = (recipe.ingredients || []).map(ing => scaleAndConvertIngredient(normalizeForScaler(ing), currentMultiplier, measurementSystem)).filter(scaledIng => getIngredientStatus(scaledIng, items).status !== 'in_stock');
+    const rawMissing = (recipe.ingredients || []).filter(i => !i.startsWith('##')).map(ing => scaleAndConvertIngredient(normalizeForScaler(ing), currentMultiplier, measurementSystem)).filter(scaledIng => getIngredientStatus(scaledIng, items).status !== 'in_stock');
     if (rawMissing.length === 0) { showToast('You already have all ingredients!'); setLoading(false); return; }
     for (const rawIng of rawMissing) {
       const matchData = rawIng.match(/^([\d.\/]+)\s*(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)?\s*(.*)$/i);
@@ -365,12 +339,11 @@ export default function PantryManager() {
   // --- 10. DATABASE ADD/MERGE FUNCTIONS ---
   const addOrMergePantryItem = async (newItem: { name: string, category: string, quantity: number, unit: string, track_low_stock: boolean, low_stock_threshold: number, expiration_date?: string | null }) => {
     
-    // EXCLUSIVELY COMPUTE DATES FOR PERISHABLE CATEGORIES
-    const perishableCategories = ['Produce', 'Dairy & Eggs', 'Meat & Poultry', 'Seafood', 'Deli & Prepared Foods'];
+    const perishableCategories = ['Produce', 'Dairy & Eggs', 'Meat & Poultry', 'Seafood', 'Deli & Prepared Foods', 'Vegetarian Products'];
     let expDate = newItem.expiration_date || null;
     
     if (!expDate && perishableCategories.includes(newItem.category)) {
-      expDate = (await computeExpiryDate(newItem.name)) || null; // NOW AWAITS ONLINE USDA FETCH
+      expDate = (await computeExpiryDate(newItem.name)) || null;
     }
 
     const existing = items.find(i => normalizeName(i.name) === normalizeName(newItem.name));
@@ -552,6 +525,8 @@ export default function PantryManager() {
   const multiplier = selectedRecipe ? (targetPortions / (selectedRecipe.portions || 4)) : 1;
   const totalAllocated = Object.values(allocationsGrid).reduce((a, b) => a + b, 0);
   const remainingPortions = planTargetPortions - totalAllocated;
+
+  let stepCounter = 0; // For tracking instruction steps
 
   if (!isMounted) return null;
 
@@ -761,7 +736,7 @@ export default function PantryManager() {
         </div>
       )}
 
-      {/* RECIPE DETAIL AND EDIT VIEWS */}
+      {/* RECIPE EDIT VIEW */}
       {selectedRecipe && isEditingRecipe && (
         <div className="space-y-6 mt-4 max-w-6xl mx-auto">
           <div className="mb-4">
@@ -795,30 +770,61 @@ export default function PantryManager() {
                   <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Base Portions</label>
                   <input type="number" value={editRecipeForm.portions} onChange={e => setEditRecipeForm({...editRecipeForm, portions: parseInt(e.target.value) || 1})} className="w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm" />
                 </div>
+                
+                {/* --- IMAGE EDITING --- */}
+                <div className="space-y-1.5 relative z-0 md:col-span-2">
+                  <label className="text-sm font-semibold uppercase tracking-wider text-black/70 block mb-2">Recipe Image</label>
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                     {editRecipeForm.image && (
+                        <img src={editRecipeForm.image} alt="Recipe" className="w-20 h-20 rounded-xl object-cover border border-black/10 shadow-sm" />
+                     )}
+                     <input type="file" accept="image/*" onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                           const reader = new FileReader();
+                           reader.onload = (event) => setEditRecipeForm({...editRecipeForm, image: event.target?.result as string});
+                           reader.readAsDataURL(file);
+                        }
+                     }} className="flex-1 w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm text-sm file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-[#6B705C]/10 file:text-[#6B705C] hover:file:bg-[#6B705C]/20 transition-all cursor-pointer" />
+                  </div>
+                </div>
              </div>
 
              <div className="space-y-3 mt-4">
                 <label className="text-sm font-semibold uppercase tracking-wider text-black/70 block mb-1">Ingredients</label>
                 {editRecipeForm.ingredientsList.map((ing, idx) => (
                    <div key={ing.id} className="flex flex-col gap-2 bg-black/5 p-3 rounded-2xl relative z-0 hover:z-10 w-full">
-                      <div className="flex gap-2 w-full">
-                        <input type="text" placeholder="Ingredient name" value={ing.name} onChange={e => updateEditIng(idx, 'name', e.target.value)} className="flex-1 w-full min-w-0 px-4 py-3 rounded-xl font-bold focus:outline-none bg-white placeholder:text-black/50" />
-                        <button onClick={() => removeEditIngRow(idx)} className="w-12 h-12 flex items-center justify-center bg-red-500/80 text-white rounded-xl font-bold hover:bg-red-500 transition shrink-0">✕</button>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 w-full">
-                        <input type="number" step="any" placeholder="1" value={ing.amount} onChange={e => updateEditIng(idx, 'amount', e.target.value)} className="w-full px-4 py-3 rounded-xl text-center focus:outline-none bg-white" />
-                        <div className="w-full h-full">
-                          <CustomSelect value={ing.unit} onChange={v => updateEditIng(idx, 'unit', v)} options={COMMON_UNITS.map(u => ({label: u, value: u}))} className="bg-white rounded-xl w-full h-[48px]" />
-                        </div>
-                      </div>
+                      {ing.isHeader || ing.name.startsWith('##') ? (
+                         <div className="flex gap-2 w-full">
+                           <input type="text" placeholder="## Section Header" value={ing.name.startsWith('##') ? ing.name : `## ${ing.name}`} onChange={e => updateEditIng(idx, 'name', e.target.value)} className="flex-1 w-full min-w-0 px-4 py-3 rounded-xl font-bold uppercase tracking-wider focus:outline-none bg-[#6B705C]/10 text-[#6B705C] border border-[#6B705C]/30 placeholder:text-[#6B705C]/50" />
+                           <button onClick={() => removeEditIngRow(idx)} className="w-12 h-12 flex items-center justify-center bg-red-500/80 text-white rounded-xl font-bold hover:bg-red-500 transition shrink-0">✕</button>
+                         </div>
+                      ) : (
+                        <>
+                          <div className="flex gap-2 w-full">
+                            <input type="text" placeholder="Ingredient name" value={ing.name} onChange={e => updateEditIng(idx, 'name', e.target.value)} className="flex-1 w-full min-w-0 px-4 py-3 rounded-xl font-bold focus:outline-none bg-white placeholder:text-black/50" />
+                            <button onClick={() => removeEditIngRow(idx)} className="w-12 h-12 flex items-center justify-center bg-red-500/80 text-white rounded-xl font-bold hover:bg-red-500 transition shrink-0">✕</button>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 w-full">
+                            <input type="number" step="any" placeholder="1" value={ing.amount} onChange={e => updateEditIng(idx, 'amount', e.target.value)} className="w-full px-4 py-3 rounded-xl text-center focus:outline-none bg-white" />
+                            <div className="w-full h-full">
+                              <CustomSelect value={ing.unit} onChange={v => updateEditIng(idx, 'unit', v)} options={COMMON_UNITS.map(u => ({label: u, value: u}))} className="bg-white rounded-xl w-full h-[48px]" />
+                            </div>
+                          </div>
+                        </>
+                      )}
                    </div>
                 ))}
-                <button onClick={addEditIngRow} className="px-4 py-3 w-full bg-white border border-black/10 rounded-2xl text-sm font-bold shadow-sm hover:bg-black/5 transition">+ Add Ingredient</button>
+                <div className="flex gap-2">
+                  <button onClick={() => addEditIngRow(false)} className="flex-1 px-4 py-3 bg-white border border-black/10 rounded-2xl text-sm font-bold shadow-sm hover:bg-black/5 transition">+ Add Ingredient</button>
+                  <button onClick={() => addEditIngRow(true)} className="flex-1 px-4 py-3 bg-white border border-black/10 rounded-2xl text-sm font-bold shadow-sm hover:bg-black/5 transition">+ Add Heading</button>
+                </div>
              </div>
 
              <div className="space-y-1.5 mt-4">
                 <label className="text-sm font-semibold uppercase tracking-wider text-black/70 block mb-2">Instructions</label>
                 <textarea value={editRecipeForm.instructionsText} onChange={e => setEditRecipeForm({...editRecipeForm, instructionsText: e.target.value})} className="w-full p-4 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm min-h-[150px]" />
+                <p className="text-xs text-black/50 mt-1">Start a line with "## " to create a section header.</p>
              </div>
              <div className="pt-6 border-t border-black/10 shrink-0 flex gap-3">
                <button onClick={() => setIsEditingRecipe(false)} className="flex-1 py-4 rounded-2xl font-bold text-lg border border-black/20 bg-transparent text-black hover:bg-black/5 transition">Cancel</button>
@@ -828,6 +834,7 @@ export default function PantryManager() {
         </div>
       )}
 
+      {/* RECIPE DETAIL VIEW */}
       {selectedRecipe && !isEditingRecipe && (
         <div className="space-y-0">
           <div className="w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] bg-[#6B705C] -mt-4 md:-mt-8">
@@ -889,11 +896,18 @@ export default function PantryManager() {
 
                 <div className="space-y-0">
                   {(selectedRecipe.ingredients || []).map((ing, i) => {
+                    if (ing.startsWith('##')) {
+                      return (
+                        <div key={i} className="pt-6 pb-2">
+                           <h3 className="font-bold text-base uppercase tracking-wider text-[#6B705C] border-b-2 border-[#6B705C]/20 inline-block pr-8">{ing.replace('##', '').trim()}</h3>
+                        </div>
+                      );
+                    }
                     const scaledIng = scaleAndConvertIngredient(normalizeForScaler(ing), multiplier, measurementSystem);
                     const displayIng = formatIngredientDisplay(scaledIng);
                     const statusObj = getIngredientStatus(scaledIng, items);
                     return (
-                      <div key={i} className="flex flex-row justify-between items-start gap-3 text-sm p-3 rounded-xl bg-white border border-black/10 text-black font-medium shadow-sm">
+                      <div key={i} className="flex flex-row justify-between items-start gap-3 text-sm p-3 rounded-xl bg-white border border-black/10 text-black font-medium shadow-sm mb-2">
                         <span className="flex-1 pr-2 whitespace-normal break-words">{displayIng}</span>
                         <div className="shrink-0 flex items-center mt-0.5">
                           {statusObj.status === 'in_stock' && <span className="text-[10px] px-2.5 py-1 bg-[#6B705C] text-white rounded-full font-bold uppercase tracking-wider shadow-sm">In Pantry</span>}
@@ -906,18 +920,67 @@ export default function PantryManager() {
                 </div>
               </div>
             )}
+            
+            {/* --- SMART INSTRUCTION PILLS --- */}
             {recipeDetailTab === 'instructions' && (
               <div className="space-y-5 animate-in fade-in">
                 {(selectedRecipe.instructions || []).length ? (selectedRecipe.instructions || []).map((step, idx) => {
                   if (step.includes('For full cooking instructions, visit')) return null;
+                  
+                  if (step.startsWith('##')) {
+                    stepCounter = 0; // Reset counter for new section
+                    return (
+                      <div key={idx} className="pt-4 pb-0">
+                        <h3 className="font-bold text-lg uppercase tracking-wider text-[#6B705C]">{step.replace('##', '').trim()}</h3>
+                      </div>
+                    );
+                  }
+                  
+                  stepCounter++; // Increment counter for normal steps
+                  
+                  // Auto-extract ingredients mentioned in this step
+                  const stepIngredients = (selectedRecipe.ingredients || []).filter(i => !i.startsWith('##')).map(ing => {
+                     const scaledIng = scaleAndConvertIngredient(normalizeForScaler(ing), multiplier, measurementSystem);
+                     const matchData = scaledIng.match(/^([\d.\/]+)\s*(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)?\s*(.*)$/i);
+                     const qty = matchData?.[1] || '1';
+                     const unit = matchData?.[2] || 'pcs';
+                     const name = matchData?.[3] || scaledIng;
+                     
+                     // Get the core identifying word (e.g., "Chicken Breasts" -> "chicken")
+                     const coreWords = extractCoreItemName(name);
+                     
+                     // Check if any of the core root words appear in the step text
+                     const stepLower = step.toLowerCase();
+                     const isMatch = coreWords.some(word => {
+                        return word.length > 2 && stepLower.includes(word.toLowerCase());
+                     });
+                     
+                     if (isMatch) {
+                       return { name, qty, unit: unit.toLowerCase(), id: ing };
+                     }
+                     return null;
+                  }).filter(Boolean) as {name: string, qty: string, unit: string, id: string}[];
+
                   return (
-                    <div key={idx} className="p-4 rounded-2xl space-y-1.5 bg-white border border-black/10 shadow-sm">
-                      <span className="font-medium text-sm uppercase text-black/70">Step {idx + 1}</span>
-                      <p className="leading-relaxed text-black">{step}</p>
+                    <div key={idx} className="p-4 rounded-2xl space-y-2 bg-white border border-black/10 shadow-sm">
+                      <span className="font-bold text-sm uppercase text-black/40 tracking-wider">Step {stepCounter}</span>
+                      <p className="leading-relaxed text-black font-medium">{step}</p>
+                      
+                      {/* Smart Ingredient Pills */}
+                      {stepIngredients.length > 0 && (
+                         <div className="flex flex-wrap gap-2 pt-3 mt-1 border-t border-black/5">
+                            {stepIngredients.map((ing, i) => (
+                               <div key={i} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#6B705C]/10 border border-[#6B705C]/20 rounded-lg shadow-sm cursor-default hover:bg-[#6B705C]/20 transition">
+                                  <span className="text-xs font-bold text-[#6B705C]">{ing.qty} {ing.unit !== 'pcs' ? ing.unit : ''}</span>
+                                  <span className="text-xs font-semibold text-black capitalize">{ing.name}</span>
+                               </div>
+                            ))}
+                         </div>
+                      )}
                     </div>
                   );
                 }) : <p className="text-black/50 text-sm italic">No instructions saved.</p>}
-                {selectedRecipe.source_url && <a href={selectedRecipe.source_url} target="_blank" rel="noopener noreferrer" className="mt-4 px-6 py-4 bg-white border border-black/20 rounded-2xl text-black font-semibold text-center hover:bg-black/5 transition shadow-sm block">View Full Original Recipe</a>}
+                {selectedRecipe.source_url && <a href={selectedRecipe.source_url} target="_blank" rel="noopener noreferrer" className="mt-4 px-6 py-4 bg-white border border-black/20 rounded-2xl text-black font-bold text-center hover:bg-black/5 transition shadow-sm block">View Full Original Recipe</a>}
               </div>
             )}
           </div>
@@ -981,9 +1044,7 @@ export default function PantryManager() {
         />
       )}
 
-      {/* --- EXTRACTED MOBILE BOTTOM NAVIGATION BAR --- */}
       <BottomNav activeTab={activeTab} handleTabChange={handleTabChange} showVoiceInputScreen={showVoiceInputScreen} />
-
     </main>
   );
 }

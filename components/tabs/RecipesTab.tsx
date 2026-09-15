@@ -63,12 +63,19 @@ export default function RecipesTab({
   const handleImportRecipe = async (e: React.FormEvent) => {
     e.preventDefault(); if (!importUrl) return; setIsImporting(true);
     try {
-      const res = await fetch('/api/scrape-recipe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: importUrl }) }); const data = await res.json();
+      const res = await fetch('/api/scrape-recipe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: importUrl }) }); 
+      const data = await res.json();
       if (res.ok && data.title) {
-        const { data: insertedData, error } = await supabase.from('recipes').insert([{ ...data, portions: 4, user_id: userId }]).select().single();
-        if (error) throw error; if (insertedData) { setRecipes(prev => [insertedData, ...prev]); showToast('Recipe imported!'); setShowImportInput(false); }
-      } else showToast(data.error || 'Could not extract a recipe from that URL.');
-    } catch { showToast('Failed to import recipe.'); }
+        // OVERRIDE category to blank so users must fill it out manually
+        const { data: insertedData, error } = await supabase.from('recipes').insert([{ ...data, category: '', portions: 4, user_id: userId }]).select().single();
+        if (error) throw error; 
+        if (insertedData) { setRecipes(prev => [insertedData, ...prev]); showToast('Recipe imported!'); setShowImportInput(false); }
+      } else {
+        showToast('This website does not allow for recipe import.');
+      }
+    } catch { 
+        showToast('This website does not allow for recipe import.'); 
+    }
     setImportUrl(''); setIsImporting(false);
   };
 
@@ -84,7 +91,6 @@ export default function RecipesTab({
 
   const saveManualRecipe = async () => {
     if (!manualRecipe.title.trim()) return showToast("Add a recipe title."); setLoading(true);
-    // FIXED: Save in 'Amount Unit Name' format so the scaler logic correctly reads the numbers!
     const cleanedIngredients = manualRecipe.ingredientsList.filter(i => i.name.trim() !== '').map(i => `${i.amount || 1} ${i.unit || 'pcs'} ${i.name.trim()}`);
     const cleanedInstructions = manualRecipe.instructionsText.split('\n').map(i => i.trim()).filter(i => i !== '');
     const newRecipe = { title: manualRecipe.title.trim(), category: manualRecipe.category, cook_time: manualRecipe.cook_time, portions: manualRecipe.portions, image: manualRecipe.image, ingredients: cleanedIngredients, instructions: cleanedInstructions, user_id: userId };
