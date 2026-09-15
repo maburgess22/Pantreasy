@@ -64,7 +64,6 @@ export function getAisle(itemName: string) {
   if (/(milk|cheese|yogurt|butter|egg|cream|feta|mozzarella|cheddar|parmesan|brie|paneer|halloumi|ghee|whey|dairy|kefir|quark|mascarpone|ricotta|provolone|gouda|swiss|camembert|gorgonzola|roquefort|buttermilk|margarine)/.test(lower)) return 'Dairy & Eggs';
   if (/(chicken|beef|pork|lamb|sausage|bacon|turkey|duck|veal|ham|salami|prosciutto|pepperoni|steak|mince|venison|goose|quail|rabbit|chorizo|pancetta|pastrami|bresaola|bratwurst|frankfurter|meatball|patty)/.test(lower)) return 'Meat & Poultry';
   if (/(fish|salmon|tuna|shrimp|prawn|cod|crab|lobster|seafood|mussel|scallop|squid|calamari|oyster|clam|haddock|trout|mackerel|sardine|anchovy|halibut|tilapia|mahi|swordfish|octopus|eel|caviar)/.test(lower)) return 'Seafood';
-  // Note: Updated to use roots like 'strawberr', 'cherr', 'berr', 'tomato', 'potato' to catch plurals automatically
   if (/(apple|banana|berr|tomato|lettuce|onion|garlic|potato|carrot|pepper|spinach|broccoli|fruit|veg|avocado|avacado|mushroom|celery|cabbage|melon|orange|lemon|lime|grape|peach|plum|pear|asparagus|zucchini|courgette|aubergine|eggplant|strawberr|blueberr|raspberr|blackberr|cranberr|cherr|apricot|nectarine|grapefruit|tangerine|pomelo|papaya|mango|pineapple|kiwi|pomegranate|fig|date|watermelon|cantaloupe|honeydew|radish|turnip|parsnip|beet|rutabaga|yam|squash|pumpkin|leek|scallion|chive|shallot|artichoke|brussels sprout|cauliflower|bok choy|chard|collard|arugula|watercress|endive|radicchio|fennel|okra|corn|pea|edamame)/.test(lower)) return 'Produce';
   if (/(bread|bagel|bun|pastry|croissant|muffin|cake|tortilla|wrap|pita|loaf|baguette|ciabatta|focaccia|sourdough|pumpernickel|rye|brioche|crumpet|scone|biscuit|roll|donut|doughnut|pie|tart|brownie|cupcake)/.test(lower)) return 'Bakery';
   if (/(spice|herb|salt|pepper|sauce|ketchup|mustard|mayo|dressing|vinegar|syrup|honey|cumin|paprika|cinnamon|nutmeg|turmeric|coriander|ginger|bay leaf|oregano|thyme|basil|rosemary|parsley|cilantro|mint|dill|sage|tarragon|cardamom|clove|saffron|vanilla|teriyaki|sriracha|salsa|relish|chutney|jam|jelly|marmalade|peanut butter|almond butter|spread|molasses|gravy)/.test(lower)) return 'Spices & Condiments';
@@ -188,11 +187,7 @@ export function extractCoreItemName(fullName: string): string[] {
     'the', 'a', 'an', 'with', 'and', 'value', 'farm', 'farms', 'free', 'range',
     'sainsburys', 'sainsbury', 'tesco', 'asda', 'aldi', 'lidl', 'waitrose', 
     'morrisons', 'marks', 'spencer', 'co-op', 'kroger', 'walmart', 'trader', 'joes', 'whole',
-    
-    // Regional and descriptive adjectives
     'british', 'scottish', 'irish', 'welsh', 'english', 'local', 'imported', 'grown',
-    
-    // Physical Modifiers - allows the engine to find the root ingredient
     'cubes', 'cube', 'sliced', 'slices', 'diced', 'grated', 'shredded', 'chopped', 'pieces', 'chunks', 'minced', 'mince'
   ];
   
@@ -201,10 +196,8 @@ export function extractCoreItemName(fullName: string): string[] {
 
 export async function getEstimatedShelfLifeDays(itemName: string): Promise<number | null> {
   const normalized = itemName.toLowerCase().trim();
-  
   const usdaData = await fetchUSDAFoodKeeper();
   
-  // 1. COMBINE BOTH: Local override dictionary comes FIRST, then USDA safety net
   const dbToUse = [...(foodKeeperData || []), ...(usdaData || [])];
 
   for (const entry of dbToUse) {
@@ -213,7 +206,6 @@ export async function getEstimatedShelfLifeDays(itemName: string): Promise<numbe
     }
   }
 
-  // 2. Fallback to core words
   const coreWords = extractCoreItemName(itemName);
   for (const entry of dbToUse) {
     for (const keyword of entry.keywords) {
@@ -223,60 +215,70 @@ export async function getEstimatedShelfLifeDays(itemName: string): Promise<numbe
     }
   }
   
-  // 3. THE ULTIMATE FALLBACK: If USDA doesn't know it, guess based on the category!
   const category = getAisle(itemName);
   const categoryDefaults: Record<string, number> = {
-    'Produce': 7,
-    'Dairy & Eggs': 14,
-    'Meat & Poultry': 4,
-    'Seafood': 3,
-    'Deli & Prepared Foods': 5,
-    'Vegetarian Products': 7,
-    'Bakery': 5
+    'Produce': 7, 'Dairy & Eggs': 14, 'Meat & Poultry': 4,
+    'Seafood': 3, 'Deli & Prepared Foods': 5, 'Vegetarian Products': 7, 'Bakery': 5
   };
 
-  if (categoryDefaults[category]) {
-    return categoryDefaults[category];
-  }
-  
+  if (categoryDefaults[category]) return categoryDefaults[category];
   return null;
 }
 
 export async function computeExpiryDate(itemName: string, fromDate = new Date()): Promise<string | null> {
   const days = await getEstimatedShelfLifeDays(itemName);
   if (!days) return null;
-
   const targetDate = new Date(fromDate);
   targetDate.setDate(targetDate.getDate() + days);
   return targetDate.toISOString().split('T')[0];
 }
 
 export function getExpiryStatus(expirationDateStr?: string | null): { 
-  label: string; 
-  color: 'expired' | 'warning' | 'good' | 'none';
-  daysRemaining: number | null;
+  label: string; color: 'expired' | 'warning' | 'good' | 'none'; daysRemaining: number | null;
 } {
-  if (!expirationDateStr) {
-    return { label: 'No date', color: 'none', daysRemaining: null };
-  }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
+  if (!expirationDateStr) return { label: 'No date', color: 'none', daysRemaining: null };
+  const today = new Date(); today.setHours(0, 0, 0, 0);
   const [year, month, day] = expirationDateStr.split('-').map(Number);
-  const expiry = new Date(year, month - 1, day);
-  expiry.setHours(0, 0, 0, 0);
-
+  const expiry = new Date(year, month - 1, day); expiry.setHours(0, 0, 0, 0);
   const diffDays = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-
-  if (diffDays < 0) {
-    return { label: `Expired`, color: 'expired', daysRemaining: diffDays };
-  }
-  if (diffDays === 0) {
-    return { label: 'Expires today', color: 'expired', daysRemaining: 0 };
-  }
-  if (diffDays <= 3) {
-    return { label: `Expires in ${diffDays}d`, color: 'warning', daysRemaining: diffDays };
-  }
+  if (diffDays < 0) return { label: `Expired`, color: 'expired', daysRemaining: diffDays };
+  if (diffDays === 0) return { label: 'Expires today', color: 'expired', daysRemaining: 0 };
+  if (diffDays <= 3) return { label: `Expires in ${diffDays}d`, color: 'warning', daysRemaining: diffDays };
   return { label: `Expires in ${diffDays}d`, color: 'good', daysRemaining: diffDays };
 }
+
+// --- UNIFIED MATH PARSERS & UI FORMATTERS ---
+
+export const normalizeForScaler = (ingStr: string) => {
+  if (ingStr.startsWith('##')) return ingStr;
+  let clean = ingStr.replace(/^1\s*pcs\s+/i, ''); 
+  const dashMatch = clean.match(/^(.*?)\s*[-—–]\s*([\d.\/]+)\s*(.*)$/);
+  return dashMatch ? `${dashMatch[2]} ${dashMatch[3] || ''} ${dashMatch[1]}`.replace(/\s+/g, ' ').trim() : clean;
+};
+
+export const formatIngredientDisplay = (scaledStr: string) => {
+  if (scaledStr.startsWith('##')) return scaledStr.replace('##', '').trim();
+  const match = scaledStr.trim().match(/^([\d.\/]+)\s*(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)?\s*(.*)$/i);
+  if (match && match[3]) {
+    const qty = match[1]; const unit = match[2] || 'pcs'; const name = match[3];
+    return `${name} - ${qty} ${unit}`.trim();
+  }
+  if (scaledStr.includes('-')) return scaledStr;
+  return `${scaledStr} - 1 pcs`; 
+};
+
+export const getIngredientStatus = (ingredient: string, pantry: any[]) => { 
+  if (ingredient.startsWith('##')) return { status: 'header' };
+  const match = ingredient.match(/^([\d.\/]+)\s*(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)?\s*(.*)$/i);
+  const qty = parseFloat(match?.[1] || '1') || 1;
+  const unit = (match?.[2] || 'pcs').toLowerCase();
+  const nameMatch = (match?.[3] || ingredient).toLowerCase();
+
+  const pantryMatch = (pantry || []).find(p => { const pName = (p.name || '').toLowerCase(); return nameMatch.includes(pName) || pName.includes(nameMatch); });
+  if (!pantryMatch || pantryMatch.quantity <= 0) return { status: 'missing' };
+  const neededBase = toBaseUnit(qty, unit); const availableBase = toBaseUnit(pantryMatch.quantity, pantryMatch.unit || 'pcs');
+  if (neededBase.base === availableBase.base) {
+    if (availableBase.qty >= neededBase.qty) return { status: 'in_stock' }; return { status: 'insufficient' };
+  }
+  if (pantryMatch.quantity >= qty) return { status: 'in_stock' }; return { status: 'insufficient' };
+};

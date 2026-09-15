@@ -8,7 +8,7 @@ import { PantryItem, Recipe, ShoppingItem, MealPlanItem } from '@/utils/types';
 import { 
   toBaseUnit, fromBaseUnit, scaleAndConvertIngredient, cleanIngredientName, 
   getStandardGroceryItem, getAisle, compressImage, normalizeName, getNext7Days,
-  computeExpiryDate 
+  computeExpiryDate, normalizeForScaler, getIngredientStatus
 } from '@/utils/helpers';
 
 import CustomSelect from '@/components/ui/CustomSelect';
@@ -16,12 +16,15 @@ import MultiCategorySelect from '@/components/ui/MultiCategorySelect';
 import TopHeader from '@/components/TopHeader';
 import BottomNav from '@/components/BottomNav';
 import AccountSettingsModal from '@/components/modals/AccountSettingsModal';
+
 import DashboardTab from '@/components/tabs/DashboardTab';
 import PantryTab from '@/components/tabs/PantryTab';
 import ShoppingTab from '@/components/tabs/ShoppingTab';
 import RecipesTab from '@/components/tabs/RecipesTab';
 import PlannerTab from '@/components/tabs/PlannerTab';
 import LowStockTab from '@/components/tabs/LowStockTab';
+import RecipeDetailView from '@/components/views/RecipeDetailView';
+import EditRecipeView from '@/components/views/EditRecipeView'; // NEW!
 
 const COMMON_UNITS = ['pcs', 'kg', 'g', 'lbs', 'oz', 'ml', 'l', 'cups', 'tbsp', 'tsp', 'cans', 'packs', 'dash', 'pinch', 'cloves'];
 
@@ -57,7 +60,6 @@ export default function PantryManager() {
   // --- 2. GLOBAL VIEWS & MODALS ---
   const [recipeActionMenu, setRecipeActionMenu] = useState<{isOpen: boolean, recipe: Recipe | null}>({isOpen: false, recipe: null});
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
-  const [recipeDetailTab, setRecipeDetailTab] = useState<'ingredients' | 'instructions'>('ingredients');
   const [targetPortions, setTargetPortions] = useState(4);
   const [measurementSystem, setMeasurementSystem] = useState<'metric' | 'imperial'>('metric');
   
@@ -153,7 +155,7 @@ export default function PantryManager() {
 
   // --- 6. CORE HANDLERS ---
   const handleTabChange = (tab: string) => { window.history.pushState({ tab, type: 'tab' }, '', `#${tab}`); setActiveTab(tab as any); setSelectedRecipe(null); setIsEditingRecipe(false); };
-  const handleOpenRecipe = (recipe: Recipe) => { window.history.pushState({ tab: activeTab, recipe, type: 'recipe' }, '', `#recipe-${recipe.id}`); setSelectedRecipe(recipe); setTargetPortions(recipe.portions || 4); setIsEditingRecipe(false); setRecipeDetailTab('ingredients'); window.scrollTo(0, 0); };
+  const handleOpenRecipe = (recipe: Recipe) => { window.history.pushState({ tab: activeTab, recipe, type: 'recipe' }, '', `#recipe-${recipe.id}`); setSelectedRecipe(recipe); setTargetPortions(recipe.portions || 4); setIsEditingRecipe(false); window.scrollTo(0, 0); };
   const handleOpenLowStock = () => { window.history.pushState({ tab: 'lowstock', type: 'tab' }, '', `#lowstock`); setActiveTab('lowstock'); setSelectedRecipe(null); setIsEditingRecipe(false); };
   const handleBackNavigation = () => window.history.back();
   const handleSignOut = async () => { await supabase.auth.signOut(); router.push('/login'); };
@@ -171,56 +173,11 @@ export default function PantryManager() {
   };
   const handleDeleteAccount = async () => { if (!window.confirm("Are you sure?")) return; setLoading(true); showToast("Account deletion request submitted."); await supabase.auth.signOut(); router.push('/login'); setLoading(false); };
 
-  // --- 7. UNIFIED MATH PARSER & DISPLAY FORMATTER ---
-  const normalizeForScaler = (ingStr: string) => {
-    if (ingStr.startsWith('##')) return ingStr;
-    let clean = ingStr.replace(/^1\s*pcs\s+/i, ''); 
-    const dashMatch = clean.match(/^(.*?)\s*[-—–]\s*([\d.\/]+)\s*(.*)$/);
-    return dashMatch ? `${dashMatch[2]} ${dashMatch[3] || ''} ${dashMatch[1]}`.replace(/\s+/g, ' ').trim() : clean;
-  };
 
-  const formatIngredientDisplay = (scaledStr: string) => {
-    if (scaledStr.startsWith('##')) return scaledStr.replace('##', '').trim();
-    const match = scaledStr.trim().match(/^([\d.\/]+)\s*(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)?\s*(.*)$/i);
-    if (match && match[3]) {
-      const qty = match[1];
-      const unit = match[2] || 'pcs';
-      const name = match[3];
-      return `${name} - ${qty} ${unit}`.trim();
-    }
-    if (scaledStr.includes('-')) return scaledStr;
-    return `${scaledStr} - 1 pcs`; 
-  };
-
-  const getIngredientStatus = (ingredient: string, pantry: PantryItem[]) => { 
-    if (ingredient.startsWith('##')) return { status: 'header' };
-    const match = ingredient.match(/^([\d.\/]+)\s*(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)?\s*(.*)$/i);
-    const qty = parseFloat(match?.[1] || '1') || 1;
-    const unit = (match?.[2] || 'pcs').toLowerCase();
-    const nameMatch = (match?.[3] || ingredient).toLowerCase();
-
-    const pantryMatch = (pantry || []).find(p => { const pName = (p.name || '').toLowerCase(); return nameMatch.includes(pName) || pName.includes(nameMatch); });
-    if (!pantryMatch || pantryMatch.quantity <= 0) return { status: 'missing' };
-    const neededBase = toBaseUnit(qty, unit); const availableBase = toBaseUnit(pantryMatch.quantity, pantryMatch.unit || 'pcs');
-    if (neededBase.base === availableBase.base) {
-      if (availableBase.qty >= neededBase.qty) return { status: 'in_stock' }; return { status: 'insufficient' };
-    }
-    if (pantryMatch.quantity >= qty) return { status: 'in_stock' }; return { status: 'insufficient' };
-  };
-
-  // --- 8. TYPE-SAFE EDITING (WITH SUBHEADERS) ---
-  const updateEditIng = (idx: number, field: 'name' | 'amount' | 'unit', value: string) => {
-    setEditRecipeForm(prev => { const clone = [...prev.ingredientsList]; clone[idx] = { ...clone[idx], [field]: value }; return { ...prev, ingredientsList: clone }; });
-  };
-  const addEditIngRow = (isHeader = false) => { 
-    setEditRecipeForm(prev => ({ ...prev, ingredientsList: [...prev.ingredientsList, { id: Date.now(), name: isHeader ? '## ' : '', amount: '1', unit: 'pcs', isHeader }] })); 
-  };
-  const removeEditIngRow = (idx: number) => { setEditRecipeForm(prev => ({ ...prev, ingredientsList: prev.ingredientsList.filter((_, i) => i !== idx) })); };
-
-  // --- RECIPE ACTIONS ---
+  // --- 7. RECIPE ACTIONS ---
   const startEditingRecipe = (recipeToEdit?: Recipe) => { 
     const target = recipeToEdit || selectedRecipe; if (!target) return; 
-    if (!selectedRecipe || selectedRecipe.id !== target.id) { window.history.pushState({ tab: activeTab, recipe: target, type: 'recipe' }, '', `#recipe-${target.id}`); setSelectedRecipe(target); setTargetPortions(target.portions || 4); setRecipeDetailTab('ingredients'); window.scrollTo(0, 0); }
+    if (!selectedRecipe || selectedRecipe.id !== target.id) { window.history.pushState({ tab: activeTab, recipe: target, type: 'recipe' }, '', `#recipe-${target.id}`); setSelectedRecipe(target); setTargetPortions(target.portions || 4); window.scrollTo(0, 0); }
     
     const parsedIngs = (target.ingredients || []).map((ing, i) => { 
       if (ing.startsWith('##')) return { id: Date.now() + i, name: ing, amount: '1', unit: 'pcs', isHeader: true };
@@ -526,8 +483,6 @@ export default function PantryManager() {
   const totalAllocated = Object.values(allocationsGrid).reduce((a, b) => a + b, 0);
   const remainingPortions = planTargetPortions - totalAllocated;
 
-  let stepCounter = 0; // For tracking instruction steps
-
   if (!isMounted) return null;
 
   return (
@@ -736,255 +691,37 @@ export default function PantryManager() {
         </div>
       )}
 
-      {/* RECIPE EDIT VIEW */}
+      {/* --- EXPORTED EDIT RECIPE VIEW --- */}
       {selectedRecipe && isEditingRecipe && (
-        <div className="space-y-6 mt-4 max-w-6xl mx-auto">
-          <div className="mb-4">
-            <button onClick={() => setIsEditingRecipe(false)} className="flex items-center gap-2 text-black hover:text-black/60 transition shrink-0 font-bold -ml-2 p-2">
-               <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
-               Cancel Edits
-            </button>
-          </div>
-          <div className="bg-white rounded-[32px] overflow-hidden shadow-sm border border-black/10 p-6 md:p-10 flex flex-col gap-6">
-             <div className="border-b pb-4 border-black/10 mb-2 shrink-0">
-                <h2 className="text-3xl font-bold">Edit Recipe</h2>
-             </div>
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Title</label>
-                  <input type="text" value={editRecipeForm.title} onChange={e => setEditRecipeForm({...editRecipeForm, title: e.target.value})} className="w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm" />
-                </div>
-                <div className="space-y-1.5 relative z-10">
-                  <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Categories</label>
-                  <MultiCategorySelect 
-                     selected={editRecipeForm.category} 
-                     onChange={v => setEditRecipeForm({...editRecipeForm, category: v})} 
-                     options={allCombinedCategories.filter(c => c !== 'All Recipes')} 
-                  />
-                </div>
-                <div className="space-y-1.5 relative z-0">
-                  <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Cook Time</label>
-                  <input type="text" value={editRecipeForm.cook_time} onChange={e => setEditRecipeForm({...editRecipeForm, cook_time: e.target.value})} className="w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm" />
-                </div>
-                <div className="space-y-1.5 relative z-0">
-                  <label className="text-sm font-semibold uppercase tracking-wider text-black/70">Base Portions</label>
-                  <input type="number" value={editRecipeForm.portions} onChange={e => setEditRecipeForm({...editRecipeForm, portions: parseInt(e.target.value) || 1})} className="w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm" />
-                </div>
-                
-                {/* --- IMAGE EDITING --- */}
-                <div className="space-y-1.5 relative z-0 md:col-span-2">
-                  <label className="text-sm font-semibold uppercase tracking-wider text-black/70 block mb-2">Recipe Image</label>
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                     {editRecipeForm.image && (
-                        <img src={editRecipeForm.image} alt="Recipe" className="w-20 h-20 rounded-xl object-cover border border-black/10 shadow-sm" />
-                     )}
-                     <input type="file" accept="image/*" onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                           const reader = new FileReader();
-                           reader.onload = (event) => setEditRecipeForm({...editRecipeForm, image: event.target?.result as string});
-                           reader.readAsDataURL(file);
-                        }
-                     }} className="flex-1 w-full p-3 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm text-sm file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-[#6B705C]/10 file:text-[#6B705C] hover:file:bg-[#6B705C]/20 transition-all cursor-pointer" />
-                  </div>
-                </div>
-             </div>
-
-             <div className="space-y-3 mt-4">
-                <label className="text-sm font-semibold uppercase tracking-wider text-black/70 block mb-1">Ingredients</label>
-                {editRecipeForm.ingredientsList.map((ing, idx) => (
-                   <div key={ing.id} className="flex flex-col gap-2 bg-black/5 p-3 rounded-2xl relative z-0 hover:z-10 w-full">
-                      {ing.isHeader || ing.name.startsWith('##') ? (
-                         <div className="flex gap-2 w-full">
-                           <input type="text" placeholder="## Section Header" value={ing.name.startsWith('##') ? ing.name : `## ${ing.name}`} onChange={e => updateEditIng(idx, 'name', e.target.value)} className="flex-1 w-full min-w-0 px-4 py-3 rounded-xl font-bold uppercase tracking-wider focus:outline-none bg-[#6B705C]/10 text-[#6B705C] border border-[#6B705C]/30 placeholder:text-[#6B705C]/50" />
-                           <button onClick={() => removeEditIngRow(idx)} className="w-12 h-12 flex items-center justify-center bg-red-500/80 text-white rounded-xl font-bold hover:bg-red-500 transition shrink-0">✕</button>
-                         </div>
-                      ) : (
-                        <>
-                          <div className="flex gap-2 w-full">
-                            <input type="text" placeholder="Ingredient name" value={ing.name} onChange={e => updateEditIng(idx, 'name', e.target.value)} className="flex-1 w-full min-w-0 px-4 py-3 rounded-xl font-bold focus:outline-none bg-white placeholder:text-black/50" />
-                            <button onClick={() => removeEditIngRow(idx)} className="w-12 h-12 flex items-center justify-center bg-red-500/80 text-white rounded-xl font-bold hover:bg-red-500 transition shrink-0">✕</button>
-                          </div>
-                          <div className="grid grid-cols-2 gap-2 w-full">
-                            <input type="number" step="any" placeholder="1" value={ing.amount} onChange={e => updateEditIng(idx, 'amount', e.target.value)} className="w-full px-4 py-3 rounded-xl text-center focus:outline-none bg-white" />
-                            <div className="w-full h-full">
-                              <CustomSelect value={ing.unit} onChange={v => updateEditIng(idx, 'unit', v)} options={COMMON_UNITS.map(u => ({label: u, value: u}))} className="bg-white rounded-xl w-full h-[48px]" />
-                            </div>
-                          </div>
-                        </>
-                      )}
-                   </div>
-                ))}
-                <div className="flex gap-2">
-                  <button onClick={() => addEditIngRow(false)} className="flex-1 px-4 py-3 bg-white border border-black/10 rounded-2xl text-sm font-bold shadow-sm hover:bg-black/5 transition">+ Add Ingredient</button>
-                  <button onClick={() => addEditIngRow(true)} className="flex-1 px-4 py-3 bg-white border border-black/10 rounded-2xl text-sm font-bold shadow-sm hover:bg-black/5 transition">+ Add Heading</button>
-                </div>
-             </div>
-
-             <div className="space-y-1.5 mt-4">
-                <label className="text-sm font-semibold uppercase tracking-wider text-black/70 block mb-2">Instructions</label>
-                <textarea value={editRecipeForm.instructionsText} onChange={e => setEditRecipeForm({...editRecipeForm, instructionsText: e.target.value})} className="w-full p-4 rounded-xl border border-black/20 focus:outline-none focus:border-[#6B705C] bg-white shadow-sm min-h-[150px]" />
-                <p className="text-xs text-black/50 mt-1">Start a line with "## " to create a section header.</p>
-             </div>
-             <div className="pt-6 border-t border-black/10 shrink-0 flex gap-3">
-               <button onClick={() => setIsEditingRecipe(false)} className="flex-1 py-4 rounded-2xl font-bold text-lg border border-black/20 bg-transparent text-black hover:bg-black/5 transition">Cancel</button>
-               <button onClick={saveEditedRecipe} disabled={loading} className="flex-1 py-4 rounded-2xl font-bold text-lg bg-black text-white hover:bg-black/80 disabled:opacity-50 transition shadow-sm">{loading ? 'Saving...' : 'Save Changes'}</button>
-             </div>
-          </div>
-        </div>
+         <EditRecipeView 
+            editRecipeForm={editRecipeForm}
+            setEditRecipeForm={setEditRecipeForm}
+            allCombinedCategories={allCombinedCategories}
+            COMMON_UNITS={COMMON_UNITS}
+            onCancel={() => setIsEditingRecipe(false)}
+            onSave={saveEditedRecipe}
+            loading={loading}
+         />
       )}
 
-      {/* RECIPE DETAIL VIEW */}
+      {/* --- EXPORTED RECIPE DETAIL VIEW --- */}
       {selectedRecipe && !isEditingRecipe && (
-        <div className="space-y-0">
-          <div className="w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] bg-[#6B705C] -mt-4 md:-mt-8">
-            <div className="relative">
-              <div className="absolute top-4 left-4 md:left-8 z-10">
-                <button onClick={handleBackNavigation} className="flex items-center justify-center text-white hover:text-white/60 transition shrink-0 p-2">
-                  <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
-                </button>
-              </div>
-              <div className="absolute top-4 right-4 md:right-8 z-10">
-                <button onClick={(e) => { e.stopPropagation(); setRecipeActionMenu({isOpen: true, recipe: selectedRecipe}); }} className="flex items-center justify-center text-white hover:text-white/60 transition shrink-0 p-2">
-                  <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
-                </button>
-              </div>
-
-              {selectedRecipe.image ? (
-                <img src={selectedRecipe.image} alt={selectedRecipe.title} className="w-full h-72 md:h-[400px] object-cover shadow-sm" />
-              ) : (
-                <div className="w-full h-32 bg-[#6B705C]/20 shadow-sm" />
-              )}
-            </div>
-
-            <div className="bg-[#6B705C] text-white py-8 border-b border-black/10 shadow-sm">
-              <div className="max-w-6xl mx-auto px-4 md:px-8 flex flex-col items-center justify-center gap-6 relative">
-                <h2 className="text-4xl md:text-5xl font-black tracking-tight leading-snug text-center w-full px-12 break-words whitespace-normal">{selectedRecipe.title}</h2>
-                <div className="flex flex-col sm:flex-row gap-3 shrink-0 w-full sm:w-auto justify-center flex-wrap">
-                  <button onClick={() => { setPlanTargetPortions(targetPortions); setAllocationsGrid({}); setShowDistributionModal(true); }} className="px-6 py-3 bg-black text-white rounded-xl text-sm font-medium hover:bg-black/80 transition shadow-sm text-center">Add to Meal Plan</button>
-                  <button onClick={() => addMissingRecipeIngredients(selectedRecipe, multiplier)} className="px-6 py-3 bg-black text-white rounded-xl text-sm font-medium hover:bg-black/80 transition shadow-sm text-center">Add Missing Items to Shopping List</button>
-                  <button onClick={() => consumeRecipeIngredients(selectedRecipe, multiplier)} className="px-6 py-3 bg-black text-white rounded-xl text-sm font-medium hover:bg-black/80 transition shadow-sm text-center">Recipe Made - Remove from Pantry</button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="max-w-6xl mx-auto py-8">
-            <div className="flex justify-between items-center mb-6">
-              <div className="flex bg-black/5 p-1 rounded-2xl w-full md:w-auto">
-                <button onClick={() => setRecipeDetailTab('ingredients')} className={`flex-1 md:px-8 py-3 text-sm font-bold rounded-xl transition ${recipeDetailTab === 'ingredients' ? 'bg-white shadow-sm text-black' : 'text-black/60 hover:text-black'}`}>Ingredients</button>
-                <button onClick={() => setRecipeDetailTab('instructions')} className={`flex-1 md:px-8 py-3 text-sm font-bold rounded-xl transition ${recipeDetailTab === 'instructions' ? 'bg-white shadow-sm text-black' : 'text-black/60 hover:text-black'}`}>Instructions</button>
-              </div>
-            </div>
-
-            {recipeDetailTab === 'ingredients' && (
-              <div className="space-y-4 animate-in fade-in">
-                <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-black/10 shadow-sm">
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs font-bold uppercase tracking-wider text-black/60">Portions:</span>
-                    <div className="flex items-center gap-2 text-black">
-                      <button onClick={() => setTargetPortions(Math.max(1, targetPortions - 1))} className="w-7 h-7 rounded-lg bg-black/5 hover:bg-black/10 font-bold text-sm flex items-center justify-center transition">-</button>
-                      <span className="w-5 text-center font-bold text-sm">{targetPortions}</span>
-                      <button onClick={() => setTargetPortions(targetPortions + 1)} className="w-7 h-7 rounded-lg bg-black/5 hover:bg-black/10 font-bold text-sm flex items-center justify-center transition">+</button>
-                    </div>
-                  </div>
-                  <div className="flex items-center bg-black/5 rounded-lg p-1 text-black shrink-0">
-                    <button onClick={() => setMeasurementSystem('metric')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition ${measurementSystem === 'metric' ? 'bg-white shadow-sm text-black' : 'hover:bg-transparent text-black/60'}`}>Metric</button>
-                    <button onClick={() => setMeasurementSystem('imperial')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition ${measurementSystem === 'imperial' ? 'bg-white shadow-sm text-black' : 'hover:bg-transparent text-black/60'}`}>Imperial</button>
-                  </div>
-                </div>
-
-                <div className="space-y-0">
-                  {(selectedRecipe.ingredients || []).map((ing, i) => {
-                    if (ing.startsWith('##')) {
-                      return (
-                        <div key={i} className="pt-6 pb-2">
-                           <h3 className="font-bold text-base uppercase tracking-wider text-[#6B705C] border-b-2 border-[#6B705C]/20 inline-block pr-8">{ing.replace('##', '').trim()}</h3>
-                        </div>
-                      );
-                    }
-                    const scaledIng = scaleAndConvertIngredient(normalizeForScaler(ing), multiplier, measurementSystem);
-                    const displayIng = formatIngredientDisplay(scaledIng);
-                    const statusObj = getIngredientStatus(scaledIng, items);
-                    return (
-                      <div key={i} className="flex flex-row justify-between items-start gap-3 text-sm p-3 rounded-xl bg-white border border-black/10 text-black font-medium shadow-sm mb-2">
-                        <span className="flex-1 pr-2 whitespace-normal break-words">{displayIng}</span>
-                        <div className="shrink-0 flex items-center mt-0.5">
-                          {statusObj.status === 'in_stock' && <span className="text-[10px] px-2.5 py-1 bg-[#6B705C] text-white rounded-full font-bold uppercase tracking-wider shadow-sm">In Pantry</span>}
-                          {statusObj.status === 'insufficient' && <span className="text-[10px] px-2.5 py-1 border border-[#6B705C]/50 text-[#6B705C] rounded-full font-bold uppercase tracking-wider">Low Stock</span>}
-                          {statusObj.status === 'missing' && <span className="text-[10px] px-2.5 py-1 bg-black text-white rounded-full font-bold uppercase tracking-wider shadow-sm">Missing</span>}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-            
-            {/* --- SMART INSTRUCTION PILLS --- */}
-            {recipeDetailTab === 'instructions' && (
-              <div className="space-y-5 animate-in fade-in">
-                {(selectedRecipe.instructions || []).length ? (selectedRecipe.instructions || []).map((step, idx) => {
-                  if (step.includes('For full cooking instructions, visit')) return null;
-                  
-                  if (step.startsWith('##')) {
-                    stepCounter = 0; // Reset counter for new section
-                    return (
-                      <div key={idx} className="pt-4 pb-0">
-                        <h3 className="font-bold text-lg uppercase tracking-wider text-[#6B705C]">{step.replace('##', '').trim()}</h3>
-                      </div>
-                    );
-                  }
-                  
-                  stepCounter++; // Increment counter for normal steps
-                  
-                  // Auto-extract ingredients mentioned in this step
-                  const stepIngredients = (selectedRecipe.ingredients || []).filter(i => !i.startsWith('##')).map(ing => {
-                     const scaledIng = scaleAndConvertIngredient(normalizeForScaler(ing), multiplier, measurementSystem);
-                     const matchData = scaledIng.match(/^([\d.\/]+)\s*(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)?\s*(.*)$/i);
-                     const qty = matchData?.[1] || '1';
-                     const unit = matchData?.[2] || 'pcs';
-                     const name = matchData?.[3] || scaledIng;
-                     
-                     // Get the core identifying word (e.g., "Chicken Breasts" -> "chicken")
-                     const coreWords = extractCoreItemName(name);
-                     
-                     // Check if any of the core root words appear in the step text
-                     const stepLower = step.toLowerCase();
-                     const isMatch = coreWords.some(word => {
-                        return word.length > 2 && stepLower.includes(word.toLowerCase());
-                     });
-                     
-                     if (isMatch) {
-                       return { name, qty, unit: unit.toLowerCase(), id: ing };
-                     }
-                     return null;
-                  }).filter(Boolean) as {name: string, qty: string, unit: string, id: string}[];
-
-                  return (
-                    <div key={idx} className="p-4 rounded-2xl space-y-2 bg-white border border-black/10 shadow-sm">
-                      <span className="font-bold text-sm uppercase text-black/40 tracking-wider">Step {stepCounter}</span>
-                      <p className="leading-relaxed text-black font-medium">{step}</p>
-                      
-                      {/* Smart Ingredient Pills */}
-                      {stepIngredients.length > 0 && (
-                         <div className="flex flex-wrap gap-2 pt-3 mt-1 border-t border-black/5">
-                            {stepIngredients.map((ing, i) => (
-                               <div key={i} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#6B705C]/10 border border-[#6B705C]/20 rounded-lg shadow-sm cursor-default hover:bg-[#6B705C]/20 transition">
-                                  <span className="text-xs font-bold text-[#6B705C]">{ing.qty} {ing.unit !== 'pcs' ? ing.unit : ''}</span>
-                                  <span className="text-xs font-semibold text-black capitalize">{ing.name}</span>
-                               </div>
-                            ))}
-                         </div>
-                      )}
-                    </div>
-                  );
-                }) : <p className="text-black/50 text-sm italic">No instructions saved.</p>}
-                {selectedRecipe.source_url && <a href={selectedRecipe.source_url} target="_blank" rel="noopener noreferrer" className="mt-4 px-6 py-4 bg-white border border-black/20 rounded-2xl text-black font-bold text-center hover:bg-black/5 transition shadow-sm block">View Full Original Recipe</a>}
-              </div>
-            )}
-          </div>
-        </div>
+         <RecipeDetailView 
+           recipe={selectedRecipe}
+           items={items}
+           handleBackNavigation={handleBackNavigation}
+           setRecipeActionMenu={setRecipeActionMenu}
+           setPlanTargetPortions={setPlanTargetPortions}
+           setAllocationsGrid={setAllocationsGrid}
+           setShowDistributionModal={setShowDistributionModal}
+           addMissingRecipeIngredients={addMissingRecipeIngredients}
+           consumeRecipeIngredients={consumeRecipeIngredients}
+           targetPortions={targetPortions}
+           setTargetPortions={setTargetPortions}
+           measurementSystem={measurementSystem}
+           setMeasurementSystem={setMeasurementSystem}
+           multiplier={multiplier}
+         />
       )}
 
       {/* --- TAB ROUTING --- */}
