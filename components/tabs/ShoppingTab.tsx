@@ -13,26 +13,26 @@ interface ShoppingTabProps {
   COMMON_UNITS: string[];
   setVoiceContext: (val: 'shopping' | 'pantry') => void;
   setShowVoiceInputScreen: (val: boolean) => void;
-  addLowStockToShopping: () => Promise<void>;
   showToast: (msg: string) => void;
 }
 
 export default function ShoppingTab({
   userId, shoppingList, setShoppingList, addOrMergeShoppingItem, lowStockItems,
-  COMMON_UNITS, setVoiceContext, setShowVoiceInputScreen, addLowStockToShopping, showToast
+  COMMON_UNITS, setVoiceContext, setShowVoiceInputScreen, showToast
 }: ShoppingTabProps) {
 
   const supabase = createClient();
   const [loading, setLoading] = useState(false);
 
-  // --- STATE FOR ADDING MENUS ---
   const [showAddShoppingMenu, setShowAddShoppingMenu] = useState(false);
   const [showShoppingInput, setShowShoppingInput] = useState(false);
   const [name, setName] = useState('');
   const [quantity, setQuantity] = useState('1');
   const [unit, setUnit] = useState('pcs');
 
-  // --- STATE FOR 3-DOT MENU AND EDITING ---
+  const [showLowStockModal, setShowLowStockModal] = useState(false);
+  const [lowStockQuantities, setLowStockQuantities] = useState<Record<string, number>>({});
+
   const [shoppingActionMenu, setShoppingActionMenu] = useState<{isOpen: boolean, item: ShoppingItem | null}>({isOpen: false, item: null});
   const [editingShoppingItem, setEditingShoppingItem] = useState<ShoppingItem | null>(null);
   const [editName, setEditName] = useState('');
@@ -70,6 +70,17 @@ export default function ShoppingTab({
     setLoading(false);
   };
 
+  const exportList = async () => {
+    const text = shoppingList.filter(i => !i.checked).map(i => `- ${i.quantity} ${i.unit !== 'pcs' ? i.unit : ''} ${i.name}`).join('\n');
+    const fullText = `My Shopping List:\n${text}`;
+    if (navigator.share) {
+      try { await navigator.share({ title: 'Shopping List', text: fullText }); } catch (err) { /* ignore cancel */ }
+    } else {
+      navigator.clipboard.writeText(fullText);
+      showToast('Copied to clipboard!');
+    }
+  };
+
   const adjustQuantity = async (item: ShoppingItem, delta: number) => {
     const newQty = Math.max(0, Number(((item.quantity || 1) + delta).toFixed(2))); 
     setShoppingList(prev => prev.map(i => i.id === item.id ? { ...i, quantity: newQty } : i));
@@ -99,7 +110,28 @@ export default function ShoppingTab({
     showToast('Item updated!');
   };
 
-  // Group shopping list by supermarket aisles on the fly
+  const openLowStockModal = () => {
+    const initial: Record<string, number> = {};
+    lowStockItems.forEach(item => { initial[item.id] = 1; });
+    setLowStockQuantities(initial);
+    setShowLowStockModal(true);
+  };
+
+  const confirmAddLowStock = async () => {
+    setLoading(true);
+    let addedCount = 0;
+    for (const item of lowStockItems) {
+      const qty = lowStockQuantities[item.id] || 0;
+      if (qty > 0) {
+        await addOrMergeShoppingItem({ name: `${item.name} (Restock)`, quantity: qty, unit: item.unit || 'pcs' });
+        addedCount++;
+      }
+    }
+    setShowLowStockModal(false);
+    setLoading(false);
+    showToast(`Added ${addedCount} low stock items!`);
+  };
+
   const groupedList = shoppingList.reduce((acc, item) => {
     const cat = getAisle(item.name);
     if (!acc[cat]) acc[cat] = [];
@@ -109,10 +141,10 @@ export default function ShoppingTab({
 
   const sortedCategories = Object.keys(groupedList).sort();
   const hasCheckedItems = shoppingList.some(i => i.checked);
+  const hasPendingItems = shoppingList.some(i => !i.checked);
 
   return (
     <div className="space-y-6">
-      {/* HEADER SECTION */}
       <div className="w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] bg-[#6B705C] text-white py-8 shadow-sm mb-6 border-b border-black/10 -mt-4 md:-mt-8">
         <div className="max-w-6xl mx-auto px-4 md:px-8 flex flex-col items-center text-center gap-5 pt-4 md:pt-0">
           <div>
@@ -123,9 +155,9 @@ export default function ShoppingTab({
             <button onClick={() => setShowAddShoppingMenu(true)} className="px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center border border-black/20">
               Add Item
             </button>
-            {lowStockItems.length > 0 && (
-              <button onClick={addLowStockToShopping} className="px-6 py-2.5 bg-white text-amber-600 rounded-xl text-sm font-bold transition hover:bg-amber-50 shadow-sm flex items-center justify-center border border-black/20">
-                Add {lowStockItems.length} Low Stock Items
+            {hasPendingItems && (
+              <button onClick={exportList} className="px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center border border-black/20">
+                Export List
               </button>
             )}
             {hasCheckedItems && (
@@ -137,7 +169,6 @@ export default function ShoppingTab({
         </div>
       </div>
 
-      {/* BOTTOM-UP MENU FOR ADDING */}
       {showAddShoppingMenu && (
         <div className="fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 transition-opacity" onClick={() => setShowAddShoppingMenu(false)}>
           <div className="bg-white w-full sm:max-w-sm rounded-t-[32px] sm:rounded-[32px] p-6 pb-10 sm:pb-6 shadow-2xl animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-0 sm:zoom-in-95" onClick={e => e.stopPropagation()}>
@@ -145,12 +176,44 @@ export default function ShoppingTab({
              <div className="flex flex-col gap-2">
                <button onClick={() => { setShowShoppingInput(true); setShowAddShoppingMenu(false); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Type Item Name</button>
                <button onClick={() => { setVoiceContext('shopping'); setShowVoiceInputScreen(true); setShowAddShoppingMenu(false); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Voice Input</button>
+               {lowStockItems.length > 0 && (
+                 <button onClick={() => { setShowAddShoppingMenu(false); openLowStockModal(); }} className="w-full py-4 bg-amber-50 text-amber-600 hover:bg-amber-100 rounded-2xl font-bold transition shadow-sm mt-2 border border-amber-200">Review & Add Low Stock</button>
+               )}
              </div>
           </div>
         </div>
       )}
 
-      {/* MANUAL INPUT MODAL */}
+      {showLowStockModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4 transition-opacity">
+          <div className="bg-white rounded-[32px] p-6 md:p-8 w-full max-w-md shadow-2xl flex flex-col gap-4 animate-in zoom-in-95">
+            <div className="flex justify-between items-center mb-2 border-b border-black/10 pb-4 shrink-0">
+              <h2 className="text-2xl font-bold text-black">Review Low Stock</h2>
+              <button type="button" onClick={() => setShowLowStockModal(false)} className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-black font-bold">✕</button>
+            </div>
+            
+            <div className="overflow-y-auto pr-2 max-h-[60vh] space-y-3">
+              {lowStockItems.map(item => (
+                <div key={item.id} className="flex items-center justify-between p-3 bg-black/5 rounded-xl border border-black/10">
+                  <span className="font-semibold text-sm truncate flex-1 pr-2">{item.name}</span>
+                  <div className="flex items-center gap-3 bg-white p-1 rounded-lg border border-black/10">
+                    <button onClick={() => setLowStockQuantities(p => ({...p, [item.id]: Math.max(0, p[item.id] - 1)}))} className="w-8 h-8 flex items-center justify-center rounded bg-black/5 hover:bg-black/10 font-bold">-</button>
+                    <span className="w-4 text-center font-bold text-sm">{lowStockQuantities[item.id]}</span>
+                    <button onClick={() => setLowStockQuantities(p => ({...p, [item.id]: p[item.id] + 1}))} className="w-8 h-8 flex items-center justify-center rounded bg-black/5 hover:bg-black/10 font-bold">+</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            
+            <div className="pt-4 border-t border-black/10 shrink-0">
+              <button onClick={confirmAddLowStock} disabled={loading} className="w-full py-4 bg-black text-white rounded-2xl font-bold hover:bg-black/80 shadow-sm transition">
+                {loading ? 'Adding...' : 'Confirm & Add to List'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showShoppingInput && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4 transition-opacity">
           <div className="bg-white rounded-[32px] p-6 md:p-8 w-full max-w-md shadow-2xl flex flex-col gap-4 animate-in zoom-in-95">
@@ -198,7 +261,6 @@ export default function ShoppingTab({
         </div>
       )}
 
-      {/* CATEGORY GRID */}
       {shoppingList.length === 0 ? (
         <p className="text-center text-black/50 py-12">Your shopping list is empty.</p>
       ) : (
@@ -215,19 +277,16 @@ export default function ShoppingTab({
                   .map(item => (
                   <div key={item.id} className={`flex items-center justify-between p-3 rounded-[20px] transition border shadow-sm relative z-0 hover:z-10 gap-3 ${item.checked ? 'bg-black/5 border-transparent opacity-60' : 'bg-white border-black/10'}`}>
                     
-                    {/* CHECKBOX */}
                     <button onClick={() => toggleChecked(item.id, !!item.checked)} className="shrink-0 flex items-center justify-center w-6 h-6 rounded-full border-2 border-[#6B705C] transition focus:outline-none hover:bg-[#6B705C]/20">
                       {item.checked && <div className="w-3 h-3 bg-[#6B705C] rounded-full" />}
                     </button>
 
-                    {/* ITEM DETAILS */}
                     <div className="flex-1 min-w-0" onClick={() => toggleChecked(item.id, !!item.checked)}>
                       <h3 className={`font-semibold text-sm capitalize leading-tight whitespace-normal break-words m-0 cursor-pointer select-none ${item.checked ? 'line-through text-black/60' : 'text-black'}`}>
                         {item.name} <span className="text-xs font-normal normal-case whitespace-nowrap ml-1 text-black/50">- {item.quantity} {item.unit}</span>
                       </h3>
                     </div>
 
-                    {/* 3 DOT MENU BUTTON */}
                     <button onClick={() => setShoppingActionMenu({isOpen: true, item})} className="p-2 hover:bg-black/5 rounded-full text-black/40 hover:text-black transition shrink-0">
                       <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
                     </button>
@@ -239,7 +298,6 @@ export default function ShoppingTab({
         </div>
       )}
 
-      {/* 3-DOT ACTION MENU MODAL */}
       {shoppingActionMenu.isOpen && shoppingActionMenu.item && (
         <div className="fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 transition-opacity" onClick={() => setShoppingActionMenu({isOpen: false, item: null})}>
            <div className="bg-white w-full sm:max-w-sm rounded-t-[32px] sm:rounded-[32px] p-6 pb-10 sm:pb-6 shadow-2xl animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-0 sm:zoom-in-95" onClick={e => e.stopPropagation()}>
@@ -260,7 +318,6 @@ export default function ShoppingTab({
         </div>
       )}
 
-      {/* EDIT ITEM MODAL */}
       {editingShoppingItem && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4 transition-opacity">
           <div className="bg-white rounded-[32px] p-6 md:p-8 w-full max-w-md shadow-2xl flex flex-col gap-4 animate-in zoom-in-95">

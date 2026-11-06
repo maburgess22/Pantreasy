@@ -11,7 +11,6 @@ export async function POST(request: Request) {
     const buffer = Buffer.from(bytes);
     const base64Image = buffer.toString('base64');
     
-    // Safely enforce image MIME type so Google doesn't reject mobile photos
     let mimeType = file.type;
     if (!mimeType || !mimeType.startsWith('image/')) mimeType = 'image/jpeg';
 
@@ -33,13 +32,11 @@ export async function POST(request: Request) {
     const apiKey = process.env.GEMINI_API_KEY || '';
     if (!apiKey) return NextResponse.json({ message: 'GEMINI_API_KEY is missing from .env.local' }, { status: 500 });
 
-// 4. Send the image and prompt directly to the Gemini API
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      // ... keep the rest of the body exactly the same
       body: JSON.stringify({
         contents: [
           {
@@ -57,7 +54,6 @@ export async function POST(request: Request) {
       const errorText = await response.text();
       let errMsg = 'Failed to communicate with AI scanner.';
       try { const errObj = JSON.parse(errorText); if (errObj.error?.message) errMsg = errObj.error.message; } catch (e) {}
-      console.error("Gemini API Error:", errorText);
       return NextResponse.json({ message: errMsg }, { status: response.status });
     }
 

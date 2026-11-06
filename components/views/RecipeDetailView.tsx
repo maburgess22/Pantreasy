@@ -1,4 +1,3 @@
-// components/views/RecipeDetailView.tsx
 import React, { useState } from 'react';
 import { Recipe, PantryItem } from '@/utils/types';
 import { 
@@ -36,21 +35,22 @@ export default function RecipeDetailView({
   
   const [recipeDetailTab, setRecipeDetailTab] = useState<'ingredients' | 'instructions'>('ingredients');
   let stepCounter = 0;
-  
-  // Track which ingredients have already generated a pill so they only show once
   const seenIngredients = new Set<string>();
 
   return (
     <div className="space-y-0">
       <div className="w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] bg-[#6B705C] -mt-4 md:-mt-8">
         <div className="relative">
-          <div className="absolute top-4 left-4 md:left-8 z-10">
-            <button onClick={handleBackNavigation} className="flex items-center justify-center text-white hover:text-white/60 transition shrink-0 p-2">
+          {/* UPDATED: Dynamic Contrast Back Button */}
+          <div className="absolute top-4 left-4 md:left-8 z-10 mix-blend-difference text-white drop-shadow-md">
+            <button onClick={handleBackNavigation} className="flex items-center justify-center hover:opacity-70 transition shrink-0 p-2">
               <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
             </button>
           </div>
-          <div className="absolute top-4 right-4 md:right-8 z-10">
-            <button onClick={(e) => { e.stopPropagation(); setRecipeActionMenu({isOpen: true, recipe}); }} className="flex items-center justify-center text-white hover:text-white/60 transition shrink-0 p-2">
+          
+          {/* UPDATED: Dynamic Contrast 3-Dot Menu */}
+          <div className="absolute top-4 right-4 md:right-8 z-10 mix-blend-difference text-white drop-shadow-md">
+            <button onClick={(e) => { e.stopPropagation(); setRecipeActionMenu({isOpen: true, recipe}); }} className="flex items-center justify-center hover:opacity-70 transition shrink-0 p-2">
               <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
             </button>
           </div>
@@ -154,9 +154,8 @@ export default function RecipeDetailView({
                  const isMatch = coreWords.some(word => word.length > 2 && stepLower.includes(word.toLowerCase()));
                  
                  if (isMatch) {
-                    // Check if we've already displayed this ingredient pill
                     if (seenIngredients.has(ing)) return null; 
-                    seenIngredients.add(ing); // Mark it as seen
+                    seenIngredients.add(ing);
                     return { name, qty, unit: unit.toLowerCase(), id: ing };
                  }
                  return null;

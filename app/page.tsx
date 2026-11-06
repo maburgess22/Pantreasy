@@ -24,7 +24,11 @@ import RecipesTab from '@/components/tabs/RecipesTab';
 import PlannerTab from '@/components/tabs/PlannerTab';
 import LowStockTab from '@/components/tabs/LowStockTab';
 import RecipeDetailView from '@/components/views/RecipeDetailView';
-import EditRecipeView from '@/components/views/EditRecipeView'; // NEW!
+import EditRecipeView from '@/components/views/EditRecipeView';
+
+import VoiceInputModal from '@/components/modals/VoiceInputModal';
+import BarcodeScannerModal from '@/components/modals/BarcodeScannerModal';
+import ScannedItemsReviewModal from '@/components/modals/ScannedItemsReviewModal';
 
 const COMMON_UNITS = ['pcs', 'kg', 'g', 'lbs', 'oz', 'ml', 'l', 'cups', 'tbsp', 'tsp', 'cans', 'packs', 'dash', 'pinch', 'cloves'];
 
@@ -40,7 +44,6 @@ export default function PantryManager() {
   const router = useRouter();
   const [isMounted, setIsMounted] = useState(false);
 
-  // --- 1. CORE STATE ---
   const [activeTab, setActiveTab] = useState<'dashboard' | 'pantry' | 'recipes' | 'shopping' | 'planner' | 'lowstock'>('dashboard');
   const [userId, setUserId] = useState<string>('');
   const [userEmail, setUserEmail] = useState('');
@@ -57,7 +60,6 @@ export default function PantryManager() {
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
 
-  // --- 2. GLOBAL VIEWS & MODALS ---
   const [recipeActionMenu, setRecipeActionMenu] = useState<{isOpen: boolean, recipe: Recipe | null}>({isOpen: false, recipe: null});
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [targetPortions, setTargetPortions] = useState(4);
@@ -81,7 +83,6 @@ export default function PantryManager() {
   const [scannedItems, setScannedItems] = useState<any[] | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // --- 3. PLANNER & DISTRIBUTION STATE ---
   const [showDistributionModal, setShowDistributionModal] = useState(false);
   const [recipePickerTarget, setRecipePickerTarget] = useState<{date: string, mealType: string} | null>(null);
   const [planTargetPortions, setPlanTargetPortions] = useState(4);
@@ -92,7 +93,6 @@ export default function PantryManager() {
 
   const [userDefinedCategories, setUserDefinedCategories] = useState<string[]>([]);
   
-  // --- 4. DERIVED VALUES ---
   const next7Days = getNext7Days();
   const todayStr = new Date().toISOString().split('T')[0];
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
@@ -108,7 +108,6 @@ export default function PantryManager() {
 
   const isGlobalModalOpen = !!(showAccountModal || showVoiceInputScreen || showBarcodeScanner || recipeActionMenu.isOpen || scannedItems || showDistributionModal || recipePickerTarget || showManualAddRecipe);
 
-  // --- 5. EFFECTS ---
   useEffect(() => {
     if (isGlobalModalOpen) document.body.style.overflow = 'hidden';
     else document.body.style.overflow = '';
@@ -153,7 +152,6 @@ export default function PantryManager() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // --- 6. CORE HANDLERS ---
   const handleTabChange = (tab: string) => { window.history.pushState({ tab, type: 'tab' }, '', `#${tab}`); setActiveTab(tab as any); setSelectedRecipe(null); setIsEditingRecipe(false); };
   const handleOpenRecipe = (recipe: Recipe) => { window.history.pushState({ tab: activeTab, recipe, type: 'recipe' }, '', `#recipe-${recipe.id}`); setSelectedRecipe(recipe); setTargetPortions(recipe.portions || 4); setIsEditingRecipe(false); window.scrollTo(0, 0); };
   const handleOpenLowStock = () => { window.history.pushState({ tab: 'lowstock', type: 'tab' }, '', `#lowstock`); setActiveTab('lowstock'); setSelectedRecipe(null); setIsEditingRecipe(false); };
@@ -173,8 +171,14 @@ export default function PantryManager() {
   };
   const handleDeleteAccount = async () => { if (!window.confirm("Are you sure?")) return; setLoading(true); showToast("Account deletion request submitted."); await supabase.auth.signOut(); router.push('/login'); setLoading(false); };
 
+  const updateEditIng = (idx: number, field: 'name' | 'amount' | 'unit', value: string) => {
+    setEditRecipeForm(prev => { const clone = [...prev.ingredientsList]; clone[idx] = { ...clone[idx], [field]: value }; return { ...prev, ingredientsList: clone }; });
+  };
+  const addEditIngRow = (isHeader = false) => { 
+    setEditRecipeForm(prev => ({ ...prev, ingredientsList: [...prev.ingredientsList, { id: Date.now(), name: isHeader ? '## ' : '', amount: '1', unit: 'pcs', isHeader }] })); 
+  };
+  const removeEditIngRow = (idx: number) => { setEditRecipeForm(prev => ({ ...prev, ingredientsList: prev.ingredientsList.filter((_, i) => i !== idx) })); };
 
-  // --- 7. RECIPE ACTIONS ---
   const startEditingRecipe = (recipeToEdit?: Recipe) => { 
     const target = recipeToEdit || selectedRecipe; if (!target) return; 
     if (!selectedRecipe || selectedRecipe.id !== target.id) { window.history.pushState({ tab: activeTab, recipe: target, type: 'recipe' }, '', `#recipe-${target.id}`); setSelectedRecipe(target); setTargetPortions(target.portions || 4); window.scrollTo(0, 0); }
@@ -258,7 +262,6 @@ export default function PantryManager() {
     showToast('Missing ingredients added!'); setLoading(false);
   };
 
-  // --- 9. CATEGORY MANAGEMENT ---
   const saveUserCategories = (cats: string[]) => { setUserDefinedCategories(cats); localStorage.setItem('recipeCategories', JSON.stringify(cats)); };
   const handleCreateCategory = (name: string) => { const trimmed = name.trim(); if (!trimmed || userDefinedCategories.includes(trimmed)) return; saveUserCategories([...userDefinedCategories, trimmed]); };
   const handleRenameCategory = async (oldName: string, newName: string) => {
@@ -293,9 +296,7 @@ export default function PantryManager() {
     showToast(`Category deleted`);
   };
 
-  // --- 10. DATABASE ADD/MERGE FUNCTIONS ---
   const addOrMergePantryItem = async (newItem: { name: string, category: string, quantity: number, unit: string, track_low_stock: boolean, low_stock_threshold: number, expiration_date?: string | null }) => {
-    
     const perishableCategories = ['Produce', 'Dairy & Eggs', 'Meat & Poultry', 'Seafood', 'Deli & Prepared Foods', 'Vegetarian Products'];
     let expDate = newItem.expiration_date || null;
     
@@ -337,7 +338,6 @@ export default function PantryManager() {
     if (data) setShoppingList(prev => [data, ...prev]);
   };
 
-  // --- 11. TRACKING & LOW STOCK ---
   const handleAddTrackedItem = async (itemName: string, category: string, unit: string, threshold: number) => {
     setLoading(true); const existing = items.find(i => normalizeName(i.name) === normalizeName(itemName));
     if (existing) {
@@ -360,7 +360,6 @@ export default function PantryManager() {
     if (data) { setShoppingList(prev => [...data, ...prev]); showToast('Added to shopping list!'); } 
   };
 
-  // --- 12. PLANNER DISTRIBUTION ---
   const deleteMealPlan = async (id: string) => { setMealPlans(prev => prev.filter(m => m.id !== id)); await supabase.from('meal_plan').delete().eq('id', id).eq('user_id', userId); };
   const saveManualMeal = async (date: string, mealType: string) => { 
     const key = `${date}-${mealType}`; const value = manualInputs[key]; const qty = manualInputsQty[key] || 1; 
@@ -377,21 +376,6 @@ export default function PantryManager() {
     const { data } = await supabase.from('meal_plan').insert(inserts).select('*, recipes(title, image, cook_time, category)');
     if (data) { setMealPlans(prev => [...prev, ...(data as MealPlanItem[])]); showToast('Meals added to planner!'); setShowDistributionModal(false); } setLoading(false);
   };
-
-  // --- 13. SCANNERS & VOICE ---
-  useEffect(() => {
-    let html5QrCode: any;
-    if (showBarcodeScanner) {
-      import('html5-qrcode').then(({ Html5Qrcode }) => {
-        html5QrCode = new Html5Qrcode("barcode-reader");
-        html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 150 } },
-          async (decodedText: string) => { try { await html5QrCode.stop(); html5QrCode.clear(); } catch(e) {} setShowBarcodeScanner(false); await handleBarcodeScanned(decodedText); },
-          (err: any) => { }
-        ).catch((err: any) => { showToast("Camera access denied."); setShowBarcodeScanner(false); });
-      }).catch(err => { showToast("Scanner failed to load."); setShowBarcodeScanner(false); });
-    }
-    return () => { if (html5QrCode && html5QrCode.isScanning) { html5QrCode.stop().then(() => html5QrCode.clear()).catch((e: any) => console.log(e)); } };
-  }, [showBarcodeScanner]);
 
   const handleBarcodeScanned = async (barcode: string) => {
     setLoading(true); showToast('Barcode recognized! Fetching...');
@@ -496,90 +480,48 @@ export default function PantryManager() {
         </div>
       )}
 
-      {/* DASHBOARD TOP HEADER */}
       {activeTab === 'dashboard' && !selectedRecipe && (
         <TopHeader activeTab={activeTab} handleTabChange={handleTabChange} setShowAccountModal={setShowAccountModal} />
       )}
       
       <AccountSettingsModal showModal={showAccountModal} setShowModal={setShowAccountModal} userEmail={userEmail} userName={userName} setUserName={setUserName} newEmail={newEmail} setNewEmail={setNewEmail} newPassword={newPassword} setNewPassword={setNewPassword} handleUpdateAccount={handleUpdateAccount} handleSignOut={handleSignOut} handleDeleteAccount={handleDeleteAccount} loading={loading} />
 
-      {/* GLOBAL SCANNERS */}
       {showVoiceInputScreen && (
-        <div className="flex flex-col items-center justify-center min-h-[80vh]">
-          <div className="bg-[#6B705C] p-6 md:p-8 rounded-[32px] shadow-2xl w-full max-w-2xl flex flex-col gap-6 text-white border border-black/10 animate-in fade-in zoom-in-95">
-            <div className="text-center">
-              <h2 className="text-3xl font-bold mb-2">Voice Entry</h2>
-              <p className="text-white/80 text-sm">Say something like: "3 bananas and 200g of flour"</p>
-            </div>
-            <div className="flex justify-center mt-2">
-              <button onClick={toggleListening} className={`px-8 py-4 rounded-2xl flex items-center justify-center gap-3 font-bold transition-all shadow-sm ${isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-black text-white hover:bg-black/80'}`}>
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
-                {isListening ? 'Tap to Stop...' : 'Tap to Speak'}
-              </button>
-            </div>
-            {voiceParsedItems.length > 0 && (
-              <div className="flex flex-col gap-3 mt-4">
-                <h3 className="text-sm font-semibold uppercase tracking-wider text-white/80 border-b border-white/20 pb-2 mb-2">Review Items</h3>
-                {voiceParsedItems.map((item, index) => (
-                  <div key={item.id} className="flex flex-row items-center gap-2 bg-white/10 p-2 rounded-2xl w-full relative z-0 hover:z-10">
-                    <input value={item.name} onChange={e => updateVoiceItem(index, 'name', e.target.value)} className="flex-1 min-w-[80px] bg-white text-black px-2 py-2 rounded-xl text-sm focus:outline-none placeholder:text-black/50" placeholder="Item Name" />
-                    <input type="number" step="any" value={item.quantity} onChange={e => updateVoiceItem(index, 'quantity', e.target.value)} className="w-12 bg-white text-black px-1 py-2 rounded-xl text-sm text-center focus:outline-none" />
-                    <div className="w-[75px]"><CustomSelect value={item.unit} onChange={v => updateVoiceItem(index, 'unit', v)} options={COMMON_UNITS.map(u => ({label: u, value: u}))} className="bg-white rounded-xl" /></div>
-                    <button onClick={() => removeVoiceItem(index)} className="w-8 h-8 shrink-0 flex items-center justify-center bg-red-500/80 text-white rounded-xl font-bold hover:bg-red-500 transition">✕</button>
-                  </div>
-                ))}
-                <button onClick={commitVoiceItems} disabled={loading} className="w-full py-4 mt-4 bg-black text-white rounded-2xl font-bold hover:bg-black/80 shadow-sm transition">
-                  {loading ? 'Saving...' : `Confirm & Add to ${voiceContext === 'shopping' ? 'List' : 'Pantry'}`}
-                </button>
-              </div>
-            )}
-            <div className="border-t border-white/20 pt-4 mt-2">
-              <button onClick={() => { setShowVoiceInputScreen(false); setVoiceParsedItems([]); setVoiceTranscript(''); }} className="w-full py-3 bg-transparent text-white font-bold hover:bg-white/10 rounded-2xl transition">Cancel</button>
-            </div>
-          </div>
-        </div>
+        <VoiceInputModal 
+           isListening={isListening}
+           toggleListening={toggleListening}
+           voiceParsedItems={voiceParsedItems}
+           updateVoiceItem={updateVoiceItem}
+           removeVoiceItem={removeVoiceItem}
+           commitVoiceItems={commitVoiceItems}
+           loading={loading}
+           voiceContext={voiceContext}
+           COMMON_UNITS={COMMON_UNITS}
+           onCancel={() => { setShowVoiceInputScreen(false); setVoiceParsedItems([]); setVoiceTranscript(''); }}
+        />
       )}
 
       {showBarcodeScanner && (
-        <div className="fixed inset-0 bg-black/90 z-[120] flex flex-col items-center justify-center p-4">
-          <div className="bg-[#6B705C] p-6 md:p-8 rounded-[32px] shadow-2xl w-full max-w-sm flex flex-col items-center gap-6 text-white border border-black/10 animate-in fade-in zoom-in-95">
-             <div className="text-center"><h2 className="text-3xl font-bold mb-2">Scan Barcode</h2><p className="text-white/80 text-sm">Align the barcode within the frame</p></div>
-             <div id="barcode-reader" className="w-full rounded-2xl overflow-hidden shadow-inner bg-black"></div>
-             <button onClick={() => setShowBarcodeScanner(false)} className="w-full py-4 bg-white text-black rounded-2xl font-bold hover:bg-gray-100 shadow-sm transition">Cancel</button>
-          </div>
-        </div>
+        <BarcodeScannerModal 
+           onCancel={() => setShowBarcodeScanner(false)}
+           onScan={handleBarcodeScanned}
+           showToast={showToast}
+        />
       )}
 
       {scannedItems && scannedItems.length > 0 && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
-           <div className="bg-white rounded-[32px] w-full max-w-2xl p-6 md:p-8 flex flex-col max-h-[90vh] animate-in zoom-in-95">
-             <h2 className="text-2xl font-bold mb-4">Review Scanned Items</h2>
-             <div className="overflow-y-auto flex-1 space-y-3 pr-2 w-full">
-               {scannedItems.map((item, index) => (
-                  <div key={index} className="flex flex-col gap-2 bg-black/5 p-3 rounded-2xl relative z-0 hover:z-10 w-full">
-                    <div className="flex gap-2 w-full">
-                      <input value={item.name} onChange={e => updateScannedItem(index, 'name', e.target.value)} className="flex-1 w-full min-w-0 px-4 py-3 rounded-xl font-bold focus:outline-none bg-white placeholder:text-black/50" placeholder="Item Name" />
-                      <button onClick={() => removeScannedItem(index)} className="w-12 h-12 flex items-center justify-center bg-red-500/80 text-white rounded-xl font-bold hover:bg-red-500 transition shrink-0">✕</button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 w-full">
-                      <input type="number" step="any" value={item.quantity || 1} onChange={e => updateScannedItem(index, 'quantity', e.target.value)} className="w-full px-4 py-3 rounded-xl text-center focus:outline-none bg-white" placeholder="Qty" />
-                      <div className="w-full h-full"><CustomSelect value={item.unit || 'pcs'} onChange={v => updateScannedItem(index, 'unit', v)} options={COMMON_UNITS.map(u => ({label: u, value: u}))} className="bg-white rounded-xl w-full h-[48px]" /></div>
-                    </div>
-                    <div className="w-full mt-1">
-                      <CustomSelect value={item.category || 'Other'} onChange={v => updateScannedItem(index, 'category', v)} options={dynamicCategories.map(c => ({label: c, value: c}))} className="bg-white rounded-xl w-full" />
-                    </div>
-                  </div>
-               ))}
-             </div>
-             <div className="flex gap-3 mt-6 pt-4 border-t border-black/10 shrink-0">
-                <button onClick={() => setScannedItems(null)} className="flex-1 py-3.5 rounded-2xl font-bold border border-black/20 text-black hover:bg-black/5 transition">Cancel</button>
-                <button onClick={commitScannedItems} disabled={loading} className="flex-1 py-3.5 rounded-2xl font-bold bg-black text-white hover:bg-black/80 transition shadow-sm">{loading ? 'Saving...' : 'Confirm & Add'}</button>
-             </div>
-           </div>
-        </div>
+        <ScannedItemsReviewModal 
+           scannedItems={scannedItems}
+           updateScannedItem={updateScannedItem}
+           removeScannedItem={removeScannedItem}
+           commitScannedItems={commitScannedItems}
+           loading={loading}
+           onCancel={() => setScannedItems(null)}
+           COMMON_UNITS={COMMON_UNITS}
+           dynamicCategories={dynamicCategories}
+        />
       )}
 
-      {/* PLANNER DISTRIBUTION MODAL */}
       {showDistributionModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
           <div className="w-full max-w-3xl rounded-[32px] p-6 md:p-8 bg-white border border-black/20 text-black shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95">
@@ -651,14 +593,24 @@ export default function PantryManager() {
         </div>
       )}
 
-      {/* RECIPE ACTION MENU */}
       {recipeActionMenu.isOpen && recipeActionMenu.recipe && (
         <div className="fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 transition-opacity" onClick={() => setRecipeActionMenu({isOpen: false, recipe: null})}>
            <div className="bg-white w-full sm:max-w-sm rounded-t-[32px] sm:rounded-[32px] p-6 pb-10 sm:pb-6 shadow-2xl animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-0 sm:zoom-in-95" onClick={e => e.stopPropagation()}>
               <h3 className="font-bold text-xl mb-4 text-center px-4 leading-tight">{recipeActionMenu.recipe.title}</h3>
               <div className="flex flex-col gap-2">
                  <button onClick={() => { startEditingRecipe(recipeActionMenu.recipe!); setRecipeActionMenu({isOpen: false, recipe: null}); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Edit Recipe</button>
-                 <button onClick={() => { handleTabChange('planner'); setRecipeActionMenu({isOpen: false, recipe: null}); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Add to Planner</button>
+                 
+                 {/* UPDATED: Add to planner button correctly skips directly to portion distribution */}
+                 <button onClick={() => { 
+                   const r = recipeActionMenu.recipe!; 
+                   setSelectedRecipe(r); 
+                   setTargetPortions(r.portions || 4); 
+                   setPlanTargetPortions(r.portions || 4); 
+                   setAllocationsGrid({}); 
+                   setShowDistributionModal(true); 
+                   setRecipeActionMenu({isOpen: false, recipe: null}); 
+                 }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Add to Planner</button>
+                 
                  <button onClick={() => { deleteRecipe(recipeActionMenu.recipe!.id); setRecipeActionMenu({isOpen: false, recipe: null}); handleTabChange('recipes'); }} className="w-full py-4 bg-red-50 text-red-600 hover:bg-red-100 rounded-2xl font-bold transition mt-2 shadow-sm">Delete Recipe</button>
               </div>
            </div>
@@ -691,7 +643,6 @@ export default function PantryManager() {
         </div>
       )}
 
-      {/* --- EXPORTED EDIT RECIPE VIEW --- */}
       {selectedRecipe && isEditingRecipe && (
          <EditRecipeView 
             editRecipeForm={editRecipeForm}
@@ -704,7 +655,6 @@ export default function PantryManager() {
          />
       )}
 
-      {/* --- EXPORTED RECIPE DETAIL VIEW --- */}
       {selectedRecipe && !isEditingRecipe && (
          <RecipeDetailView 
            recipe={selectedRecipe}
@@ -724,7 +674,6 @@ export default function PantryManager() {
          />
       )}
 
-      {/* --- TAB ROUTING --- */}
       {!selectedRecipe && activeTab === 'dashboard' && (
         <DashboardTab 
           todaysMeals={todaysMeals} recipes={recipes} handleOpenRecipe={handleOpenRecipe} 
@@ -748,7 +697,7 @@ export default function PantryManager() {
           userId={userId} shoppingList={shoppingList} setShoppingList={setShoppingList}
           addOrMergeShoppingItem={addOrMergeShoppingItem} lowStockItems={lowStockItems}
           COMMON_UNITS={COMMON_UNITS} setVoiceContext={setVoiceContext} setShowVoiceInputScreen={setShowVoiceInputScreen}
-          addLowStockToShopping={addLowStockToShopping} showToast={showToast}
+          showToast={showToast}
         />
       )}
 
