@@ -8,7 +8,8 @@ import { PantryItem, Recipe, ShoppingItem, MealPlanItem } from '@/utils/types';
 import { 
   toBaseUnit, fromBaseUnit, scaleAndConvertIngredient, cleanIngredientName, 
   getStandardGroceryItem, getAisle, compressImage, normalizeName, getNext7Days,
-  computeExpiryDate, normalizeForScaler, getIngredientStatus
+  computeExpiryDate, normalizeForScaler, getIngredientStatus,
+  learnItemCategory // NEW: Imports the smart learning engine
 } from '@/utils/helpers';
 
 import CustomSelect from '@/components/ui/CustomSelect';
@@ -297,6 +298,10 @@ export default function PantryManager() {
   };
 
   const addOrMergePantryItem = async (newItem: { name: string, category: string, quantity: number, unit: string, track_low_stock: boolean, low_stock_threshold: number, expiration_date?: string | null }) => {
+    
+    // NEW: Learn the category for future scans and voice inputs!
+    learnItemCategory(newItem.name, newItem.category);
+
     const perishableCategories = ['Produce', 'Dairy & Eggs', 'Meat & Poultry', 'Seafood', 'Deli & Prepared Foods', 'Vegetarian Products'];
     let expDate = newItem.expiration_date || null;
     
@@ -599,8 +604,6 @@ export default function PantryManager() {
               <h3 className="font-bold text-xl mb-4 text-center px-4 leading-tight">{recipeActionMenu.recipe.title}</h3>
               <div className="flex flex-col gap-2">
                  <button onClick={() => { startEditingRecipe(recipeActionMenu.recipe!); setRecipeActionMenu({isOpen: false, recipe: null}); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Edit Recipe</button>
-                 
-                 {/* UPDATED: Add to planner button correctly skips directly to portion distribution */}
                  <button onClick={() => { 
                    const r = recipeActionMenu.recipe!; 
                    setSelectedRecipe(r); 
@@ -610,7 +613,6 @@ export default function PantryManager() {
                    setShowDistributionModal(true); 
                    setRecipeActionMenu({isOpen: false, recipe: null}); 
                  }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Add to Planner</button>
-                 
                  <button onClick={() => { deleteRecipe(recipeActionMenu.recipe!.id); setRecipeActionMenu({isOpen: false, recipe: null}); handleTabChange('recipes'); }} className="w-full py-4 bg-red-50 text-red-600 hover:bg-red-100 rounded-2xl font-bold transition mt-2 shadow-sm">Delete Recipe</button>
               </div>
            </div>

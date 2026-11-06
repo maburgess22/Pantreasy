@@ -57,24 +57,49 @@ export function getStandardGroceryItem(str: string) {
   return str; 
 }
 
+// --- NEW: SMART MEMORY ENGINE ---
+export function learnItemCategory(itemName: string, category: string) {
+  if (typeof window !== 'undefined') {
+    try {
+      const learned = localStorage.getItem('learnedCategories');
+      const parsed = learned ? JSON.parse(learned) : {};
+      parsed[itemName.toLowerCase().trim()] = category;
+      localStorage.setItem('learnedCategories', JSON.stringify(parsed));
+    } catch(e) { console.warn("Failed to learn category", e); }
+  }
+}
+
+// --- UPDATED: SUPERCHARGED DICTIONARY ---
 export function getAisle(itemName: string) {
-  const lower = itemName.toLowerCase();
+  const lower = itemName.toLowerCase().trim();
   
-  if (/(tofu|tempeh|seitan|quorn|beyond|impossible|meatless|vegan|vegetarian|plant-based|plant based|nutritional yeast|aquafaba|tvp)/.test(lower)) return 'Vegetarian Products';
-  if (/(milk|cheese|yogurt|butter|egg|cream|feta|mozzarella|cheddar|parmesan|brie|paneer|halloumi|ghee|whey|dairy|kefir|quark|mascarpone|ricotta|provolone|gouda|swiss|camembert|gorgonzola|roquefort|buttermilk|margarine)/.test(lower)) return 'Dairy & Eggs';
-  if (/(chicken|beef|pork|lamb|sausage|bacon|turkey|duck|veal|ham|salami|prosciutto|pepperoni|steak|mince|venison|goose|quail|rabbit|chorizo|pancetta|pastrami|bresaola|bratwurst|frankfurter|meatball|patty)/.test(lower)) return 'Meat & Poultry';
-  if (/(fish|salmon|tuna|shrimp|prawn|cod|crab|lobster|seafood|mussel|scallop|squid|calamari|oyster|clam|haddock|trout|mackerel|sardine|anchovy|halibut|tilapia|mahi|swordfish|octopus|eel|caviar)/.test(lower)) return 'Seafood';
-  if (/(apple|banana|berr|tomato|lettuce|onion|garlic|potato|carrot|pepper|spinach|broccoli|fruit|veg|avocado|avacado|mushroom|celery|cabbage|melon|orange|lemon|lime|grape|peach|plum|pear|asparagus|zucchini|courgette|aubergine|eggplant|strawberr|blueberr|raspberr|blackberr|cranberr|cherr|apricot|nectarine|grapefruit|tangerine|pomelo|papaya|mango|pineapple|kiwi|pomegranate|fig|date|watermelon|cantaloupe|honeydew|radish|turnip|parsnip|beet|rutabaga|yam|squash|pumpkin|leek|scallion|chive|shallot|artichoke|brussels sprout|cauliflower|bok choy|chard|collard|arugula|watercress|endive|radicchio|fennel|okra|corn|pea|edamame)/.test(lower)) return 'Produce';
+  // 1. Check Smart Memory First
+  if (typeof window !== 'undefined') {
+    try {
+      const learned = localStorage.getItem('learnedCategories');
+      if (learned) {
+        const parsed = JSON.parse(learned);
+        if (parsed[lower]) return parsed[lower];
+      }
+    } catch(e) {}
+  }
+
+  // 2. Expanded Fallback Dictionary
+  if (/(tofu|tempeh|seitan|quorn|beyond meat|impossible|linda mccartney|cauldron|soya|meatless|vegan|vegetarian|plant-based|plant based|nutritional yeast|aquafaba|tvp|meat free|dairy free)/.test(lower)) return 'Vegetarian Products';
+  if (/(milk|cheese|yogurt|yoghurt|butter|egg|cream|feta|mozzarella|cheddar|parmesan|brie|paneer|halloumi|ghee|whey|dairy|kefir|quark|mascarpone|ricotta|provolone|gouda|swiss|camembert|gorgonzola|roquefort|buttermilk|margarine|alpro|oatly|yakult|actimel|lurpak|flora|bertolli|sour cream|creme fraiche)/.test(lower)) return 'Dairy & Eggs';
+  if (/(chicken|beef|pork|lamb|sausage|bacon|turkey|duck|veal|ham|salami|prosciutto|pepperoni|steak|mince|venison|goose|quail|rabbit|chorizo|pancetta|pastrami|bresaola|bratwurst|frankfurter|meatball|patty|black pudding|haggis)/.test(lower)) return 'Meat & Poultry';
+  if (/(fish|salmon|tuna|shrimp|prawn|cod|crab|lobster|seafood|mussel|scallop|squid|calamari|oyster|clam|haddock|trout|mackerel|sardine|anchovy|halibut|tilapia|mahi|swordfish|octopus|eel|caviar|bass|bream|crayfish|surimi)/.test(lower)) return 'Seafood';
+  if (/(apple|banana|berr|tomato|lettuce|onion|garlic|potato|carrot|pepper|spinach|broccoli|fruit|veg|avocado|avacado|mushroom|celery|cabbage|melon|orange|lemon|lime|grape|peach|plum|pear|asparagus|zucchini|courgette|aubergine|eggplant|strawberr|blueberr|raspberr|blackberr|cranberr|cherr|apricot|nectarine|grapefruit|tangerine|pomelo|papaya|mango|pineapple|kiwi|pomegranate|fig|date|watermelon|cantaloupe|honeydew|radish|turnip|parsnip|beet|rutabaga|yam|squash|pumpkin|leek|scallion|chive|shallot|artichoke|brussels sprout|cauliflower|bok choy|chard|collard|arugula|rocket|watercress|endive|radicchio|fennel|okra|corn|pea|edamame|kale|guava|lychee|dragonfruit|sweet potato|spring onion|swede|beetroot|satsuma|clementine|mandarin)/.test(lower)) return 'Produce';
   if (/(bread|bagel|bun|pastry|croissant|muffin|cake|tortilla|wrap|pita|loaf|baguette|ciabatta|focaccia|sourdough|pumpernickel|rye|brioche|crumpet|scone|biscuit|roll|donut|doughnut|pie|tart|brownie|cupcake)/.test(lower)) return 'Bakery';
-  if (/(spice|herb|salt|pepper|sauce|ketchup|mustard|mayo|dressing|vinegar|syrup|honey|cumin|paprika|cinnamon|nutmeg|turmeric|coriander|ginger|bay leaf|oregano|thyme|basil|rosemary|parsley|cilantro|mint|dill|sage|tarragon|cardamom|clove|saffron|vanilla|teriyaki|sriracha|salsa|relish|chutney|jam|jelly|marmalade|peanut butter|almond butter|spread|molasses|gravy)/.test(lower)) return 'Spices & Condiments';
-  if (/(rice|pasta|flour|sugar|oil|canned|bean|lentil|broth|soup|cereal|oat|noodle|spaghetti|macaroni|chickpea|garbanzo|quinoa|barley|couscous|bulgur|polenta|cornmeal|stock|bouillon|yeast|baking powder|baking soda|cornstarch|cocoa|chocolate chip|peanut|almond|walnut|pecan|cashew|hazelnut|macadamia|pistachio|sunflower seed|pumpkin seed|chia|flax|hemp|sesame|olive|caper|pickle)/.test(lower)) return 'Pantry Staples';
-  if (/(water|juice|soda|coffee|tea|beer|wine|liquor|beverage|drink|lemonade|cider|espresso|cappuccino|latte|matcha|kombucha|cola|pop|champagne|prosecco|vodka|rum|whiskey|gin|tequila|cocktail|smoothie|squash|cordial)/.test(lower)) return 'Beverages';
-  if (/(chip|crisp|cookie|chocolate|candy|nut|popcorn|cracker|pretzel|nacho|puff|jerky|fruit leather|gummy|marshmallow|caramel|toffee|fudge|nougat|mint|gum)/.test(lower)) return 'Snacks & Sweets';
-  if (/(pizza|ice cream|frozen|gelato|sorbet|popsicle|fish stick|hash brown|waffle)/.test(lower)) return 'Frozen Foods';
-  if (/(deli|hummus|prepared|salad kit|coleslaw|potato salad|macaroni salad|rotisserie|pate|guac|tzatziki|sushi)/.test(lower)) return 'Deli & Prepared Foods';
-  if (/(soap|clean|detergent|paper towel|trash|foil|tissue|bleach|sponge|mop|broom|wipe|spray|polish|softener|wrapper|ziploc|bag|parchment|napkin|plate|cup|cutlery|battery|bulb)/.test(lower)) return 'Household & Cleaning';
-  if (/(shampoo|lotion|toothpaste|medicine|vitamin|dental|deodorant|body wash|conditioner|razor|shaving|tampon|pad|diaper|band-aid|plaster|advil|tylenol|ibuprofen|paracetamol|aspirin|allergy|supplement|protein powder)/.test(lower)) return 'Health & Personal Care';
-  if (/(dog|cat|pet|kibble|treat|litter|chew)/.test(lower)) return 'Pet Care';
+  if (/(spice|herb|salt|pepper|sauce|ketchup|mustard|mayo|mayonnaise|dressing|vinegar|syrup|honey|cumin|paprika|cinnamon|nutmeg|turmeric|coriander|ginger|bay leaf|oregano|thyme|basil|rosemary|parsley|cilantro|mint|dill|sage|tarragon|cardamom|clove|saffron|vanilla|teriyaki|sriracha|salsa|relish|chutney|jam|jelly|marmalade|peanut butter|almond butter|spread|molasses|gravy|seasoning|chili powder|curry powder|garam masala|marinade|pickle|pesto|paste|marmite|vegemite)/.test(lower)) return 'Spices & Condiments';
+  if (/(rice|pasta|flour|sugar|oil|canned|bean|lentil|broth|soup|cereal|oat|noodle|spaghetti|macaroni|chickpea|garbanzo|quinoa|barley|couscous|bulgur|polenta|cornmeal|stock|bouillon|yeast|baking powder|baking soda|cornstarch|cocoa|chocolate chip|peanut|almond|walnut|pecan|cashew|hazelnut|macadamia|pistachio|sunflower seed|pumpkin seed|chia|flax|hemp|sesame|olive|caper|penne|fusilli|linguine|tagliatelle|muesli|granola|porridge|tinned|baking|heinz)/.test(lower)) return 'Pantry Staples';
+  if (/(water|sparkling|juice|soda|coffee|tea|beer|wine|liquor|beverage|drink|lemonade|cider|espresso|cappuccino|latte|matcha|kombucha|cola|pop|champagne|prosecco|vodka|rum|whiskey|whisky|gin|tequila|cocktail|smoothie|squash|cordial|pepsi|sprite|fanta|tonic|hot chocolate|milkshake|liqueur)/.test(lower)) return 'Beverages';
+  if (/(chip|crisp|cookie|chocolate|candy|nut|popcorn|cracker|pretzel|nacho|puff|jerky|fruit leather|gummy|marshmallow|caramel|toffee|fudge|nougat|mint|gum|doritos|pringles|sweets|haribo|cadbury|mars|snickers|kitkat|twix|maltesers)/.test(lower)) return 'Snacks & Sweets';
+  if (/(pizza|ice cream|frozen|gelato|sorbet|popsicle|fish stick|fish fingers|hash brown|waffle|lolly|chips|fries|wedges|peas|sweetcorn|mixed veg)/.test(lower)) return 'Frozen Foods';
+  if (/(deli|hummus|prepared|salad kit|coleslaw|potato salad|macaroni salad|pasta salad|rotisserie|pate|guac|guacamole|tzatziki|sushi|sliced meat|cold cuts|olives|antipasti|sandwich|pasty|sausage roll|quiche|ready meal)/.test(lower)) return 'Deli & Prepared Foods';
+  if (/(soap|clean|detergent|paper towel|trash|foil|tissue|bleach|sponge|mop|broom|wipe|spray|polish|softener|wrapper|ziploc|bag|parchment|napkin|plate|cup|cutlery|battery|bulb|fairy|persil|ariel|lenor|comfort|bold|daz|surf|cif|flash|mr muscle|toilet roll|kitchen roll|bin bag|trash bag|cling film|baking paper|washing up liquid|dishwasher|scourer|cloth|air freshener|lightbulb|match|lighter)/.test(lower)) return 'Household & Cleaning';
+  if (/(shampoo|lotion|toothpaste|medicine|vitamin|dental|deodorant|body wash|conditioner|razor|shaving|tampon|pad|diaper|band-aid|plaster|advil|tylenol|ibuprofen|paracetamol|aspirin|allergy|supplement|protein powder|shower gel|antiperspirant|toothbrush|mouthwash|floss|moisturiser|cream|suncream|makeup|cotton|liner|nappy|wipes|bandage|colgate|oral b|gillette|nivea|dove|pantene|head and shoulders|tresemme|loreal)/.test(lower)) return 'Health & Personal Care';
+  if (/(dog|cat|pet|kibble|treat|litter|chew|toy|pedigree|whiskas|felix|purina)/.test(lower)) return 'Pet Care';
   
   return 'Other';
 }
@@ -215,12 +240,12 @@ export async function getEstimatedShelfLifeDays(itemName: string): Promise<numbe
     }
   }
   
-  const category = getAisle(itemName);
   const categoryDefaults: Record<string, number> = {
     'Produce': 7, 'Dairy & Eggs': 14, 'Meat & Poultry': 4,
     'Seafood': 3, 'Deli & Prepared Foods': 5, 'Vegetarian Products': 7, 'Bakery': 5
   };
 
+  const category = getAisle(itemName);
   if (categoryDefaults[category]) return categoryDefaults[category];
   return null;
 }
@@ -246,8 +271,6 @@ export function getExpiryStatus(expirationDateStr?: string | null): {
   if (diffDays <= 3) return { label: `Expires in ${diffDays}d`, color: 'warning', daysRemaining: diffDays };
   return { label: `Expires in ${diffDays}d`, color: 'good', daysRemaining: diffDays };
 }
-
-// --- UNIFIED MATH PARSERS & UI FORMATTERS ---
 
 export const normalizeForScaler = (ingStr: string) => {
   if (ingStr.startsWith('##')) return ingStr;
