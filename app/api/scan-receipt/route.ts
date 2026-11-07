@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export async function POST(request: Request) {
   try {
@@ -32,34 +33,28 @@ export async function POST(request: Request) {
     const apiKey = process.env.GEMINI_API_KEY || '';
     if (!apiKey) return NextResponse.json({ message: 'GEMINI_API_KEY is missing from .env.local' }, { status: 500 });
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: systemPrompt },
-              { inlineData: { mimeType: mimeType, data: base64Image } }
-            ]
-          }
-        ],
-        generationConfig: { temperature: 0.1, responseMimeType: "application/json" }
-      })
+    const genAI = new GoogleGenerativeAI(apiKey);
+    
+    // Standardized to the verified active model for fast multimodal parsing
+    const model = genAI.getGenerativeModel({ 
+      model: 'gemini-3.5-flash',
+      generationConfig: { 
+        temperature: 0.1, 
+        responseMimeType: "application/json" 
+      }
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      let errMsg = 'Failed to communicate with AI scanner.';
-      try { const errObj = JSON.parse(errorText); if (errObj.error?.message) errMsg = errObj.error.message; } catch (e) {}
-      return NextResponse.json({ message: errMsg }, { status: response.status });
-    }
+    const imagePart = {
+      inlineData: {
+        data: base64Image,
+        mimeType: mimeType
+      }
+    };
 
-    const aiData = await response.json();
-    const rawContent = aiData.candidates[0].content.parts[0].text;
-    const parsedData = JSON.parse(rawContent);
+    // The SDK seamlessly handles the multimodal array format
+    const result = await model.generateContent([systemPrompt, imagePart]);
+    const responseText = result.response.text();
+    const parsedData = JSON.parse(responseText);
 
     return NextResponse.json(parsedData, { status: 200 });
 

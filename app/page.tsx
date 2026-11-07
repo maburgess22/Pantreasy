@@ -7,9 +7,9 @@ import { createClient } from '@/utils/supabase/client';
 import { PantryItem, Recipe, ShoppingItem, MealPlanItem } from '@/utils/types';
 import { 
   toBaseUnit, fromBaseUnit, scaleAndConvertIngredient, cleanIngredientName, 
-  getStandardGroceryItem, getAisle, compressImage, normalizeName, getNext7Days,
+  getStandardGroceryItem, compressImage, normalizeName, getNext7Days,
   computeExpiryDate, normalizeForScaler, getIngredientStatus,
-  learnItemCategory // NEW: Imports the smart learning engine
+  fetchSmartCategory, getCachedCategory
 } from '@/utils/helpers';
 
 import CustomSelect from '@/components/ui/CustomSelect';
@@ -69,9 +69,6 @@ export default function PantryManager() {
   const [isEditingRecipe, setIsEditingRecipe] = useState(false);
   const [editRecipeForm, setEditRecipeForm] = useState({ title: '', category: '', cook_time: '', portions: 4, image: '', ingredientsList: [] as {id: number, name: string, amount: string, unit: string, isHeader?: boolean}[], instructionsText: '' });
   
-  const [showManualAddRecipe, setShowManualAddRecipe] = useState(false);
-  const [manualRecipe, setManualRecipe] = useState({ title: '', category: '', cook_time: '30 mins', portions: 4, ingredientsList: [{id: 1, name: '', amount: '1', unit: 'pcs'} as {id: number, name: string, amount: string, unit: string, isHeader?: boolean}], instructionsText: '', image: '' });
-
   const [showVoiceInputScreen, setShowVoiceInputScreen] = useState(false);
   const [voiceContext, setVoiceContext] = useState<'shopping' | 'pantry'>('shopping');
   const [voiceTranscript, setVoiceTranscript] = useState('');
@@ -107,7 +104,7 @@ export default function PantryManager() {
   const allCombinedCategories = Array.from(new Set([...userDefinedCategories, ...dynamicRecipeTags])).sort();
   const visiblePantryItems = items.filter(i => i.quantity > 0);
 
-  const isGlobalModalOpen = !!(showAccountModal || showVoiceInputScreen || showBarcodeScanner || recipeActionMenu.isOpen || scannedItems || showDistributionModal || recipePickerTarget || showManualAddRecipe);
+  const isGlobalModalOpen = !!(showAccountModal || showVoiceInputScreen || showBarcodeScanner || recipeActionMenu.isOpen || scannedItems || showDistributionModal || recipePickerTarget);
 
   useEffect(() => {
     if (isGlobalModalOpen) document.body.style.overflow = 'hidden';
@@ -132,8 +129,16 @@ export default function PantryManager() {
       if (pData) setItems(pData);
       const { data: rData } = await supabase.from('recipes').select('*').eq('user_id', uid).order('created_at', { ascending: false });
       if (rData) setRecipes(rData);
+      
       const { data: sData } = await supabase.from('shopping_list').select('*').eq('user_id', uid).order('created_at', { ascending: false });
-      if (sData) setShoppingList(sData);
+      if (sData) {
+        setShoppingList(sData);
+        const missingCats = sData.filter(i => getCachedCategory(i.name) === 'Other');
+        missingCats.forEach(i => {
+           fetchSmartCategory(i.name, uid, supabase).then(() => setShoppingList(prev => [...prev])); 
+        });
+      }
+      
       const { data: mData } = await supabase.from('meal_plan').select('*, recipes(title, image, cook_time, category)').eq('user_id', uid).gte('date', todayStr).order('date', { ascending: true });
       if (mData) setMealPlans(mData as MealPlanItem[]);
     };
@@ -297,10 +302,27 @@ export default function PantryManager() {
     showToast(`Category deleted`);
   };
 
-  const addOrMergePantryItem = async (newItem: { name: string, category: string, quantity: number, unit: string, track_low_stock: boolean, low_stock_threshold: number, expiration_date?: string | null }) => {
-    
-    // NEW: Learn the category for future scans and voice inputs!
-    learnItemCategory(newItem.name, newItem.category);
+  // NEW: Background Worker for AI Categorization
+  const backgroundCategorizePantryItem = async (itemId: string, itemName: string, currentCategory: string) => {
+    try {
+      const smartCat = await fetchSmartCategory(itemName, userId, supabase);
+      if (smartCat && smartCat !== 'Other' && smartCat !== currentCategory) {
+        // Silently update database
+        await supabase.from('pantry_items').update({ category: smartCat }).eq('id', itemId).eq('user_id', userId);
+        // Silently update the UI state
+        setItems(prev => prev.map(i => i.id === itemId ? { ...i, category: smartCat } : i));
+      }
+    } catch (error) {
+      console.error('[Background AI] Silently failed, item remains in fallback category', error);
+    }
+  };
+
+  const addOrMergePantryItem = async (newItem: { name: string, category?: string, quantity: number, unit: string, track_low_stock: boolean, low_stock_threshold: number, expiration_date?: string | null }) => {
+    // 1. Optimistic UI: Apply local cached category instantly if none is provided
+    const needsSmartCategory = !newItem.category || newItem.category === 'Other';
+    if (needsSmartCategory) {
+      newItem.category = getCachedCategory(newItem.name) || 'Other';
+    }
 
     const perishableCategories = ['Produce', 'Dairy & Eggs', 'Meat & Poultry', 'Seafood', 'Deli & Prepared Foods', 'Vegetarian Products'];
     let expDate = newItem.expiration_date || null;
@@ -318,29 +340,62 @@ export default function PantryManager() {
         const final = fromBaseUnit(combinedBaseQty, existing.quantity === 0 ? newBase.base : existingBase.base);
         const newExpDate = existing.quantity === 0 ? expDate : (existing.expiration_date || expDate);
         
-        await supabase.from('pantry_items').update({ quantity: final.qty, unit: final.unit, track_low_stock: newItem.track_low_stock || existing.track_low_stock, expiration_date: newExpDate }).eq('id', existing.id).eq('user_id', userId);
+        // 2. Optimistic UI: Update state instantly
         setItems(prev => prev.map(i => i.id === existing.id ? { ...i, quantity: final.qty, unit: final.unit, track_low_stock: newItem.track_low_stock || i.track_low_stock, expiration_date: newExpDate } : i));
+        
+        // 3. Optimistic UI: Send update to Supabase in the background
+        supabase.from('pantry_items')
+          .update({ quantity: final.qty, unit: final.unit, track_low_stock: newItem.track_low_stock || i.track_low_stock, expiration_date: newExpDate })
+          .eq('id', existing.id).eq('user_id', userId)
+          .then(() => {
+             // If AI lookup is needed, trigger background async worker
+             if (needsSmartCategory && newItem.category === 'Other') {
+                 backgroundCategorizePantryItem(existing.id, newItem.name, newItem.category!);
+             }
+          });
+          
         return;
       }
     }
 
+    // Insert new item fast
+    setLoading(true); // Short lock just for DB insert (~100ms)
     const { data } = await supabase.from('pantry_items').insert([{ ...newItem, expiration_date: expDate, user_id: userId }]).select().single();
-    if (data) setItems(prev => [data, ...prev]);
+    if (data) {
+      setItems(prev => [data, ...prev]);
+      
+      // If AI lookup is needed, trigger background async worker
+      if (needsSmartCategory && newItem.category === 'Other') {
+        backgroundCategorizePantryItem(data.id, data.name, data.category);
+      }
+    }
+    setLoading(false);
   };
 
   const addOrMergeShoppingItem = async (newItem: { name: string, quantity: number, unit: string }) => {
+    // 1. Optimistic UI: Fire background cache warm-up without waiting
+    if (getCachedCategory(newItem.name) === 'Other') {
+      fetchSmartCategory(newItem.name, userId, supabase).catch(console.error);
+    }
+
     const existing = shoppingList.find(i => normalizeName(i.name) === normalizeName(newItem.name) && !i.checked);
     if (existing) {
       const existingBase = toBaseUnit(existing.quantity || 1, existing.unit || 'pcs'); const newBase = toBaseUnit(newItem.quantity, newItem.unit);
       if (existingBase.base === newBase.base) {
         const combinedBaseQty = existingBase.qty + newBase.qty; const final = fromBaseUnit(combinedBaseQty, existingBase.base);
-        await supabase.from('shopping_list').update({ quantity: final.qty, unit: final.unit }).eq('id', existing.id).eq('user_id', userId);
+        
+        // 2. Optimistic UI: Update state and DB silently
         setShoppingList(prev => prev.map(i => i.id === existing.id ? { ...i, quantity: final.qty, unit: final.unit } : i));
+        supabase.from('shopping_list').update({ quantity: final.qty, unit: final.unit }).eq('id', existing.id).eq('user_id', userId);
         return;
       }
     } 
+    
+    // Insert new item fast
+    setLoading(true);
     const { data } = await supabase.from('shopping_list').insert([{ ...newItem, user_id: userId }]).select().single();
     if (data) setShoppingList(prev => [data, ...prev]);
+    setLoading(false);
   };
 
   const handleAddTrackedItem = async (itemName: string, category: string, unit: string, threshold: number) => {
@@ -389,8 +444,11 @@ export default function PantryManager() {
       if (data.status === 1 && data.product) {
         const p = data.product; const itemName = p.product_name || p.generic_name || 'Unknown Item'; const brand = p.brands ? `${p.brands.split(',')[0]} ` : '';
         const fullName = `${brand}${itemName}`.trim().charAt(0).toUpperCase() + `${brand}${itemName}`.trim().slice(1).toLowerCase();
-        if (p.quantity) { const match = p.quantity.match(/^([\d.]+)\s*([a-zA-Z]+)/); if (match) { await addOrMergePantryItem({ name: fullName, category: getAisle(fullName), quantity: parseFloat(match[1]), unit: match[2].toLowerCase(), track_low_stock: false, low_stock_threshold: 1 }); showToast('Item loaded and saved!'); setLoading(false); return; } }
-        await addOrMergePantryItem({ name: fullName, category: getAisle(fullName), quantity: 1, unit: 'pcs', track_low_stock: false, low_stock_threshold: 1 }); showToast('Item loaded and saved!');
+        
+        const smartCat = await fetchSmartCategory(fullName, userId, supabase);
+        
+        if (p.quantity) { const match = p.quantity.match(/^([\d.]+)\s*([a-zA-Z]+)/); if (match) { await addOrMergePantryItem({ name: fullName, category: smartCat, quantity: parseFloat(match[1]), unit: match[2].toLowerCase(), track_low_stock: false, low_stock_threshold: 1 }); showToast('Item loaded and saved!'); setLoading(false); return; } }
+        await addOrMergePantryItem({ name: fullName, category: smartCat, quantity: 1, unit: 'pcs', track_low_stock: false, low_stock_threshold: 1 }); showToast('Item loaded and saved!');
       } else { showToast('Product not found in database.'); }
     } catch (e) { showToast('Error looking up barcode.'); }
     setLoading(false);
@@ -419,7 +477,10 @@ export default function PantryManager() {
       const match = cleanedItemStr.match(/^([\d.]+)?\s*(?:\b(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|grams|kilograms|liters|milliliters|cloves)\b)?\s*(.*)$/i);
       let qty = 1; let unit = 'pcs'; let parsedName = cleanedItemStr;
       if (match) { if (match[1]) qty = parseFloat(match[1]); if (match[2]) { const rawUnit = match[2].toLowerCase(); if (rawUnit === 'grams') unit = 'g'; else if (rawUnit === 'kilograms') unit = 'kg'; else if (rawUnit === 'liters') unit = 'l'; else if (rawUnit === 'milliliters') unit = 'ml'; else unit = rawUnit; } if (match[3]) parsedName = match[3]; }
-      let standardizedName = parsedName.charAt(0).toUpperCase() + parsedName.slice(1); let predictedCategory = getAisle(standardizedName);
+      let standardizedName = parsedName.charAt(0).toUpperCase() + parsedName.slice(1); 
+      
+      const predictedCategory = getCachedCategory(standardizedName); 
+      
       if (unit === 'pcs') { if (standardizedName.toLowerCase().includes('milk') || standardizedName.toLowerCase().includes('water')) unit = 'ml'; if (standardizedName.toLowerCase().includes('flour') || standardizedName.toLowerCase().includes('sugar') || standardizedName.toLowerCase().includes('rice')) unit = 'g'; }
       return { id: Date.now() + idx, name: standardizedName.trim(), quantity: qty, unit, category: predictedCategory };
     });
@@ -452,6 +513,7 @@ export default function PantryManager() {
                  if (offData.products && offData.products.length > 0 && offData.products[0].quantity) { const match = offData.products[0].quantity.match(/^([\d.]+)\s*([a-zA-Z]+)/); if (match) { item.quantity = parseFloat(match[1]) || item.quantity; item.unit = match[2].toLowerCase(); } }
               } catch(e) {}
            }
+           item.category = await fetchSmartCategory(item.name, userId, supabase);
            return item;
         }));
         setScannedItems(enrichedItems);

@@ -1,5 +1,54 @@
 import foodKeeperData from './foodKeeperData.json';
 
+// --- MASSIVE LOCAL UK GROCERY DICTIONARY ---
+// This bypasses the AI completely for 95% of common items, delivering 0ms latency.
+const UK_GROCERY_DICT: Record<string, string> = {
+  // Spices & Condiments
+  'fenugreek': 'Spices & Condiments', 'salt': 'Spices & Condiments', 'pepper': 'Spices & Condiments', 'cumin': 'Spices & Condiments', 'coriander': 'Spices & Condiments', 'turmeric': 'Spices & Condiments', 'paprika': 'Spices & Condiments', 'cinnamon': 'Spices & Condiments', 'nutmeg': 'Spices & Condiments', 'garam masala': 'Spices & Condiments', 'curry powder': 'Spices & Condiments', 'chilli powder': 'Spices & Condiments', 'chili flakes': 'Spices & Condiments', 'oregano': 'Spices & Condiments', 'basil': 'Spices & Condiments', 'thyme': 'Spices & Condiments', 'rosemary': 'Spices & Condiments', 'parsley': 'Spices & Condiments', 'mint': 'Spices & Condiments', 'dill': 'Spices & Condiments', 'bay leaves': 'Spices & Condiments', 'soy sauce': 'Spices & Condiments', 'mayo': 'Spices & Condiments', 'mayonnaise': 'Spices & Condiments', 'ketchup': 'Spices & Condiments', 'tomato ketchup': 'Spices & Condiments', 'brown sauce': 'Spices & Condiments', 'mustard': 'Spices & Condiments', 'vinegar': 'Spices & Condiments', 'balsamic vinegar': 'Spices & Condiments', 'honey': 'Spices & Condiments', 'maple syrup': 'Spices & Condiments', 'jam': 'Spices & Condiments', 'marmalade': 'Spices & Condiments', 'peanut butter': 'Spices & Condiments', 'marmite': 'Spices & Condiments', 'stock cubes': 'Spices & Condiments', 'gravy granules': 'Spices & Condiments', 'vanilla extract': 'Spices & Condiments', 'pesto': 'Spices & Condiments',
+  
+  // Produce
+  'apple': 'Produce', 'apples': 'Produce', 'banana': 'Produce', 'bananas': 'Produce', 'orange': 'Produce', 'oranges': 'Produce', 'lemon': 'Produce', 'lemons': 'Produce', 'lime': 'Produce', 'limes': 'Produce', 'grape': 'Produce', 'grapes': 'Produce', 'strawberry': 'Produce', 'strawberries': 'Produce', 'raspberry': 'Produce', 'raspberries': 'Produce', 'blueberry': 'Produce', 'blueberries': 'Produce', 'carrot': 'Produce', 'carrots': 'Produce', 'potato': 'Produce', 'potatoes': 'Produce', 'onion': 'Produce', 'onions': 'Produce', 'garlic': 'Produce', 'garlic bulb': 'Produce', 'tomato': 'Produce', 'tomatoes': 'Produce', 'cucumber': 'Produce', 'pepper': 'Produce', 'peppers': 'Produce', 'bell pepper': 'Produce', 'lettuce': 'Produce', 'spinach': 'Produce', 'broccoli': 'Produce', 'cauliflower': 'Produce', 'cabbage': 'Produce', 'mushroom': 'Produce', 'mushrooms': 'Produce', 'courgette': 'Produce', 'courgettes': 'Produce', 'aubergine': 'Produce', 'sweet potato': 'Produce', 'celery': 'Produce', 'leek': 'Produce', 'leeks': 'Produce', 'spring onion': 'Produce', 'spring onions': 'Produce', 'avocado': 'Produce', 'avocados': 'Produce', 'kale': 'Produce',
+  
+  // Dairy & Eggs
+  'milk': 'Dairy & Eggs', 'semi skimmed milk': 'Dairy & Eggs', 'skimmed milk': 'Dairy & Eggs', 'whole milk': 'Dairy & Eggs', 'oat milk': 'Dairy & Eggs', 'almond milk': 'Dairy & Eggs', 'soya milk': 'Dairy & Eggs', 'butter': 'Dairy & Eggs', 'unsalted butter': 'Dairy & Eggs', 'cheese': 'Dairy & Eggs', 'cheddar': 'Dairy & Eggs', 'cheddar cheese': 'Dairy & Eggs', 'mozzarella': 'Dairy & Eggs', 'parmesan': 'Dairy & Eggs', 'brie': 'Dairy & Eggs', 'feta': 'Dairy & Eggs', 'yogurt': 'Dairy & Eggs', 'yoghurt': 'Dairy & Eggs', 'greek yogurt': 'Dairy & Eggs', 'egg': 'Dairy & Eggs', 'eggs': 'Dairy & Eggs', 'free range eggs': 'Dairy & Eggs', 'cream': 'Dairy & Eggs', 'double cream': 'Dairy & Eggs', 'single cream': 'Dairy & Eggs', 'sour cream': 'Dairy & Eggs', 'creme fraiche': 'Dairy & Eggs', 'margarine': 'Dairy & Eggs',
+  
+  // Meat & Poultry
+  'chicken': 'Meat & Poultry', 'chicken breast': 'Meat & Poultry', 'chicken thighs': 'Meat & Poultry', 'minced beef': 'Meat & Poultry', 'beef mince': 'Meat & Poultry', 'beef': 'Meat & Poultry', 'steak': 'Meat & Poultry', 'pork': 'Meat & Poultry', 'pork chops': 'Meat & Poultry', 'lamb': 'Meat & Poultry', 'bacon': 'Meat & Poultry', 'sausage': 'Meat & Poultry', 'sausages': 'Meat & Poultry', 'ham': 'Meat & Poultry', 'turkey': 'Meat & Poultry', 'duck': 'Meat & Poultry',
+  
+  // Seafood
+  'salmon': 'Seafood', 'salmon fillets': 'Seafood', 'tuna': 'Seafood', 'canned tuna': 'Seafood', 'cod': 'Seafood', 'haddock': 'Seafood', 'prawns': 'Seafood', 'shrimp': 'Seafood', 'mackerel': 'Seafood', 'fish': 'Seafood',
+  
+  // Bakery
+  'bread': 'Bakery', 'sliced bread': 'Bakery', 'white bread': 'Bakery', 'brown bread': 'Bakery', 'wholemeal bread': 'Bakery', 'rolls': 'Bakery', 'bread rolls': 'Bakery', 'wraps': 'Bakery', 'tortillas': 'Bakery', 'pita bread': 'Bakery', 'crumpets': 'Bakery', 'bagels': 'Bakery', 'croissant': 'Bakery', 'croissants': 'Bakery', 'baguette': 'Bakery',
+  
+  // Pantry Staples
+  'rice': 'Pantry Staples', 'basmati rice': 'Pantry Staples', 'pasta': 'Pantry Staples', 'spaghetti': 'Pantry Staples', 'penne': 'Pantry Staples', 'macaroni': 'Pantry Staples', 'noodles': 'Pantry Staples', 'flour': 'Pantry Staples', 'plain flour': 'Pantry Staples', 'self raising flour': 'Pantry Staples', 'sugar': 'Pantry Staples', 'caster sugar': 'Pantry Staples', 'granulated sugar': 'Pantry Staples', 'brown sugar': 'Pantry Staples', 'icing sugar': 'Pantry Staples', 'baked beans': 'Pantry Staples', 'chopped tomatoes': 'Pantry Staples', 'tinned tomatoes': 'Pantry Staples', 'chickpeas': 'Pantry Staples', 'lentils': 'Pantry Staples', 'kidney beans': 'Pantry Staples', 'black beans': 'Pantry Staples', 'oats': 'Pantry Staples', 'porridge oats': 'Pantry Staples', 'cereal': 'Pantry Staples', 'cornflakes': 'Pantry Staples', 'muesli': 'Pantry Staples', 'granola': 'Pantry Staples', 'baking powder': 'Pantry Staples', 'bicarbonate of soda': 'Pantry Staples', 'cocoa powder': 'Pantry Staples', 'olive oil': 'Pantry Staples', 'vegetable oil': 'Pantry Staples', 'sunflower oil': 'Pantry Staples',
+  
+  // Frozen Foods
+  'frozen peas': 'Frozen Foods', 'ice cream': 'Frozen Foods', 'chips': 'Frozen Foods', 'frozen chips': 'Frozen Foods', 'fish fingers': 'Frozen Foods', 'frozen pizza': 'Frozen Foods', 'hash browns': 'Frozen Foods', 'frozen mixed veg': 'Frozen Foods',
+  
+  // Snacks & Sweets
+  'crisps': 'Snacks & Sweets', 'potato crisps': 'Snacks & Sweets', 'chocolate': 'Snacks & Sweets', 'chocolate bar': 'Snacks & Sweets', 'biscuits': 'Snacks & Sweets', 'digestives': 'Snacks & Sweets', 'hobnobs': 'Snacks & Sweets', 'sweets': 'Snacks & Sweets', 'popcorn': 'Snacks & Sweets', 'peanuts': 'Snacks & Sweets', 'cookies': 'Snacks & Sweets', 'crackers': 'Snacks & Sweets',
+  
+  // Beverages
+  'water': 'Beverages', 'sparkling water': 'Beverages', 'tea': 'Beverages', 'tea bags': 'Beverages', 'coffee': 'Beverages', 'instant coffee': 'Beverages', 'juice': 'Beverages', 'orange juice': 'Beverages', 'apple juice': 'Beverages', 'squash': 'Beverages', 'cordial': 'Beverages', 'cola': 'Beverages', 'lemonade': 'Beverages', 'beer': 'Beverages', 'wine': 'Beverages', 'red wine': 'Beverages', 'white wine': 'Beverages', 'prosecco': 'Beverages', 'cider': 'Beverages', 'vodka': 'Beverages', 'gin': 'Beverages', 'whisky': 'Beverages',
+  
+  // Deli & Prepared Foods
+  'ham slices': 'Deli & Prepared Foods', 'salami': 'Deli & Prepared Foods', 'cooked chicken': 'Deli & Prepared Foods', 'hummus': 'Deli & Prepared Foods', 'houmous': 'Deli & Prepared Foods', 'coleslaw': 'Deli & Prepared Foods', 'potato salad': 'Deli & Prepared Foods', 'sandwich': 'Deli & Prepared Foods', 'sausage roll': 'Deli & Prepared Foods', 'pork pie': 'Deli & Prepared Foods', 'quiche': 'Deli & Prepared Foods', 'ready meal': 'Deli & Prepared Foods',
+  
+  // Vegetarian Products
+  'tofu': 'Vegetarian Products', 'quorn': 'Vegetarian Products', 'tempeh': 'Vegetarian Products', 'meat free mince': 'Vegetarian Products', 'vegan sausages': 'Vegetarian Products', 'vegetarian sausages': 'Vegetarian Products',
+  
+  // Household & Cleaning
+  'toilet roll': 'Household & Cleaning', 'toilet paper': 'Household & Cleaning', 'kitchen roll': 'Household & Cleaning', 'kitchen towel': 'Household & Cleaning', 'washing up liquid': 'Household & Cleaning', 'bleach': 'Household & Cleaning', 'laundry detergent': 'Household & Cleaning', 'washing powder': 'Household & Cleaning', 'fabric conditioner': 'Household & Cleaning', 'sponge': 'Household & Cleaning', 'sponges': 'Household & Cleaning', 'bin bags': 'Household & Cleaning', 'foil': 'Household & Cleaning', 'tin foil': 'Household & Cleaning', 'cling film': 'Household & Cleaning', 'baking parchment': 'Household & Cleaning', 'dishwasher tablets': 'Household & Cleaning', 'multisurface cleaner': 'Household & Cleaning',
+  
+  // Health & Personal Care
+  'shampoo': 'Health & Personal Care', 'conditioner': 'Health & Personal Care', 'shower gel': 'Health & Personal Care', 'body wash': 'Health & Personal Care', 'soap': 'Health & Personal Care', 'hand wash': 'Health & Personal Care', 'toothpaste': 'Health & Personal Care', 'toothbrush': 'Health & Personal Care', 'deodorant': 'Health & Personal Care', 'paracetamol': 'Health & Personal Care', 'ibuprofen': 'Health & Personal Care', 'plasters': 'Health & Personal Care', 'tampons': 'Health & Personal Care', 'sanitary towels': 'Health & Personal Care', 'toiletries': 'Health & Personal Care',
+  
+  // Pet Care
+  'dog food': 'Pet Care', 'cat food': 'Pet Care', 'cat litter': 'Pet Care', 'pet treats': 'Pet Care', 'dog treats': 'Pet Care', 'cat treats': 'Pet Care'
+};
+
 export function toBaseUnit(qty: number, unit: string) {
   const map: Record<string, number> = {
     'kg': 1000, 'g': 1, 'lbs': 453.592, 'oz': 28.3495,
@@ -57,62 +106,124 @@ export function getStandardGroceryItem(str: string) {
   return str; 
 }
 
-export function learnItemCategory(itemName: string, category: string) {
-  if (typeof window !== 'undefined') {
-    try {
-      const learned = localStorage.getItem('learnedCategories');
-      const parsed = learned ? JSON.parse(learned) : {};
-      parsed[itemName.toLowerCase().trim()] = category;
-      localStorage.setItem('learnedCategories', JSON.stringify(parsed));
-    } catch(e) { console.warn("Failed to learn category", e); }
-  }
-}
-
-// --- UPDATED: HIERARCHY-INVERTED DICTIONARY ---
-export function getAisle(itemName: string) {
+// --- UPDATED: THE INSTANT CACHE RESOLVER ---
+export function getCachedCategory(itemName: string) {
   const lower = itemName.toLowerCase().trim();
   
-  // 1. SMART OVERRIDES: Always trust user-taught preferences first
+  // 1. Check the massive hardcoded dictionary (Instant 0ms lookup)
+  if (UK_GROCERY_DICT[lower]) return UK_GROCERY_DICT[lower];
+
+  // 2. Check the user's local storage (from previous AI resolutions)
   if (typeof window !== 'undefined') {
     try {
-      const learned = localStorage.getItem('learnedCategories');
-      if (learned) {
-        const parsed = JSON.parse(learned);
+      const cached = localStorage.getItem('categoryCache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
         if (parsed[lower]) return parsed[lower];
       }
     } catch(e) {}
   }
+  
+  // 3. Fallback to Regex pattern matching
+  return getAisle(itemName);
+}
 
-  // 2. EXTREMELY SPECIFIC NON-FOODS
-  if (/(soap|clean|detergent|paper towel|trash|foil|tissue|bleach|sponge|mop|broom|wipe|spray|polish|softener|wrapper|ziploc|bag|parchment|napkin|plate|cup|cutlery|battery|bulb|fairy|persil|ariel|lenor|comfort|bold|daz|surf|cif|flash|mr muscle|toilet roll|kitchen roll|bin bag|trash bag|cling film|baking paper|washing up liquid|dishwasher|scourer|cloth|air freshener|lightbulb|match|lighter)/.test(lower)) return 'Household & Cleaning';
-  if (/(shampoo|lotion|toothpaste|medicine|vitamin|dental|deodorant|body wash|conditioner|razor|shaving|tampon|pad|diaper|band-aid|plaster|advil|tylenol|ibuprofen|paracetamol|aspirin|allergy|supplement|protein powder|shower gel|antiperspirant|toothbrush|mouthwash|floss|moisturiser|cream|suncream|makeup|cotton|liner|nappy|wipes|bandage|colgate|oral b|gillette|nivea|dove|pantene|head and shoulders|tresemme|loreal)/.test(lower)) return 'Health & Personal Care';
-  if (/(dog|cat|pet|kibble|treat|litter|chew|toy|pedigree|whiskas|felix|purina)/.test(lower)) return 'Pet Care';
+export function getAisle(itemName: string) {
+  const lower = itemName.toLowerCase().trim();
   
-  // 3. PROCESSED MODIFIERS (Must evaluate BEFORE base ingredients so "Onion Powder" doesn't become Produce)
-  if (/(spice|herb|salt|pepper|sauce|ketchup|mustard|mayo|mayonnaise|dressing|vinegar|syrup|honey|cumin|paprika|cinnamon|nutmeg|turmeric|coriander|ginger|bay leaf|oregano|thyme|basil|rosemary|parsley|cilantro|mint|dill|sage|tarragon|cardamom|clove|saffron|vanilla|teriyaki|sriracha|salsa|relish|chutney|jam|jelly|marmalade|peanut butter|almond butter|spread|molasses|gravy|seasoning|chili|chilli|powder|granules|flakes|extract|curry|garam masala|marinade|pickle|pesto|paste|puree|marmite|vegemite|msg)/.test(lower)) return 'Spices & Condiments';
+  // 1. NON-FOOD & HOUSEHOLD 
+  if (/(soap|clean|detergent|paper towel|trash|foil|tissue|bleach|sponge|mop|broom|wipe|spray|polish|softener|wrapper|ziploc|bag|parchment|napkin|plate|cup|cutlery|battery|bulb|fairy|persil|ariel|lenor|comfort|bold|daz|surf|cif|flash|mr muscle|domestos|zoflora|ecover|method|toilet roll|kitchen roll|bin bag|trash bag|cling film|baking paper|washing up liquid|dishwasher|scourer|cloth|air freshener|lightbulb|match|lighter)/.test(lower)) return 'Household & Cleaning';
+  if (/(shampoo|lotion|toothpaste|medicine|vitamin|dental|deodorant|body wash|conditioner|razor|shaving|tampon|pad|diaper|band-aid|plaster|advil|tylenol|ibuprofen|paracetamol|aspirin|allergy|supplement|protein powder|shower gel|antiperspirant|toothbrush|mouthwash|floss|moisturiser|cream|suncream|makeup|cotton|liner|nappy|wipes|bandage|colgate|oral b|gillette|nivea|dove|pantene|head and shoulders|tresemme|loreal|sanex|radox|carex|simple)/.test(lower)) return 'Health & Personal Care';
+  if (/(dog|cat|pet|kibble|treat|litter|chew|toy|pedigree|whiskas|felix|purina|bakers|winalot)/.test(lower)) return 'Pet Care';
   
-  if (/(rice|pasta|flour|sugar|oil|canned|bean|lentil|broth|soup|cereal|oat|noodle|spaghetti|macaroni|chickpea|garbanzo|quinoa|barley|couscous|bulgur|polenta|cornmeal|stock|bouillon|yeast|baking powder|baking soda|cornstarch|cocoa|chocolate chip|peanut|almond|walnut|pecan|cashew|hazelnut|macadamia|pistachio|sunflower seed|pumpkin seed|chia|flax|hemp|sesame|olive|caper|penne|fusilli|linguine|tagliatelle|muesli|granola|porridge|tinned|baking|heinz|crispbread)/.test(lower)) return 'Pantry Staples';
+  // 2. PROCESSED MODIFIERS & SPICES
+  if (/(spice|herb|salt|pepper|sauce|ketchup|mustard|mayo|mayonnaise|dressing|vinegar|syrup|honey|cumin|paprika|cinnamon|nutmeg|turmeric|coriander|ginger|bay leaf|oregano|thyme|basil|rosemary|parsley|cilantro|mint|dill|sage|tarragon|cardamom|cardamon|clove|saffron|vanilla|teriyaki|sriracha|salsa|relish|chutney|jam|jelly|marmalade|peanut butter|almond butter|spread|molasses|gravy|seasoning|chili|chilli|powder|granules|flakes|extract|curry|garam masala|marinade|pickle|pesto|paste|puree|marmite|vegemite|msg|anise|cayenne|allspice|mace|sumac|zaatar|bouillon|stock cube|fennel seed|caraway|mustard seed|celery seed|peppercorn|pod|hellmanns|heinz|hp sauce|branston|schwartz|bisto|oxo|knorr|colmans|frank's|nandos|tabasco)/.test(lower)) return 'Spices & Condiments';
   
-  if (/(pizza|ice cream|frozen|gelato|sorbet|popsicle|fish stick|fish fingers|hash brown|waffle|lolly|chips|fries|wedges|peas|sweetcorn|mixed veg)/.test(lower)) return 'Frozen Foods';
+  // 3. PANTRY STAPLES
+  if (/(rice|pasta|flour|sugar|oil|canned|bean|lentil|broth|soup|cereal|oat|noodle|spaghetti|macaroni|chickpea|garbanzo|quinoa|barley|couscous|bulgur|polenta|cornmeal|stock|bouillon|yeast|baking powder|baking soda|cornstarch|cocoa|chocolate chip|peanut|almond|walnut|pecan|cashew|hazelnut|macadamia|pistachio|sunflower seed|pumpkin seed|chia|flax|hemp|sesame|olive|caper|penne|fusilli|linguine|tagliatelle|muesli|granola|porridge|tinned|baking|crispbread|tortilla chips|taco shells|napolina|mutti|tilda|uncle bens|bachelors|ambrosia|kelloggs|nestle|weetabix|quaker|ryvita)/.test(lower)) return 'Pantry Staples';
   
-  if (/(deli|hummus|prepared|salad kit|coleslaw|potato salad|macaroni salad|pasta salad|rotisserie|pate|guac|guacamole|tzatziki|sushi|sliced meat|cold cuts|olives|antipasti|sandwich|pasty|sausage roll|quiche|ready meal)/.test(lower)) return 'Deli & Prepared Foods';
+  // 4. FROZEN & PREPARED
+  if (/(pizza|ice cream|frozen|gelato|sorbet|popsicle|fish stick|fish fingers|hash brown|waffle|lolly|chips|fries|wedges|peas|sweetcorn|mixed veg|birds eye|mccain|aunt bessies|goodfellas|chicago town|magnum|ben and jerrys|haagen dazs)/.test(lower)) return 'Frozen Foods';
+  if (/(deli|hummus|prepared|salad kit|coleslaw|potato salad|macaroni salad|pasta salad|rotisserie|pate|guac|guacamole|tzatziki|sushi|sliced meat|cold cuts|olives|antipasti|sandwich|pasty|sausage roll|quiche|ready meal|ginsters)/.test(lower)) return 'Deli & Prepared Foods';
 
-  // 4. BEVERAGES & SNACKS
-  if (/(water|sparkling|juice|soda|coffee|tea|beer|wine|liquor|beverage|drink|lemonade|cider|espresso|cappuccino|latte|matcha|kombucha|cola|pop|champagne|prosecco|vodka|rum|whiskey|whisky|gin|tequila|cocktail|smoothie|squash|cordial|pepsi|sprite|fanta|tonic|hot chocolate|milkshake|liqueur)/.test(lower)) return 'Beverages';
-  
-  if (/(chip|crisp|cookie|chocolate|candy|nut|popcorn|cracker|pretzel|nacho|puff|jerky|fruit leather|gummy|marshmallow|caramel|toffee|fudge|nougat|mint|gum|doritos|pringles|sweets|haribo|cadbury|mars|snickers|kitkat|twix|maltesers)/.test(lower)) return 'Snacks & Sweets';
+  // 5. BEVERAGES & SNACKS
+  if (/(water|sparkling|juice|soda|coffee|tea|beer|wine|liquor|beverage|drink|lemonade|cider|espresso|cappuccino|latte|matcha|kombucha|cola|pop|champagne|prosecco|vodka|rum|whiskey|whisky|gin|tequila|cocktail|smoothie|squash|cordial|pepsi|sprite|fanta|tonic|hot chocolate|milkshake|liqueur|twinings|pg tips|yorkshire tea|nescafe|kenco|douwe egberts|robinsons|ribena|vimto|capri sun|innocent|tropicana|coca cola|dr pepper|red bull|monster|san pellegrino)/.test(lower)) return 'Beverages';
+  if (/(chip|crisp|cookie|chocolate|candy|nut|popcorn|cracker|pretzel|nacho|puff|jerky|fruit leather|gummy|marshmallow|caramel|toffee|fudge|nougat|mint|gum|doritos|pringles|sweets|haribo|cadbury|mars|snickers|kitkat|twix|maltesers|walkers|mcvities|galaxy|tyrrells|kettle|hula hoops|skips|quavers|wotsits|monster munch|jaffa cakes|digestives|hobnobs)/.test(lower)) return 'Snacks & Sweets';
 
-  // 5. BASE REFRIGERATED INGREDIENTS
+  // 6. BASE REFRIGERATED INGREDIENTS
   if (/(tofu|tempeh|seitan|quorn|beyond meat|impossible|linda mccartney|cauldron|soya|meatless|vegan|vegetarian|plant-based|plant based|nutritional yeast|aquafaba|tvp|meat free|dairy free)/.test(lower)) return 'Vegetarian Products';
+  if (/(milk|cheese|yogurt|yoghurt|butter|egg|cream|feta|mozzarella|cheddar|parmesan|brie|paneer|halloumi|ghee|whey|dairy|kefir|quark|mascarpone|ricotta|provolone|gouda|swiss|camembert|gorgonzola|roquefort|buttermilk|margarine|alpro|oatly|yakult|actimel|lurpak|flora|bertolli|sour cream|creme fraiche|kerrygold|yeo valley|cathedral city|babybel|laughing cow|philadelphia|muller|rachels)/.test(lower)) return 'Dairy & Eggs';
+  if (/(chicken|beef|pork|lamb|sausage|bacon|turkey|duck|veal|ham|salami|prosciutto|pepperoni|steak|mince|venison|goose|quail|rabbit|chorizo|pancetta|pastrami|bresaola|bratwurst|frankfurter|meatball|patty|black pudding|haggis|richmond|heck|peperami)/.test(lower)) return 'Meat & Poultry';
+  if (/(fish|salmon|tuna|shrimp|prawn|cod|crab|lobster|seafood|mussel|scallop|squid|calamari|oyster|clam|haddock|trout|mackerel|sardine|anchovy|halibut|tilapia|mahi|swordfish|octopus|eel|caviar|bass|bream|crayfish|surimi|john west|princes|youngs)/.test(lower)) return 'Seafood';
   
-  if (/(milk|cheese|yogurt|yoghurt|butter|egg|cream|feta|mozzarella|cheddar|parmesan|brie|paneer|halloumi|ghee|whey|dairy|kefir|quark|mascarpone|ricotta|provolone|gouda|swiss|camembert|gorgonzola|roquefort|buttermilk|margarine|alpro|oatly|yakult|actimel|lurpak|flora|bertolli|sour cream|creme fraiche)/.test(lower)) return 'Dairy & Eggs';
-  
-  if (/(chicken|beef|pork|lamb|sausage|bacon|turkey|duck|veal|ham|salami|prosciutto|pepperoni|steak|mince|venison|goose|quail|rabbit|chorizo|pancetta|pastrami|bresaola|bratwurst|frankfurter|meatball|patty|black pudding|haggis)/.test(lower)) return 'Meat & Poultry';
-  
-  if (/(fish|salmon|tuna|shrimp|prawn|cod|crab|lobster|seafood|mussel|scallop|squid|calamari|oyster|clam|haddock|trout|mackerel|sardine|anchovy|halibut|tilapia|mahi|swordfish|octopus|eel|caviar|bass|bream|crayfish|surimi)/.test(lower)) return 'Seafood';
-  
-  // 6. RAW PRODUCE (Bottom of the stack so it doesn't accidentally catch processed foods containing veg names)
+  // 7. RAW PRODUCE 
   if (/(apple|banana|berr|tomato|lettuce|onion|garlic|potato|carrot|pepper|spinach|broccoli|fruit|veg|avocado|avacado|mushroom|celery|cabbage|melon|orange|lemon|lime|grape|peach|plum|pear|asparagus|zucchini|courgette|aubergine|eggplant|strawberr|blueberr|raspberr|blackberr|cranberr|cherr|apricot|nectarine|grapefruit|tangerine|pomelo|papaya|mango|pineapple|kiwi|pomegranate|fig|date|watermelon|cantaloupe|honeydew|radish|turnip|parsnip|beet|rutabaga|yam|squash|pumpkin|leek|scallion|chive|shallot|artichoke|brussels sprout|cauliflower|bok choy|chard|collard|arugula|rocket|watercress|endive|radicchio|fennel|okra|corn|pea|edamame|kale|guava|lychee|dragonfruit|sweet potato|spring onion|swede|beetroot|satsuma|clementine|mandarin)/.test(lower)) return 'Produce';
+  
+  return 'Other';
+}
+
+// --- UPDATED: PERSONALIZED AI BRIDGE (WITH PERMANENT LEARNING) ---
+export async function fetchSmartCategory(itemName: string, userId: string, supabase: any): Promise<string> {
+  const lower = itemName.toLowerCase().trim();
+  
+  // 1. Guard check: Is it already resolved instantly?
+  const cachedCat = getCachedCategory(lower);
+  if (cachedCat !== 'Other') return cachedCat;
+
+  if (!userId || !supabase) return 'Other';
+
+  try {
+    // 2. Check Personal DB Memory 
+    const { data: existing } = await supabase
+      .from('user_item_dictionary')
+      .select('category')
+      .eq('user_id', userId)
+      .eq('item_name', lower)
+      .single();
+
+    if (existing && existing.category) {
+      if (typeof window !== 'undefined') {
+        const cached = JSON.parse(localStorage.getItem('categoryCache') || '{}');
+        cached[lower] = existing.category;
+        localStorage.setItem('categoryCache', JSON.stringify(cached));
+      }
+      return existing.category;
+    }
+
+    // 3. Last Resort: Ask AI for a truly unknown item
+    console.log(`[Helpers] Local DB missed. Triggering AI Fallback for: "${itemName}"`);
+    const res = await fetch('/api/categorise', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ itemName })
+    });
+    
+    if (!res.ok) {
+       console.error(`[Helpers] AI API returned status ${res.status}`);
+       return 'Other'; 
+    }
+    
+    const data = await res.json();
+    
+    if (data.category && data.category !== 'Other') {
+      // 4. Save to Personal DB Memory forever
+      console.log(`[Helpers] Saving ${itemName} as ${data.category} permanently to Supabase.`);
+      await supabase.from('user_item_dictionary').insert([{ 
+        user_id: userId, 
+        item_name: lower, 
+        category: data.category 
+      }]);
+      
+      if (typeof window !== 'undefined') {
+        const cached = JSON.parse(localStorage.getItem('categoryCache') || '{}');
+        cached[lower] = data.category;
+        localStorage.setItem('categoryCache', JSON.stringify(cached));
+      }
+      return data.category;
+    }
+  } catch (err) {
+    console.error("[Helpers] AI Categorization failed entirely", err);
+  }
   
   return 'Other';
 }
@@ -157,8 +268,6 @@ export function getNext7Days() {
   }
   return days;
 }
-
-// --- MERGED FOODKEEPER INTEGRATION ---
 
 let usdaCache: any[] | null = null;
 
@@ -258,7 +367,7 @@ export async function getEstimatedShelfLifeDays(itemName: string): Promise<numbe
     'Seafood': 3, 'Deli & Prepared Foods': 5, 'Vegetarian Products': 7, 'Bakery': 5
   };
 
-  const category = getAisle(itemName);
+  const category = getCachedCategory(itemName); 
   if (categoryDefaults[category]) return categoryDefaults[category];
   return null;
 }
@@ -292,6 +401,7 @@ export const normalizeForScaler = (ingStr: string) => {
   return dashMatch ? `${dashMatch[2]} ${dashMatch[3] || ''} ${dashMatch[1]}`.replace(/\s+/g, ' ').trim() : clean;
 };
 
+// FIXED: Cleaned up the broken string syntax here
 export const formatIngredientDisplay = (scaledStr: string) => {
   if (scaledStr.startsWith('##')) return scaledStr.replace('##', '').trim();
   const match = scaledStr.trim().match(/^([\d.\/]+)\s*(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)?\s*(.*)$/i);
