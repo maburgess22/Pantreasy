@@ -428,3 +428,30 @@ export const getIngredientStatus = (ingredient: string, pantry: any[]) => {
   }
   if (pantryMatch.quantity >= qty) return { status: 'in_stock' }; return { status: 'insufficient' };
 };
+
+export async function learnItemCategory(itemName: string, category: string, userId: string, supabase: any) {
+  const lower = itemName.toLowerCase().trim();
+  
+  // 1. Update local cache immediately for 0ms lookup next time
+  if (typeof window !== 'undefined') {
+    const cached = JSON.parse(localStorage.getItem('categoryCache') || '{}');
+    cached[lower] = category;
+    localStorage.setItem('categoryCache', JSON.stringify(cached));
+  }
+
+  if (!userId || !supabase) return;
+
+  try {
+    // 2. Delete any old memory of this item, then save the new manual correction
+    await supabase.from('user_item_dictionary')
+      .delete()
+      .eq('user_id', userId)
+      .eq('item_name', lower);
+
+    await supabase.from('user_item_dictionary')
+      .insert([{ user_id: userId, item_name: lower, category }]);
+      
+  } catch (err) {
+    console.error("[Helpers] Failed to learn manual category", err);
+  }
+}
