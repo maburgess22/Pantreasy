@@ -219,7 +219,7 @@ export default function PantryManager() {
   const deleteRecipe = async (id: string, e?: React.MouseEvent) => { if (e) e.stopPropagation(); setRecipes(prev => prev.filter(r => r.id !== id)); await supabase.from('recipes').delete().eq('id', id).eq('user_id', userId); showToast('Recipe deleted.'); };
 
   const consumeRecipeIngredients = async (recipe: Recipe, currentMultiplier: number) => {
-    setLoading(true); let pantryUpdates: {id: string, quantity: number, unit: string}[] = []; let newPantryState = [...items];
+    setLoading(true); let pantryUpdates: any[] = []; let newPantryState = [...items];
     for (const ing of (recipe.ingredients || [])) {
       if (ing.startsWith('##')) continue;
       const scaledIng = scaleAndConvertIngredient(normalizeForScaler(ing), currentMultiplier, measurementSystem);
@@ -230,21 +230,38 @@ export default function PantryManager() {
       
       const match = newPantryState.find(p => lowerName.includes((p.name || '').toLowerCase()) || (p.name || '').toLowerCase().includes(lowerName));
       if (match && match.quantity > 0) {
-        const existingBase = toBaseUnit(match.quantity, match.unit || 'pcs'); const neededBase = toBaseUnit(neededQty, neededUnit);
+        const existingBase = toBaseUnit(match.quantity, match.unit || 'pcs'); 
+        const neededBase = toBaseUnit(neededQty, neededUnit);
+        
         if (existingBase.base === neededBase.base) {
-          const newBaseQty = Math.max(0, existingBase.qty - neededBase.qty); const final = fromBaseUnit(newBaseQty, existingBase.base);
-          newPantryState = newPantryState.map(i => i.id === match.id ? { ...i, quantity: final.qty, unit: final.unit } : i);
-          pantryUpdates.push({ id: match.id, quantity: final.qty, unit: final.unit });
+          const newBaseQty = Math.max(0, existingBase.qty - neededBase.qty); 
+          const final = fromBaseUnit(newBaseQty, existingBase.base);
+          const orig = match.original_quantity || match.quantity;
+          const newPct = orig > 0 ? Math.round((final.qty / orig) * 100) : 100;
+          
+          newPantryState = newPantryState.map(i => i.id === match.id ? { ...i, quantity: final.qty, unit: final.unit, percentage_left: newPct, original_quantity: orig } : i);
+          pantryUpdates.push({ id: match.id, quantity: final.qty, unit: final.unit, percentage_left: newPct, original_quantity: orig });
+        
         } else if ((match.unit || 'pcs').toLowerCase() === neededUnit) {
           const newQty = Math.max(0, match.quantity - neededQty);
-          newPantryState = newPantryState.map(i => i.id === match.id ? { ...i, quantity: newQty } : i);
-          pantryUpdates.push({ id: match.id, quantity: newQty, unit: match.unit || 'pcs' });
+          const orig = match.original_quantity || match.quantity;
+          const newPct = orig > 0 ? Math.round((newQty / orig) * 100) : 100;
+          
+          newPantryState = newPantryState.map(i => i.id === match.id ? { ...i, quantity: newQty, percentage_left: newPct, original_quantity: orig } : i);
+          pantryUpdates.push({ id: match.id, quantity: newQty, unit: match.unit || 'pcs', percentage_left: newPct, original_quantity: orig });
         }
       }
     }
     if (pantryUpdates.length > 0) {
        setItems(newPantryState);
-       for (const update of pantryUpdates) { await supabase.from('pantry_items').update({ quantity: update.quantity, unit: update.unit }).eq('id', update.id).eq('user_id', userId); }
+       for (const update of pantryUpdates) { 
+         await supabase.from('pantry_items').update({ 
+           quantity: update.quantity, 
+           unit: update.unit,
+           percentage_left: update.percentage_left,
+           original_quantity: update.original_quantity
+         }).eq('id', update.id).eq('user_id', userId); 
+       }
        showToast('Ingredients removed from pantry!');
     } else showToast('No matching items found in pantry to deduct.');
     setLoading(false);
@@ -323,7 +340,6 @@ export default function PantryManager() {
 
       const perishableCategories = ['Produce', 'Dairy & Eggs', 'Meat & Poultry', 'Seafood', 'Deli & Prepared Foods', 'Vegetarian Products'];
       let expDate = newItem.expiration_date || null;
-      
       if (!expDate && perishableCategories.includes(newItem.category)) {
         expDate = (await computeExpiryDate(newItem.name).catch(() => null)) || null; 
       }
@@ -337,10 +353,25 @@ export default function PantryManager() {
           const final = fromBaseUnit(combinedBaseQty, existing.quantity === 0 ? newBase.base : existingBase.base);
           const newExpDate = existing.quantity === 0 ? expDate : (existing.expiration_date || expDate);
           
-          setItems(prev => prev.map(i => i.id === existing.id ? { ...i, quantity: final.qty, unit: final.unit, track_low_stock: newItem.track_low_stock || i.track_low_stock, expiration_date: newExpDate } : i));
+          setItems(prev => prev.map(i => i.id === existing.id ? { 
+            ...i, 
+            quantity: final.qty, 
+            unit: final.unit, 
+            track_low_stock: newItem.track_low_stock || i.track_low_stock, 
+            expiration_date: newExpDate,
+            original_quantity: final.qty, // Reset base to the new combined total
+            percentage_left: 100 // Reset slider back to full
+          } : i));
           
           supabase.from('pantry_items')
-            .update({ quantity: final.qty, unit: final.unit, track_low_stock: newItem.track_low_stock || i.track_low_stock, expiration_date: newExpDate })
+            .update({ 
+               quantity: final.qty, 
+               unit: final.unit, 
+               track_low_stock: newItem.track_low_stock || i.track_low_stock, 
+               expiration_date: newExpDate,
+               original_quantity: final.qty,
+               percentage_left: 100 
+            })
             .eq('id', existing.id).eq('user_id', userId)
             .then(() => {
                if (needsSmartCategory && newItem.category === 'Other') {
@@ -353,7 +384,13 @@ export default function PantryManager() {
       }
 
       setLoading(true); 
-      const { data, error } = await supabase.from('pantry_items').insert([{ ...newItem, expiration_date: expDate, user_id: userId }]).select().single();
+      const { data, error } = await supabase.from('pantry_items').insert([{ 
+        ...newItem, 
+        expiration_date: expDate, 
+        user_id: userId,
+        original_quantity: newItem.quantity,
+        percentage_left: 100
+      }]).select().single();
       
       if (error) throw error;
       
@@ -500,7 +537,6 @@ export default function PantryManager() {
       const compressedFile = await compressImage(file); const formData = new FormData(); formData.append('receipt', compressedFile);
       const res = await fetch('/api/scan-receipt', { method: 'POST', body: formData }); const data = await res.json();
       if (data.items && data.items.length > 0) {
-        showToast('Enriching items from database...');
         const enrichedItems = await Promise.all(data.items.map(async (item: any) => {
            if (item.unit === 'pcs' || !item.unit) {
               try {

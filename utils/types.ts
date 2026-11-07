@@ -1,5 +1,3 @@
-// utils/types.ts
-
 export interface PantryItem {
   id: string;
   user_id: string;
@@ -10,6 +8,8 @@ export interface PantryItem {
   track_low_stock?: boolean;
   low_stock_threshold?: number;
   expiration_date?: string | null;
+  original_quantity?: number;
+  percentage_left?: number;
   created_at?: string;
 }
 

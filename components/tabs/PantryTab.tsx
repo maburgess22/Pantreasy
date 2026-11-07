@@ -85,10 +85,34 @@ export default function PantryTab({
 
   const adjustQuantity = async (item: PantryItem, delta: number) => {
     const newQty = Math.max(0, Number((item.quantity + delta).toFixed(2))); 
-    setItems(prev => prev.map(i => i.id === item.id ? { ...i, quantity: newQty } : i));
-    await supabase.from('pantry_items').update({ quantity: newQty }).eq('id', item.id).eq('user_id', userId);
+    const orig = item.original_quantity || item.quantity || 1;
+    const newPct = orig > 0 ? Math.round((newQty / orig) * 100) : 100;
+
+    setItems(prev => prev.map(i => i.id === item.id ? { ...i, quantity: newQty, percentage_left: newPct, original_quantity: orig } : i));
+    await supabase.from('pantry_items').update({ quantity: newQty, percentage_left: newPct, original_quantity: orig }).eq('id', item.id).eq('user_id', userId);
+    
     if (pantryActionMenu.item && pantryActionMenu.item.id === item.id) { 
-      setPantryActionMenu({ isOpen: true, item: { ...pantryActionMenu.item, quantity: newQty } }); 
+      setPantryActionMenu({ isOpen: true, item: { ...pantryActionMenu.item, quantity: newQty, percentage_left: newPct, original_quantity: orig } }); 
+    }
+  };
+
+  const handlePercentageDrag = (item: PantryItem, newPct: number) => {
+    const orig = item.original_quantity || item.quantity || 1;
+    const newQty = Number(((orig * newPct) / 100).toFixed(2));
+    setItems(prev => prev.map(i => i.id === item.id ? { ...i, quantity: newQty, percentage_left: newPct, original_quantity: orig } : i));
+    if (pantryActionMenu.item && pantryActionMenu.item.id === item.id) {
+      setPantryActionMenu(prev => ({ isOpen: true, item: { ...prev.item!, quantity: newQty, percentage_left: newPct, original_quantity: orig } }));
+    }
+  };
+
+  const handlePercentageSave = async (id: string) => {
+    const currentItem = items.find(i => i.id === id);
+    if (currentItem) {
+      await supabase.from('pantry_items').update({ 
+        quantity: currentItem.quantity, 
+        percentage_left: currentItem.percentage_left, 
+        original_quantity: currentItem.original_quantity 
+      }).eq('id', currentItem.id).eq('user_id', userId);
     }
   };
 
@@ -102,12 +126,15 @@ export default function PantryTab({
 
   const saveEdit = async (id: string) => {
     const cleanCat = getAisle(editName.trim());
+    const qty = parseFloat(editQuantity) || 0;
     const updatedItem = { 
       name: (editName || '').trim(), 
       category: cleanCat, 
-      quantity: parseFloat(editQuantity) || 0, 
+      quantity: qty, 
       unit: editUnit,
-      expiration_date: editExpirationDate || null 
+      expiration_date: editExpirationDate || null,
+      original_quantity: qty, 
+      percentage_left: 100 
     };
     if (!updatedItem.name) return showToast("Item name cannot be empty.");
     setItems(prev => prev.map(item => item.id === id ? { ...item, ...updatedItem } : item));
@@ -220,24 +247,51 @@ export default function PantryTab({
                 <div className="space-y-2">
                   {groupList.map((item) => {
                     const expiry = getExpiryStatus(item.expiration_date);
+                    const isMeasurable = ['ml', 'l', 'g', 'kg', 'oz', 'lbs', 'fl oz'].includes((item.unit || '').toLowerCase());
+                    const pctLeft = item.percentage_left ?? 100;
+                    
                     return (
-                      <div key={item.id} className="flex items-center justify-between p-3 rounded-[20px] transition bg-white border border-black/10 shadow-sm relative z-0 hover:z-10 gap-2">
+                      <div key={item.id} className="flex items-center justify-between p-4 rounded-[20px] transition bg-white border border-black/10 shadow-sm relative z-0 hover:z-10 gap-2">
                         <div className="flex-1 min-w-0 pr-2">
-                          <h3 className="font-semibold text-base capitalize text-black leading-tight whitespace-normal break-words m-0">
-                            {item.name} <span className="text-sm font-normal text-black/60 normal-case whitespace-nowrap">- {item.quantity} {item.unit}</span>
-                          </h3>
-                        </div>
-                        {expiry.color !== 'none' && (
-                          <div className="shrink-0 flex items-center pr-1">
-                            <span className={`inline-block text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider ${
-                              expiry.color === 'expired' ? 'bg-red-600 text-white' :
-                              expiry.color === 'warning' ? 'bg-amber-500 text-white' :
-                              'bg-black/10 text-black/70'
-                            }`}>
-                              {expiry.label}
-                            </span>
+                          
+                          <div className="flex items-center gap-2 mb-1">
+                            <h3 className="font-semibold text-base capitalize text-black leading-tight truncate m-0">
+                              {item.name}
+                            </h3>
+                            {expiry.color !== 'none' && (
+                              <span className={`inline-block text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0 ${
+                                expiry.color === 'expired' ? 'bg-red-600 text-white' :
+                                expiry.color === 'warning' ? 'bg-amber-500 text-white' :
+                                'bg-black/10 text-black/70'
+                              }`}>
+                                {expiry.label}
+                              </span>
+                            )}
                           </div>
-                        )}
+                          
+                          <div className="flex items-center gap-3">
+                            <span className="text-sm font-bold text-black/60 normal-case whitespace-nowrap">
+                              {item.quantity} {item.unit}
+                            </span>
+                            
+                            {/* Read-only sleek inline indicator with percentage number */}
+                            {isMeasurable && (
+                              <div className="flex items-center gap-1.5 flex-1 max-w-[120px]">
+                                <div className="flex-1 h-1.5 bg-black/10 rounded-full overflow-hidden">
+                                  <div 
+                                    className={`h-full transition-all duration-300 ${pctLeft < 25 ? 'bg-red-600' : 'bg-[#6B705C]'}`} 
+                                    style={{ width: `${pctLeft}%` }}
+                                  />
+                                </div>
+                                <span className={`text-[10px] font-bold w-7 shrink-0 ${pctLeft < 25 ? 'text-red-600' : 'text-black/50'}`}>
+                                  {pctLeft}%
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          
+                        </div>
+                        
                         <button onClick={() => setPantryActionMenu({isOpen: true, item})} className="p-2 hover:bg-black/5 rounded-full text-black/40 hover:text-black transition shrink-0">
                           <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
                         </button>
@@ -253,18 +307,45 @@ export default function PantryTab({
         )}
       </div>
 
+      {/* Pantry Item Action Modal */}
       {pantryActionMenu.isOpen && pantryActionMenu.item && (
         <div className="fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 transition-opacity" onClick={() => setPantryActionMenu({isOpen: false, item: null})}>
            <div className="bg-white w-full sm:max-w-sm rounded-t-[32px] sm:rounded-[32px] p-6 pb-10 sm:pb-6 shadow-2xl animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-0 sm:zoom-in-95" onClick={e => e.stopPropagation()}>
               <h3 className="font-bold text-xl mb-6 text-center border-b border-black/10 pb-4">{pantryActionMenu.item.name}</h3>
-              <div className="bg-black/5 rounded-2xl p-4 mb-4 flex items-center justify-between shadow-sm">
-                 <span className="font-semibold text-xs uppercase tracking-wider text-black/60">Amount</span>
-                 <div className="flex items-center gap-3">
-                    <button onClick={() => adjustQuantity(pantryActionMenu.item!, -1)} className="w-8 h-8 rounded-lg bg-white shadow-sm font-bold flex items-center justify-center hover:bg-black/5">-</button>
-                    <span className="font-bold min-w-[3rem] text-center text-sm">{pantryActionMenu.item.quantity} {pantryActionMenu.item.unit}</span>
-                    <button onClick={() => adjustQuantity(pantryActionMenu.item!, 1)} className="w-8 h-8 rounded-lg bg-white shadow-sm font-bold flex items-center justify-center hover:bg-black/5">+</button>
+              
+              <div className="bg-black/5 rounded-2xl p-4 mb-4 flex flex-col gap-3 shadow-sm">
+                 <div className="flex items-center justify-between">
+                   <span className="font-semibold text-xs uppercase tracking-wider text-black/60">Amount</span>
+                   <div className="flex items-center gap-3">
+                      <button onClick={() => adjustQuantity(pantryActionMenu.item!, -1)} className="w-8 h-8 rounded-lg bg-white shadow-sm font-bold flex items-center justify-center hover:bg-black/5">-</button>
+                      <span className="font-bold min-w-[3rem] text-center text-sm">{pantryActionMenu.item.quantity} {pantryActionMenu.item.unit}</span>
+                      <button onClick={() => adjustQuantity(pantryActionMenu.item!, 1)} className="w-8 h-8 rounded-lg bg-white shadow-sm font-bold flex items-center justify-center hover:bg-black/5">+</button>
+                   </div>
                  </div>
+
+                 {/* Interactive Slider embedded in the action menu */}
+                 {['ml', 'l', 'g', 'kg', 'oz', 'lbs', 'fl oz'].includes((pantryActionMenu.item.unit || '').toLowerCase()) && (
+                   <div className="pt-3 border-t border-black/10 flex flex-col gap-2 mt-1">
+                      <div className="flex justify-between items-center">
+                        <span className="font-semibold text-[10px] uppercase tracking-wider text-black/60">Estimated Remaining</span>
+                        <span className={`font-bold text-xs ${(pantryActionMenu.item.percentage_left ?? 100) < 25 ? 'text-red-600' : 'text-[#6B705C]'}`}>
+                           {pantryActionMenu.item.percentage_left ?? 100}%
+                        </span>
+                      </div>
+                      <input 
+                        type="range" 
+                        min="0" 
+                        max="100" 
+                        value={pantryActionMenu.item.percentage_left ?? 100} 
+                        onChange={(e) => handlePercentageDrag(pantryActionMenu.item!, parseInt(e.target.value))}
+                        onMouseUp={() => handlePercentageSave(pantryActionMenu.item!.id)}
+                        onTouchEnd={() => handlePercentageSave(pantryActionMenu.item!.id)}
+                        className={`w-full h-2 bg-black/10 rounded-lg appearance-none cursor-pointer ${(pantryActionMenu.item.percentage_left ?? 100) < 25 ? 'accent-red-600' : 'accent-black'}`}
+                      />
+                   </div>
+                 )}
               </div>
+
               <div className="flex flex-col gap-2">
                  <button onClick={() => { startEditing(pantryActionMenu.item!); setPantryActionMenu({isOpen: false, item: null}); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Edit Details</button>
                  <button onClick={() => { deleteItem(pantryActionMenu.item!.id); setPantryActionMenu({isOpen: false, item: null}); }} className="w-full py-4 bg-red-50 text-red-600 hover:bg-red-100 rounded-2xl font-bold transition mt-2 shadow-sm">Remove Item</button>
@@ -291,7 +372,7 @@ export default function PantryTab({
                     placeholder="Item name"
                     className="w-full px-4 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium text-base"
                     required
-                  />
+                 />
                </div>
                
                <div className="grid grid-cols-2 gap-4 relative z-0">
