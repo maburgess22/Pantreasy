@@ -576,6 +576,16 @@ export default function PantryManager() {
         />
       )}
 
+      {isScanning && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[150] flex flex-col items-center justify-center p-4">
+          <div className="bg-white p-8 rounded-[32px] shadow-2xl flex flex-col items-center gap-4 animate-in zoom-in-95">
+            <div className="w-12 h-12 border-4 border-black/10 border-t-black rounded-full animate-spin"></div>
+            <h3 className="text-xl font-bold text-black">Scanning Receipt...</h3>
+            <p className="text-black/60 text-sm text-center">Reading items and finding categories.</p>
+          </div>
+        </div>
+      )}
+
       {scannedItems && scannedItems.length > 0 && (
         <ScannedItemsReviewModal 
            scannedItems={scannedItems}
