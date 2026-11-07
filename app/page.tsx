@@ -315,52 +315,59 @@ export default function PantryManager() {
   };
 
   const addOrMergePantryItem = async (newItem: { name: string, category?: string, quantity: number, unit: string, track_low_stock: boolean, low_stock_threshold: number, expiration_date?: string | null }) => {
-    const needsSmartCategory = !newItem.category || newItem.category === 'Other';
-    if (needsSmartCategory) {
-      newItem.category = getCachedCategory(newItem.name) || 'Other';
-    }
-
-    const perishableCategories = ['Produce', 'Dairy & Eggs', 'Meat & Poultry', 'Seafood', 'Deli & Prepared Foods', 'Vegetarian Products'];
-    let expDate = newItem.expiration_date || null;
-    
-    if (!expDate && perishableCategories.includes(newItem.category)) {
-      expDate = (await computeExpiryDate(newItem.name)) || null;
-    }
-
-    const existing = items.find(i => normalizeName(i.name) === normalizeName(newItem.name));
-    
-    if (existing) {
-      const existingBase = toBaseUnit(existing.quantity, existing.unit); const newBase = toBaseUnit(newItem.quantity, newItem.unit);
-      if (existingBase.base === newBase.base || existing.quantity === 0) {
-        const combinedBaseQty = existing.quantity === 0 ? newBase.qty : existingBase.qty + newBase.qty;
-        const final = fromBaseUnit(combinedBaseQty, existing.quantity === 0 ? newBase.base : existingBase.base);
-        const newExpDate = existing.quantity === 0 ? expDate : (existing.expiration_date || expDate);
-        
-        setItems(prev => prev.map(i => i.id === existing.id ? { ...i, quantity: final.qty, unit: final.unit, track_low_stock: newItem.track_low_stock || i.track_low_stock, expiration_date: newExpDate } : i));
-        
-        supabase.from('pantry_items')
-          .update({ quantity: final.qty, unit: final.unit, track_low_stock: newItem.track_low_stock || i.track_low_stock, expiration_date: newExpDate })
-          .eq('id', existing.id).eq('user_id', userId)
-          .then(() => {
-             if (needsSmartCategory && newItem.category === 'Other') {
-                 backgroundCategorizePantryItem(existing.id, newItem.name, newItem.category!);
-             }
-          });
-          
-        return;
+    try {
+      const needsSmartCategory = !newItem.category || newItem.category === 'Other';
+      if (needsSmartCategory) {
+        newItem.category = getCachedCategory(newItem.name) || 'Other';
       }
-    }
 
-    setLoading(true); 
-    const { data } = await supabase.from('pantry_items').insert([{ ...newItem, expiration_date: expDate, user_id: userId }]).select().single();
-    if (data) {
-      setItems(prev => [data, ...prev]);
+      const perishableCategories = ['Produce', 'Dairy & Eggs', 'Meat & Poultry', 'Seafood', 'Deli & Prepared Foods', 'Vegetarian Products'];
+      let expDate = newItem.expiration_date || null;
       
-      if (needsSmartCategory && newItem.category === 'Other') {
-        backgroundCategorizePantryItem(data.id, data.name, data.category);
+      if (!expDate && perishableCategories.includes(newItem.category)) {
+        expDate = (await computeExpiryDate(newItem.name).catch(() => null)) || null; 
       }
+
+      const existing = items.find(i => normalizeName(i.name) === normalizeName(newItem.name));
+      
+      if (existing) {
+        const existingBase = toBaseUnit(existing.quantity, existing.unit); const newBase = toBaseUnit(newItem.quantity, newItem.unit);
+        if (existingBase.base === newBase.base || existing.quantity === 0) {
+          const combinedBaseQty = existing.quantity === 0 ? newBase.qty : existingBase.qty + newBase.qty;
+          const final = fromBaseUnit(combinedBaseQty, existing.quantity === 0 ? newBase.base : existingBase.base);
+          const newExpDate = existing.quantity === 0 ? expDate : (existing.expiration_date || expDate);
+          
+          setItems(prev => prev.map(i => i.id === existing.id ? { ...i, quantity: final.qty, unit: final.unit, track_low_stock: newItem.track_low_stock || i.track_low_stock, expiration_date: newExpDate } : i));
+          
+          supabase.from('pantry_items')
+            .update({ quantity: final.qty, unit: final.unit, track_low_stock: newItem.track_low_stock || i.track_low_stock, expiration_date: newExpDate })
+            .eq('id', existing.id).eq('user_id', userId)
+            .then(() => {
+               if (needsSmartCategory && newItem.category === 'Other') {
+                   backgroundCategorizePantryItem(existing.id, newItem.name, newItem.category!);
+               }
+            });
+            
+          return;
+        }
+      }
+
+      setLoading(true); 
+      const { data, error } = await supabase.from('pantry_items').insert([{ ...newItem, expiration_date: expDate, user_id: userId }]).select().single();
+      
+      if (error) throw error;
+      
+      if (data) {
+        setItems(prev => [data, ...prev]);
+        if (needsSmartCategory && newItem.category === 'Other') {
+          backgroundCategorizePantryItem(data.id, data.name, data.category);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to save pantry item:", error);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const addOrMergeShoppingItem = async (newItem: { name: string, quantity: number, unit: string }) => {
@@ -515,26 +522,30 @@ export default function PantryManager() {
   
   const commitScannedItems = async () => {
     if (!scannedItems || scannedItems.length === 0) return setScannedItems(null); 
-    setLoading(true);
-
-    for (const item of scannedItems) { 
-      const finalCategory = item.category || 'Other';
-      
-      await learnItemCategory(item.name, finalCategory, userId, supabase);
-      
-      await addOrMergePantryItem({ 
-        name: item.name, 
-        category: finalCategory, 
-        quantity: parseFloat(item.quantity) || 1, 
-        unit: item.unit || 'pcs', 
-        track_low_stock: false, 
-        low_stock_threshold: 1 
-      }); 
-    }
-
-    showToast(`Added ${scannedItems.length} items to pantry!`); 
+    const itemsToProcess = [...scannedItems];
     setScannedItems(null); 
-    setLoading(false);
+    
+    showToast(`Adding ${itemsToProcess.length} items to your pantry...`);
+
+    itemsToProcess.forEach(async (item) => {
+      try {
+        const finalCategory = item.category || 'Other';
+        
+        await Promise.all([
+          learnItemCategory(item.name, finalCategory, userId, supabase).catch(console.error),
+          addOrMergePantryItem({ 
+            name: item.name, 
+            category: finalCategory, 
+            quantity: parseFloat(item.quantity) || 1, 
+            unit: item.unit || 'pcs', 
+            track_low_stock: false, 
+            low_stock_threshold: 1 
+          })
+        ]);
+      } catch (err) {
+        console.error("Background save failed for item:", item.name, err);
+      }
+    });
   };
 
   const multiplier = selectedRecipe ? (targetPortions / (selectedRecipe.portions || 4)) : 1;
