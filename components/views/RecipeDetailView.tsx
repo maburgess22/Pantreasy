@@ -64,10 +64,11 @@ export default function RecipeDetailView({
         <div className="bg-[#6B705C] text-white py-8 border-b border-black/10 shadow-sm">
           <div className="max-w-6xl mx-auto px-4 md:px-8 flex flex-col items-center justify-center gap-6 relative">
             <h2 className="text-4xl md:text-5xl font-black tracking-tight leading-snug text-center w-full px-12 break-words whitespace-normal">{recipe.title}</h2>
-            <div className="flex flex-col sm:flex-row gap-3 shrink-0 w-full sm:w-auto justify-center flex-wrap">
-              <button onClick={() => { setPlanTargetPortions(targetPortions); setAllocationsGrid({}); setShowDistributionModal(true); }} className="px-6 py-3 bg-black text-white rounded-xl text-sm font-medium hover:bg-black/80 transition shadow-sm text-center">Add to Meal Plan</button>
-              <button onClick={() => addMissingRecipeIngredients(recipe, multiplier)} className="px-6 py-3 bg-black text-white rounded-xl text-sm font-medium hover:bg-black/80 transition shadow-sm text-center">Add Missing Items to Shopping List</button>
-              <button onClick={() => consumeRecipeIngredients(recipe, multiplier)} className="px-6 py-3 bg-black text-white rounded-xl text-sm font-medium hover:bg-black/80 transition shadow-sm text-center">Recipe Made - Remove from Pantry</button>
+            <div className="flex flex-row gap-2 shrink-0 w-full justify-center px-1">
+              {/* Increased text size from text-[10px] sm:text-xs md:text-sm TO text-xs sm:text-sm md:text-base */}
+              <button onClick={() => { setPlanTargetPortions(targetPortions); setAllocationsGrid({}); setShowDistributionModal(true); }} className="flex-1 px-2 py-3 bg-black text-white rounded-xl text-xs sm:text-sm md:text-base font-semibold hover:bg-black/80 transition shadow-sm text-center leading-tight flex items-center justify-center max-w-[220px]">+ Meal Planner</button>
+              <button onClick={() => addMissingRecipeIngredients(recipe, multiplier)} className="flex-1 px-2 py-3 bg-black text-white rounded-xl text-xs sm:text-sm md:text-base font-semibold hover:bg-black/80 transition shadow-sm text-center leading-tight flex items-center justify-center max-w-[220px]">+ Items to Shopping List</button>
+              <button onClick={() => consumeRecipeIngredients(recipe, multiplier)} className="flex-1 px-2 py-3 bg-black text-white rounded-xl text-xs sm:text-sm md:text-base font-semibold hover:bg-black/80 transition shadow-sm text-center leading-tight flex items-center justify-center max-w-[220px]">- Items from Pantry</button>
             </div>
           </div>
         </div>

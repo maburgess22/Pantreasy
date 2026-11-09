@@ -155,7 +155,7 @@ export default function PantryTab({
     showToast('Item updated!');
   };
 
-  const handleExport = () => {
+  const handleExport = async () => {
     if (Object.keys(groupedItems).length === 0) return showToast('Pantry is empty!');
     const lines = ['🛒 MY PANTRY INVENTORY', ''];
     Object.entries(groupedItems).forEach(([cat, list]) => {
@@ -163,8 +163,14 @@ export default function PantryTab({
       list.forEach(item => { lines.push(`• ${item.name} - ${item.quantity} ${item.unit}${item.expiration_date ? ` (Exp: ${item.expiration_date})` : ''}`); });
       lines.push('');
     });
-    navigator.clipboard.writeText(lines.join('\r\n'));
-    showToast('Pantry copied to clipboard!');
+    
+    const fullText = lines.join('\n');
+    if (navigator.share) {
+      try { await navigator.share({ title: 'Pantry Inventory', text: fullText }); } catch (err) { /* ignore cancel */ }
+    } else {
+      navigator.clipboard.writeText(fullText);
+      showToast('Pantry copied to clipboard!');
+    }
   };
 
   return (
@@ -175,11 +181,12 @@ export default function PantryTab({
             <h2 className="text-4xl md:text-5xl font-black tracking-tight leading-snug font-mogena text-center">Pantry Inventory</h2>
             <p className="text-white/80 text-sm mt-2 font-medium text-center">Keep track of your ingredients.</p>
           </div>
-          <div className="flex flex-col sm:flex-row gap-3 shrink-0 w-full sm:w-auto justify-center flex-wrap">
-            <button onClick={() => setShowAddPantryMenu(true)} className="px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center border border-black/20">
-              Add Item
+          
+          <div className="flex flex-row gap-2 shrink-0 w-full justify-center px-1">
+            <button onClick={() => setShowAddPantryMenu(true)} className="flex-1 px-2 py-3 bg-black text-white rounded-xl text-xs sm:text-sm md:text-base font-semibold transition hover:bg-black/80 shadow-sm flex items-center justify-center max-w-[220px]">
+              + Item
             </button>
-            <button onClick={handleExport} className="px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center gap-2 border border-black/20">
+            <button onClick={handleExport} className="flex-1 px-2 py-3 bg-black text-white rounded-xl text-xs sm:text-sm md:text-base font-semibold transition hover:bg-black/80 shadow-sm flex items-center justify-center gap-2 max-w-[220px]">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
               <span>Export List</span>
             </button>
@@ -360,7 +367,6 @@ export default function PantryTab({
               </div>
 
               <div className="flex flex-col gap-2">
-                 {/* Updated Checkbox Toggle */}
                  {['ml', 'l', 'g', 'kg', 'oz', 'lbs', 'fl oz'].includes((pantryActionMenu.item.unit || '').toLowerCase()) && (
                    <button onClick={() => togglePercentageView(pantryActionMenu.item!.id)} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl transition shadow-sm flex items-center justify-between px-5">
                      <span className="font-bold text-black text-sm">Show % Bar on List</span>
@@ -432,4 +438,4 @@ export default function PantryTab({
       )}
     </div>
   );
-}                    
+}                   

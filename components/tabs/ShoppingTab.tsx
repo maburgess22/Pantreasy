@@ -151,17 +151,17 @@ export default function ShoppingTab({
             <h2 className="text-4xl md:text-5xl font-black tracking-tight leading-snug font-mogena text-center">Shopping List</h2>
             <p className="text-white/80 text-sm mt-2 font-medium text-center">Plan your next grocery run.</p>
           </div>
-          <div className="flex flex-col sm:flex-row gap-3 shrink-0 w-full sm:w-auto justify-center flex-wrap">
-            <button onClick={() => setShowAddShoppingMenu(true)} className="px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center border border-black/20">
-              Add Item
+          
+          <div className="flex flex-row gap-2 shrink-0 w-full justify-center px-1">
+            <button onClick={() => setShowAddShoppingMenu(true)} className="flex-1 px-2 py-3 bg-black text-white rounded-xl text-xs sm:text-sm md:text-base font-semibold transition hover:bg-black/80 shadow-sm flex items-center justify-center max-w-[220px]">
+              + Item
             </button>
-            {hasPendingItems && (
-              <button onClick={exportList} className="px-6 py-2.5 bg-black text-white rounded-xl text-sm font-medium transition hover:bg-black/80 shadow-sm flex items-center justify-center border border-black/20">
-                Export List
-              </button>
-            )}
+            <button onClick={exportList} className="flex-1 px-2 py-3 bg-black text-white rounded-xl text-xs sm:text-sm md:text-base font-semibold transition hover:bg-black/80 shadow-sm flex items-center justify-center gap-2 max-w-[220px]">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+              <span>Export List</span>
+            </button>
             {hasCheckedItems && (
-               <button onClick={clearChecked} disabled={loading} className="px-6 py-2.5 bg-white text-black rounded-xl text-sm font-medium transition hover:bg-gray-100 shadow-sm flex items-center justify-center border border-black/20 disabled:opacity-50">
+               <button onClick={clearChecked} disabled={loading} className="flex-1 px-2 py-3 bg-white text-black rounded-xl text-xs sm:text-sm md:text-base font-semibold transition hover:bg-gray-100 shadow-sm flex items-center justify-center max-w-[220px] disabled:opacity-50">
                  Clear Completed
                </button>
             )}
