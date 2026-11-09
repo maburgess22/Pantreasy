@@ -264,13 +264,16 @@ export default function ShoppingTab({
       {shoppingList.length === 0 ? (
         <p className="text-center text-black/50 py-12">Your shopping list is empty.</p>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           {sortedCategories.map(category => (
-            <div key={category} className="rounded-[28px] p-5 space-y-3 bg-[#6B705C]/10 border border-[#6B705C]/20 shadow-sm">
-              <div className="flex items-center gap-2 pb-2 border-b border-[#6B705C]/20">
-                <span className="text-sm font-semibold tracking-wider uppercase text-black">{category}</span>
-                <span className="text-xs font-bold text-black/40 bg-black/5 px-2 py-0.5 rounded-full">{groupedList[category].length}</span>
+            <div key={category} className="space-y-3 mb-4">
+              
+              {/* Clean Category Header */}
+              <div className="flex items-center gap-2 pb-1.5 border-b-2 border-black/10 pl-1">
+                <span className="text-sm font-extrabold tracking-widest uppercase text-black">{category}</span>
+                <span className="text-[10px] font-bold text-black/40 bg-black/5 px-2 py-0.5 rounded-full">{groupedList[category].length}</span>
               </div>
+
               <div className="space-y-2">
                 {groupedList[category]
                   .sort((a, b) => Number(a.checked) - Number(b.checked))
@@ -283,7 +286,8 @@ export default function ShoppingTab({
 
                     <div className="flex-1 min-w-0" onClick={() => toggleChecked(item.id, !!item.checked)}>
                       <h3 className={`font-semibold text-sm capitalize leading-tight whitespace-normal break-words m-0 cursor-pointer select-none ${item.checked ? 'line-through text-black/60' : 'text-black'}`}>
-                        {item.name} <span className="text-xs font-normal normal-case whitespace-nowrap ml-1 text-black/50">- {item.quantity} {item.unit}</span>
+                        {item.name} <span className="text-xs font-normal normal-case whitespace-nowrap ml-1 text-black/50">
+                        {item.quantity} {item.unit}</span>
                       </h3>
                     </div>
 
@@ -335,7 +339,7 @@ export default function ShoppingTab({
                     onChange={(e) => setEditName(e.target.value)}
                     className="w-full px-4 py-3 rounded-xl bg-black/5 focus:outline-none border border-transparent focus:border-[#6B705C] text-black font-medium text-base"
                     required
-                  />
+                 />
                </div>
                
                <div className="grid grid-cols-2 gap-4 relative z-0">

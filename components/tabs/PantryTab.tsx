@@ -116,6 +116,18 @@ export default function PantryTab({
     }
   };
 
+  const togglePercentageView = async (id: string) => {
+    const item = items.find(i => i.id === id);
+    if (!item) return;
+    const newVal = item.show_percentage === false ? true : false;
+    
+    setItems(prev => prev.map(i => i.id === id ? { ...i, show_percentage: newVal } : i));
+    if (pantryActionMenu.item && pantryActionMenu.item.id === id) {
+       setPantryActionMenu(prev => ({ isOpen: true, item: { ...prev.item!, show_percentage: newVal } }));
+    }
+    await supabase.from('pantry_items').update({ show_percentage: newVal }).eq('id', id).eq('user_id', userId);
+  };
+
   const startEditing = (item: PantryItem) => { 
     setEditingPantryItem(item); 
     setEditName(item.name || ''); 
@@ -236,26 +248,28 @@ export default function PantryTab({
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
         {Object.keys(groupedItems).length > 0 ? (
           Object.entries(groupedItems).map(([groupCategory, groupList]) => {
             return (
-              <div key={groupCategory} className="rounded-[28px] p-5 space-y-3 bg-[#6B705C]/30 border border-black/10 shadow-sm">
-                <div className="flex items-center gap-2 pb-2 border-b border-black/10">
-                  <span className="text-sm font-semibold tracking-wider uppercase text-black">{groupCategory}</span>
+              <div key={groupCategory} className="space-y-3 mb-4">
+                <div className="flex items-center gap-2 pb-1.5 border-b-2 border-black/10 pl-1">
+                  <span className="text-sm font-extrabold tracking-widest uppercase text-black">{groupCategory}</span>
                 </div>
+                
                 <div className="space-y-2">
                   {groupList.map((item) => {
                     const expiry = getExpiryStatus(item.expiration_date);
                     const isMeasurable = ['ml', 'l', 'g', 'kg', 'oz', 'lbs', 'fl oz'].includes((item.unit || '').toLowerCase());
                     const pctLeft = item.percentage_left ?? 100;
+                    const showPct = item.show_percentage !== false;
                     
                     return (
-                      <div key={item.id} className="flex items-center justify-between p-4 rounded-[20px] transition bg-white border border-black/10 shadow-sm relative z-0 hover:z-10 gap-2">
-                        <div className="flex-1 min-w-0 pr-2">
-                          
-                          <div className="flex items-center gap-2 mb-1">
-                            <h3 className="font-semibold text-base capitalize text-black leading-tight truncate m-0">
+                      <div key={item.id} className="flex items-center p-3 rounded-[20px] transition bg-white border border-black/10 shadow-sm relative z-0 hover:z-10 gap-2">
+                        
+                        <div className="flex flex-col justify-center min-w-0 pr-2" style={{ flex: 2 }}>
+                          <div className="flex flex-col items-start gap-1">
+                            <h3 className="font-semibold text-sm capitalize text-black leading-tight break-words m-0">
                               {item.name}
                             </h3>
                             {expiry.color !== 'none' && (
@@ -268,33 +282,34 @@ export default function PantryTab({
                               </span>
                             )}
                           </div>
-                          
-                          <div className="flex items-center gap-3">
-                            <span className="text-sm font-bold text-black/60 normal-case whitespace-nowrap">
-                              {item.quantity} {item.unit}
-                            </span>
-                            
-                            {/* Read-only sleek inline indicator with percentage number */}
-                            {isMeasurable && (
-                              <div className="flex items-center gap-1.5 flex-1 max-w-[120px]">
-                                <div className="flex-1 h-1.5 bg-black/10 rounded-full overflow-hidden">
-                                  <div 
-                                    className={`h-full transition-all duration-300 ${pctLeft < 25 ? 'bg-red-600' : 'bg-[#6B705C]'}`} 
-                                    style={{ width: `${pctLeft}%` }}
-                                  />
-                                </div>
-                                <span className={`text-[10px] font-bold w-7 shrink-0 ${pctLeft < 25 ? 'text-red-600' : 'text-black/50'}`}>
-                                  {pctLeft}%
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                          
                         </div>
                         
-                        <button onClick={() => setPantryActionMenu({isOpen: true, item})} className="p-2 hover:bg-black/5 rounded-full text-black/40 hover:text-black transition shrink-0">
+                        <div className="flex justify-center items-center px-1" style={{ flex: 1 }}>
+                          <span className="text-xs font-bold text-black/60 normal-case whitespace-nowrap text-center">
+                            {item.quantity} {item.unit}
+                          </span>
+                        </div>
+                          
+                        <div className="flex justify-end items-center pl-1" style={{ flex: 1 }}>
+                          {isMeasurable && showPct && (
+                            <div className="flex items-center gap-1.5 w-full max-w-[80px]">
+                              <div className="flex-1 h-1.5 bg-black/10 rounded-full overflow-hidden">
+                                <div 
+                                  className={`h-full transition-all duration-300 ${pctLeft < 25 ? 'bg-red-600' : 'bg-[#6B705C]'}`} 
+                                  style={{ width: `${pctLeft}%` }}
+                                />
+                              </div>
+                              <span className={`text-[10px] font-bold w-6 text-right shrink-0 ${pctLeft < 25 ? 'text-red-600' : 'text-black/50'}`}>
+                                {pctLeft}%
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        
+                        <button onClick={() => setPantryActionMenu({isOpen: true, item})} className="p-2 hover:bg-black/5 rounded-full text-black/40 hover:text-black transition shrink-0 ml-1">
                           <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
                         </button>
+
                       </div>
                     );
                   })}
@@ -307,7 +322,6 @@ export default function PantryTab({
         )}
       </div>
 
-      {/* Pantry Item Action Modal */}
       {pantryActionMenu.isOpen && pantryActionMenu.item && (
         <div className="fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 transition-opacity" onClick={() => setPantryActionMenu({isOpen: false, item: null})}>
            <div className="bg-white w-full sm:max-w-sm rounded-t-[32px] sm:rounded-[32px] p-6 pb-10 sm:pb-6 shadow-2xl animate-in slide-in-from-bottom-full sm:slide-in-from-bottom-0 sm:zoom-in-95" onClick={e => e.stopPropagation()}>
@@ -323,7 +337,6 @@ export default function PantryTab({
                    </div>
                  </div>
 
-                 {/* Interactive Slider embedded in the action menu */}
                  {['ml', 'l', 'g', 'kg', 'oz', 'lbs', 'fl oz'].includes((pantryActionMenu.item.unit || '').toLowerCase()) && (
                    <div className="pt-3 border-t border-black/10 flex flex-col gap-2 mt-1">
                       <div className="flex justify-between items-center">
@@ -347,6 +360,15 @@ export default function PantryTab({
               </div>
 
               <div className="flex flex-col gap-2">
+                 {/* Updated Checkbox Toggle */}
+                 {['ml', 'l', 'g', 'kg', 'oz', 'lbs', 'fl oz'].includes((pantryActionMenu.item.unit || '').toLowerCase()) && (
+                   <button onClick={() => togglePercentageView(pantryActionMenu.item!.id)} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl transition shadow-sm flex items-center justify-between px-5">
+                     <span className="font-bold text-black text-sm">Show % Bar on List</span>
+                     <div className={`shrink-0 flex items-center justify-center w-6 h-6 rounded-md border-2 transition ${pantryActionMenu.item.show_percentage !== false ? 'border-black bg-black' : 'border-black/20 bg-white'}`}>
+                       {pantryActionMenu.item.show_percentage !== false && <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                     </div>
+                   </button>
+                 )}
                  <button onClick={() => { startEditing(pantryActionMenu.item!); setPantryActionMenu({isOpen: false, item: null}); }} className="w-full py-4 bg-black/5 hover:bg-black/10 rounded-2xl font-bold transition shadow-sm">Edit Details</button>
                  <button onClick={() => { deleteItem(pantryActionMenu.item!.id); setPantryActionMenu({isOpen: false, item: null}); }} className="w-full py-4 bg-red-50 text-red-600 hover:bg-red-100 rounded-2xl font-bold transition mt-2 shadow-sm">Remove Item</button>
               </div>
@@ -410,4 +432,4 @@ export default function PantryTab({
       )}
     </div>
   );
-}
+}                    

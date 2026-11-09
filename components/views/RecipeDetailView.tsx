@@ -2,8 +2,6 @@ import React, { useState } from 'react';
 import { Recipe, PantryItem } from '@/utils/types';
 import { 
   scaleAndConvertIngredient, 
-  cleanIngredientName, 
-  extractCoreItemName, 
   normalizeForScaler, 
   formatIngredientDisplay, 
   getIngredientStatus 
@@ -34,21 +32,22 @@ export default function RecipeDetailView({
 }: RecipeDetailViewProps) {
   
   const [recipeDetailTab, setRecipeDetailTab] = useState<'ingredients' | 'instructions'>('ingredients');
+  const stepMap = recipe.step_ingredients_map || {};
   let stepCounter = 0;
+  
+  // Tracker to ensure ingredients only show on their first use
   const seenIngredients = new Set<string>();
 
   return (
     <div className="space-y-0">
       <div className="w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] bg-[#6B705C] -mt-4 md:-mt-8">
         <div className="relative">
-          {/* UPDATED: Dynamic Contrast Back Button */}
           <div className="absolute top-4 left-4 md:left-8 z-10 mix-blend-difference text-white drop-shadow-md">
             <button onClick={handleBackNavigation} className="flex items-center justify-center hover:opacity-70 transition shrink-0 p-2">
               <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
             </button>
           </div>
           
-          {/* UPDATED: Dynamic Contrast 3-Dot Menu */}
           <div className="absolute top-4 right-4 md:right-8 z-10 mix-blend-difference text-white drop-shadow-md">
             <button onClick={(e) => { e.stopPropagation(); setRecipeActionMenu({isOpen: true, recipe}); }} className="flex items-center justify-center hover:opacity-70 transition shrink-0 p-2">
               <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24"><path d="M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
@@ -142,24 +141,34 @@ export default function RecipeDetailView({
               
               stepCounter++; 
               
-              const stepIngredients = (recipe.ingredients || []).filter(i => !i.startsWith('##')).map(ing => {
-                 const scaledIng = scaleAndConvertIngredient(normalizeForScaler(ing), multiplier, measurementSystem);
-                 const matchData = scaledIng.match(/^([\d.\/]+)\s*(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)?\s*(.*)$/i);
-                 const qty = matchData?.[1] || '1';
-                 const unit = matchData?.[2] || 'pcs';
-                 const name = matchData?.[3] || scaledIng;
-                 
-                 const coreWords = extractCoreItemName(name);
-                 const stepLower = step.toLowerCase();
-                 const isMatch = coreWords.some(word => word.length > 2 && stepLower.includes(word.toLowerCase()));
-                 
-                 if (isMatch) {
-                    if (seenIngredients.has(ing)) return null; 
-                    seenIngredients.add(ing);
-                    return { name, qty, unit: unit.toLowerCase(), id: ing };
-                 }
-                 return null;
-              }).filter(Boolean) as {name: string, qty: string, unit: string, id: string}[];
+              const mappedIngredients = stepMap[idx.toString()] || [];
+              
+              const stepIngredients = (recipe.ingredients || [])
+                .map((ing, ingIdx) => {
+                  
+                  const isMatched = (mappedIngredients as any[]).some((mi) => {
+                     if (String(mi) === String(ingIdx)) return true;
+                     if (typeof mi === 'string' && isNaN(Number(mi))) {
+                         return ing.toLowerCase().includes(mi.toLowerCase().trim()) || mi.toLowerCase().includes(ing.toLowerCase().trim());
+                     }
+                     return false;
+                  });
+
+                  if (!isMatched) return null;
+
+                  // ONLY SHOW ONCE: Check if we've rendered this ingredient before
+                  if (seenIngredients.has(String(ingIdx))) return null;
+                  seenIngredients.add(String(ingIdx));
+
+                  const scaledIng = scaleAndConvertIngredient(normalizeForScaler(ing), multiplier, measurementSystem);
+                  const matchData = scaledIng.match(/^([\d.\/]+)\s*(kg|g|lbs|oz|ml|l|cups|tbsp|tsp|cans|packs|pcs|pinch|dash|cloves)?\s*(.*)$/i);
+                  const qty = matchData?.[1] || '1';
+                  const unit = matchData?.[2] || 'pcs';
+                  const name = matchData?.[3] || scaledIng;
+                  
+                  return { name, qty, unit: unit.toLowerCase(), id: ing };
+                })
+                .filter(Boolean) as {name: string, qty: string, unit: string, id: string}[];
 
               return (
                 <div key={idx} className="p-4 rounded-2xl space-y-2 bg-white border border-black/10 shadow-sm">

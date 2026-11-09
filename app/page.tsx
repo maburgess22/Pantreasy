@@ -208,12 +208,62 @@ export default function PantryManager() {
   };
   
   const saveEditedRecipe = async () => {
-    if (!selectedRecipe || !editRecipeForm.title.trim()) return showToast("Recipe title cannot be empty."); setLoading(true);
+    if (!selectedRecipe || !editRecipeForm.title.trim()) return showToast("Recipe title cannot be empty."); 
+    setLoading(true);
+
     const cleanedIngredients = editRecipeForm.ingredientsList.filter(i => i.name.trim() !== '').map(i => i.isHeader || i.name.startsWith('##') ? i.name.trim() : `${i.amount || 1} ${i.unit || 'pcs'} ${i.name.trim()}`);
     const cleanedInstructions = editRecipeForm.instructionsText.split('\n').map(i => i.trim()).filter(i => i !== '');
-    const updatedData = { title: editRecipeForm.title.trim(), category: editRecipeForm.category, cook_time: editRecipeForm.cook_time, portions: editRecipeForm.portions, image: editRecipeForm.image, ingredients: cleanedIngredients, instructions: cleanedInstructions };
+    
+    // 1. Prepare core data without waiting for AI
+    const updatedData = { 
+      title: editRecipeForm.title.trim(), 
+      category: editRecipeForm.category, 
+      cook_time: editRecipeForm.cook_time, 
+      portions: editRecipeForm.portions, 
+      image: editRecipeForm.image, 
+      ingredients: cleanedIngredients, 
+      instructions: cleanedInstructions,
+      // Retain existing map temporarily so the UI doesn't crash before the new one arrives
+      step_ingredients_map: selectedRecipe.step_ingredients_map || {}
+    };
+
+    // 2. Save core recipe to database instantly
     const { data, error } = await supabase.from('recipes').update(updatedData).eq('id', selectedRecipe.id).eq('user_id', userId).select().single();
-    if (!error && data) { setRecipes(prev => prev.map(r => r.id === data.id ? data : r)); setSelectedRecipe(data); setIsEditingRecipe(false); showToast('Recipe updated!'); } setLoading(false);
+    
+    if (error || !data) {
+      setLoading(false);
+      return showToast('Database error: Failed to save recipe.');
+    }
+
+    // 3. Instantly update UI, close modal, and release loading lock
+    setRecipes(prev => prev.map(r => r.id === data.id ? data : r)); 
+    setSelectedRecipe(data); 
+    setIsEditingRecipe(false); 
+    setLoading(false);
+    showToast('Recipe saved! Mapping ingredients in background...');
+
+    // 4. Fire-and-forget background AI mapping
+    try {
+      const res = await fetch('/api/map-steps', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ingredients: cleanedIngredients, instructions: cleanedInstructions })
+      });
+      const aiData = await res.json();
+      
+      if (res.ok && aiData.map) {
+        // Silently patch the database with the new map
+        await supabase.from('recipes').update({ step_ingredients_map: aiData.map }).eq('id', data.id).eq('user_id', userId);
+        
+        // Silently update local state so pills pop into existence if the user is currently viewing this recipe
+        setRecipes(prev => prev.map(r => r.id === data.id ? { ...r, step_ingredients_map: aiData.map } : r));
+        setSelectedRecipe(prev => prev?.id === data.id ? { ...prev, step_ingredients_map: aiData.map } : prev);
+      } else {
+        console.error('Background AI Mapping Error:', aiData);
+      }
+    } catch (e: any) {
+      console.error("Background AI fetch failed:", e);
+    }
   };
 
   const deleteRecipe = async (id: string, e?: React.MouseEvent) => { if (e) e.stopPropagation(); setRecipes(prev => prev.filter(r => r.id !== id)); await supabase.from('recipes').delete().eq('id', id).eq('user_id', userId); showToast('Recipe deleted.'); };
@@ -359,8 +409,8 @@ export default function PantryManager() {
             unit: final.unit, 
             track_low_stock: newItem.track_low_stock || i.track_low_stock, 
             expiration_date: newExpDate,
-            original_quantity: final.qty, // Reset base to the new combined total
-            percentage_left: 100 // Reset slider back to full
+            original_quantity: final.qty, 
+            percentage_left: 100 
           } : i));
           
           supabase.from('pantry_items')

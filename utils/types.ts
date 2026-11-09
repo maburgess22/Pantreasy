@@ -1,3 +1,5 @@
+// utils/types.ts
+
 export interface PantryItem {
   id: string;
   user_id: string;
@@ -10,6 +12,7 @@ export interface PantryItem {
   expiration_date?: string | null;
   original_quantity?: number;
   percentage_left?: number;
+  show_percentage?: boolean;
   created_at?: string;
 }
 
@@ -24,6 +27,7 @@ export interface Recipe {
   source_url?: string;
   portions?: number;
   user_id?: string;
+  step_ingredients_map?: Record<string, string[]>;
 }
 
 export interface ShoppingItem {
